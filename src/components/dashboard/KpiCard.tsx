@@ -9,12 +9,14 @@ const statusStyles: Record<MetricStatus, string> = {
   alert: "bg-amber-100 text-amber-800 ring-amber-200",
   critical: "bg-rose-100 text-rose-800 ring-rose-200",
   "on-track": "bg-emerald-100 text-emerald-800 ring-emerald-200",
+  unavailable: "bg-slate-100 text-slate-600 ring-slate-200",
 };
 
 const statusLabels: Record<MetricStatus, string> = {
   alert: "Alert",
   critical: "Critical",
   "on-track": "On track",
+  unavailable: "Unavailable",
 };
 
 export function KpiCard({ item }: KpiCardProps) {

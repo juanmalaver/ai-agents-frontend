@@ -178,7 +178,7 @@ function stateRow(input: {
     budget: input.budget,
     cpl: safeDivide(input.mtdSpent, input.leads),
     cpsl: safeDivide(input.mtdSpent, input.mtdSl),
-    conversionRate: safeDivide(input.leads, input.mtdSl),
+    conversionRate: safeDivide(input.mtdSl, input.leads),
     goalPct: safeDivide(input.mtdSl, input.slGoal),
     id: input.state.toLowerCase(),
     leads: input.leads,

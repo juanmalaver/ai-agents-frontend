@@ -42,6 +42,10 @@ export function CampaignPerformanceChart({
     );
   }
 
+  const hasGoalData = data.some(
+    (item) => typeof item.slGoal === "number" && Number.isFinite(item.slGoal),
+  );
+
   return (
     <section className="rounded-lg bg-slate-950 p-5 shadow-sm">
       <div className="mb-5 flex flex-col gap-1">
@@ -49,7 +53,9 @@ export function CampaignPerformanceChart({
           SL performance over time
         </h2>
         <p className="text-sm text-slate-400">
-          Monthly actuals, goals, and percentage to target.
+          {hasGoalData
+            ? "Monthly actuals, goals, and percentage to target."
+            : "Monthly signed-lead actuals."}
         </p>
       </div>
 
@@ -74,14 +80,16 @@ export function CampaignPerformanceChart({
               tickLine={{ stroke: "#334155" }}
               yAxisId="count"
             />
-            <YAxis
-              axisLine={{ stroke: "#334155" }}
-              orientation="right"
-              tick={{ fill: "#cbd5e1", fontSize: 12 }}
-              tickFormatter={formatPercentage}
-              tickLine={{ stroke: "#334155" }}
-              yAxisId="percent"
-            />
+            {hasGoalData ? (
+              <YAxis
+                axisLine={{ stroke: "#334155" }}
+                orientation="right"
+                tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                tickFormatter={formatPercentage}
+                tickLine={{ stroke: "#334155" }}
+                yAxisId="percent"
+              />
+            ) : null}
             <Tooltip
               contentStyle={{
                 background: "#020617",
@@ -110,25 +118,29 @@ export function CampaignPerformanceChart({
               radius={[4, 4, 0, 0]}
               yAxisId="count"
             />
-            <Line
-              dataKey="slGoal"
-              dot={false}
-              name="SL Goal"
-              stroke="#3b82f6"
-              strokeWidth={3}
-              type="monotone"
-              yAxisId="count"
-            />
-            <Line
-              connectNulls={false}
-              dataKey="slPctToTarget"
-              dot={{ fill: "#f8fafc", r: 3, stroke: "#f8fafc" }}
-              name="SL % to target"
-              stroke="#f8fafc"
-              strokeWidth={3}
-              type="monotone"
-              yAxisId="percent"
-            />
+            {hasGoalData ? (
+              <>
+                <Line
+                  dataKey="slGoal"
+                  dot={false}
+                  name="SL Goal"
+                  stroke="#3b82f6"
+                  strokeWidth={3}
+                  type="monotone"
+                  yAxisId="count"
+                />
+                <Line
+                  connectNulls={false}
+                  dataKey="slPctToTarget"
+                  dot={{ fill: "#f8fafc", r: 3, stroke: "#f8fafc" }}
+                  name="SL % to target"
+                  stroke="#f8fafc"
+                  strokeWidth={3}
+                  type="monotone"
+                  yAxisId="percent"
+                />
+              </>
+            ) : null}
           </ComposedChart>
         </ResponsiveContainer>
       </div>

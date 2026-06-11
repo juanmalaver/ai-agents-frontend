@@ -56,7 +56,7 @@ export interface AggregatedKpis {
 export interface MonthlyCampaignPerformance {
   month: string;
   sl: number;
-  slGoal: number;
+  slGoal: number | null;
   slPctToTarget: number | null;
 }
 
@@ -74,17 +74,10 @@ export interface CampaignStateRow {
   leads: number | null;
   conversionRate: number | null;
   cpl: number | null;
-  recommendation: AiAgentRecommendation;
+  recommendation?: AiAgentRecommendation | null;
 }
 
-export type CampaignStateName =
-  | "Texas"
-  | "Georgia"
-  | "Florida"
-  | "California"
-  | "Mixed"
-  | "Sunshine"
-  | "Testing";
+export type CampaignStateName = string;
 
 export interface AiAgentRecommendation {
   id: string;
@@ -123,9 +116,9 @@ export interface KpiCardData {
 
 export type MetricFormat = "currency" | "number" | "percentage";
 
-export type MetricStatus = "on-track" | "alert" | "critical";
+export type MetricStatus = "on-track" | "alert" | "critical" | "unavailable";
 
-export type RowHealth = "met" | "near" | "critical";
+export type RowHealth = "met" | "near" | "critical" | "neutral";
 
 export interface CostKpiTarget {
   metric: "finalCpl" | "cpsl" | "cpql";

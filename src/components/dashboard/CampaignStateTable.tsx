@@ -25,6 +25,7 @@ const rowHealthClasses: Record<RowHealth, string> = {
   critical: "bg-rose-50 hover:bg-rose-100",
   met: "bg-emerald-50 hover:bg-emerald-100",
   near: "bg-amber-50 hover:bg-amber-100",
+  neutral: "bg-white hover:bg-slate-50",
 };
 
 export function CampaignStateTable({ rows }: CampaignStateTableProps) {
@@ -34,21 +35,27 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
     () => [
       {
         accessorKey: "state",
-        cell: ({ getValue, row }) => (
-          <div className="flex items-center gap-2">
-            <button
-              aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} recommendation for ${getValue<string>()}`}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
-              onClick={row.getToggleExpandedHandler()}
-              type="button"
-            >
-              {row.getIsExpanded() ? "-" : "+"}
-            </button>
-            <span className="font-semibold text-slate-950">
-              {getValue<string>()}
-            </span>
-          </div>
-        ),
+        cell: ({ getValue, row }) => {
+          const stateName = getValue<string>();
+
+          return (
+            <div className="flex items-center gap-2">
+              {row.getCanExpand() ? (
+                <button
+                  aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} recommendation for ${stateName}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  onClick={row.getToggleExpandedHandler()}
+                  type="button"
+                >
+                  {row.getIsExpanded() ? "-" : "+"}
+                </button>
+              ) : (
+                <span aria-hidden="true" className="h-7 w-7" />
+              )}
+              <span className="font-semibold text-slate-950">{stateName}</span>
+            </div>
+          );
+        },
         header: "State",
       },
       {
@@ -115,7 +122,7 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
     data: rows,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
-    getRowCanExpand: () => true,
+    getRowCanExpand: (row) => Boolean(row.original.recommendation),
     onExpandedChange: setExpanded,
     state: {
       expanded,
@@ -182,23 +189,16 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
                       </td>
                     ))}
                   </tr>
-                  {row.getIsExpanded() ? (
+                  {row.getIsExpanded() && row.original.recommendation ? (
                     <tr>
                       <td
                         className="bg-white px-4 py-4"
                         colSpan={row.getVisibleCells().length}
                       >
-                        {row.original.recommendation ? (
-                          <RecommendationPanel
-                            recommendation={row.original.recommendation}
-                            stateName={row.original.state}
-                          />
-                        ) : (
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                            No AI recommendation is available for{" "}
-                            {row.original.state}.
-                          </div>
-                        )}
+                        <RecommendationPanel
+                          recommendation={row.original.recommendation}
+                          stateName={row.original.state}
+                        />
                       </td>
                     </tr>
                   ) : null}
@@ -213,7 +213,11 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
 }
 
 function getRowHealth(goalPct: number | null): RowHealth {
-  if (goalPct == null || !Number.isFinite(goalPct) || goalPct < 0.8) {
+  if (goalPct == null || !Number.isFinite(goalPct)) {
+    return "neutral";
+  }
+
+  if (goalPct < 0.8) {
     return "critical";
   }
 

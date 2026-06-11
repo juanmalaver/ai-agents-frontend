@@ -19,6 +19,7 @@ import { DashboardHeader } from "./DashboardHeader";
 import { KpiCardsGrid } from "./KpiCardsGrid";
 
 const brandOptions = ["All Brands"];
+const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
 export function DashboardPage({ apiUrl }: DashboardPageProps) {
   const [data, setData] = useState<CampaignDashboardApiResponse | null>(null);
@@ -96,7 +97,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
       <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
-            subtitle="Campaign pacing, cost efficiency, and AI recommendations by state."
+            subtitle={dashboardSubtitle}
             title="Marketing Campaign Performance"
           />
           <BrandFilter
@@ -116,7 +117,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
       <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
-            subtitle="Campaign pacing, cost efficiency, and AI recommendations by state."
+            subtitle={dashboardSubtitle}
             title="Marketing Campaign Performance"
           />
           <BrandFilter
@@ -146,7 +147,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
         <DashboardHeader
           lastUpdated={data ? formatGeneratedAt(data.generatedAt) : undefined}
-          subtitle="Campaign pacing, cost efficiency, and AI recommendations by state."
+          subtitle={dashboardSubtitle}
           title="Marketing Campaign Performance"
         />
         <BrandFilter onBrandChange={handleBrandChange} options={brandOptions} />
@@ -187,7 +188,7 @@ function normalizeMonthlyPerformance(
   item: MonthlyCampaignPerformance,
 ): MonthlyCampaignPerformance {
   const sl = numberOrNull(item.sl) ?? 0;
-  const slGoal = numberOrNull(item.slGoal) ?? 0;
+  const slGoal = numberOrNull(item.slGoal);
 
   return {
     month: item.month,
@@ -212,7 +213,7 @@ function normalizeStateCampaignRow(row: CampaignStateRow): CampaignStateRow {
     cpl: numberOrNull(row.cpl) ?? safeDivide(mtdSpent, leads),
     cpsl: numberOrNull(row.cpsl) ?? safeDivide(mtdSpent, mtdSl),
     conversionRate:
-      numberOrNull(row.conversionRate) ?? safeDivide(leads, mtdSl),
+      numberOrNull(row.conversionRate) ?? safeDivide(mtdSl, leads),
     goalPct: numberOrNull(row.goalPct) ?? safeDivide(mtdSl, slGoal),
     leads,
     leadsGoal,
@@ -278,7 +279,11 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
 }
 
 function getCompletionStatus(value: number | null): MetricStatus {
-  if (value == null || value < 0.75) {
+  if (value == null) {
+    return "unavailable";
+  }
+
+  if (value < 0.75) {
     return "critical";
   }
 
@@ -290,7 +295,11 @@ function getCompletionStatus(value: number | null): MetricStatus {
 }
 
 function getCostStatus(value: number | null): MetricStatus {
-  if (value == null || value > 250) {
+  if (value == null) {
+    return "unavailable";
+  }
+
+  if (value > 250) {
     return "critical";
   }
 
