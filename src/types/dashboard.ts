@@ -1,5 +1,6 @@
 export interface DashboardPageProps {
   apiUrl?: string;
+  activeTab?: DashboardTabId;
 }
 
 export interface DashboardPageState {
@@ -117,6 +118,8 @@ export interface KpiCardData {
 export type MetricFormat = "currency" | "number" | "percentage";
 
 export type MetricStatus = "on-track" | "alert" | "critical" | "unavailable";
+
+export type DashboardTabId = "overview" | "campaigns";
 
 export type RowHealth = "met" | "near" | "critical" | "neutral";
 

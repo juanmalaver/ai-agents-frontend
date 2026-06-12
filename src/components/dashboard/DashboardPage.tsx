@@ -16,12 +16,13 @@ import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
 import { DashboardHeader } from "./DashboardHeader";
+import { DashboardTabs } from "./DashboardTabs";
 import { KpiCardsGrid } from "./KpiCardsGrid";
 
 const brandOptions = ["All Brands"];
 const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
-export function DashboardPage({ apiUrl }: DashboardPageProps) {
+export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   const [data, setData] = useState<CampaignDashboardApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
             subtitle={dashboardSubtitle}
             title="Marketing Campaign Performance"
           />
+          {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
           <BrandFilter
             onBrandChange={handleBrandChange}
             options={brandOptions}
@@ -120,6 +122,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
             subtitle={dashboardSubtitle}
             title="Marketing Campaign Performance"
           />
+          {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
           <BrandFilter
             onBrandChange={handleBrandChange}
             options={brandOptions}
@@ -150,6 +153,7 @@ export function DashboardPage({ apiUrl }: DashboardPageProps) {
           subtitle={dashboardSubtitle}
           title="Marketing Campaign Performance"
         />
+        {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
         <BrandFilter onBrandChange={handleBrandChange} options={brandOptions} />
         <KpiCardsGrid items={kpiCards} />
         <CampaignPerformanceChart data={data?.monthlyPerformance ?? []} />
