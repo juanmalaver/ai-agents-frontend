@@ -90,7 +90,7 @@ export const dashboardMock: CampaignDashboardApiResponse = {
         id: "rec-california",
         priority: "low",
         rationale:
-          "California is ahead of SL and lead goals with spend inside expected pacing, making it a stable source of campaign volume.",
+          "California is ahead of SL and qualified-lead goals with spend inside expected pacing, making it a stable source of campaign volume.",
         state: "California",
         summary: "Maintain California budget and protect high quality traffic.",
       }),
@@ -124,7 +124,7 @@ export const dashboardMock: CampaignDashboardApiResponse = {
         id: "rec-sunshine",
         priority: "critical",
         rationale:
-          "Sunshine is behind SL and lead goals while already past 80% spend completion, so remaining budget needs stronger controls.",
+          "Sunshine is behind SL and qualified-lead goals while already past 80% spend completion, so remaining budget needs stronger controls.",
         state: "Sunshine",
         summary: "Pause low intent Sunshine spend and reallocate to proven states.",
       }),

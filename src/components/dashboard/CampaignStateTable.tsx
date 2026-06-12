@@ -71,7 +71,7 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
       {
         accessorKey: "leadsGoal",
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
-        header: "Leads Goal",
+        header: "Q. Leads Goal",
       },
       {
         accessorKey: "mtdSpent",

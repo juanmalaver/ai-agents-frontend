@@ -264,7 +264,7 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
     {
       format: "percentage",
       id: "lead-goal-completion",
-      label: "% Lead Goal Completion",
+      label: "% Q. Leads Goal Completion",
       status: getCompletionStatus(kpis.leadGoalCompletionPct),
       value: kpis.leadGoalCompletionPct,
     },
