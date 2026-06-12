@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -21,7 +21,11 @@ import type {
   CampaignLeadTrendRow,
   CampaignResultRow,
   CampaignScorecard,
+  CampaignsDashboardApiResponse,
+  CampaignSpendRow,
   CampaignStateCompletionRow,
+  CampaignStateSnapshotRow,
+  CampaignStatusDistributionRow,
 } from "@/src/types/campaigns";
 import {
   formatCurrency,
@@ -37,57 +41,222 @@ const scorecardClasses: Record<CampaignScorecard["status"], string> = {
   watch: "border-amber-200 bg-amber-50 text-amber-950",
 };
 
-export function CampaignsPage() {
+const PANEL_ROW_LIMIT = 8;
+
+type CampaignDetailModalView = "campaigns" | "states" | null;
+
+export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
   const [chartsReady, setChartsReady] = useState(false);
-  const stateChartData = campaignsMock.stateCompletionRows.map((row) => ({
+  const [data, setData] = useState<CampaignsDashboardApiResponse | null>(null);
+  const [detailModal, setDetailModal] = useState<CampaignDetailModalView>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const loadCampaignsDashboard = useCallback(
+    async (signal?: AbortSignal) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const useMock = process.env.NEXT_PUBLIC_USE_MOCK === "true";
+        let response: CampaignsDashboardApiResponse;
+
+        if (useMock) {
+          response = campaignsMock;
+        } else {
+          if (!apiUrl) {
+            throw new Error(
+              "Campaigns API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
+            );
+          }
+
+          const apiResponse = await fetch(apiUrl, { signal });
+
+          if (!apiResponse.ok) {
+            throw new Error("Unable to load campaigns dashboard data.");
+          }
+
+          response = (await apiResponse.json()) as CampaignsDashboardApiResponse;
+        }
+
+        if (!signal?.aborted) {
+          setData(response);
+        }
+      } catch (caughtError) {
+        if (!signal?.aborted) {
+          setData(null);
+          setError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Unable to load campaigns dashboard data.",
+          );
+        }
+      } finally {
+        if (!signal?.aborted) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [apiUrl],
+  );
+
+  const stateChartData = (data?.stateCompletionRows ?? []).map((row) => ({
     ...row,
-    completionPct: row.slGoal > 0 ? row.sl / row.slGoal : 0,
+    completionPct: row.slGoal && row.slGoal > 0 ? row.sl / row.slGoal : 0,
   }));
-  const cplLimit = campaignsMock.alert.cplLimit;
+  const cplLimit = data?.alert.cplLimit ?? 250;
 
   useEffect(() => {
     setChartsReady(true);
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadCampaignsDashboard(controller.signal);
+
+    return () => controller.abort();
+  }, [loadCampaignsDashboard]);
+
+  useEffect(() => {
+    if (!detailModal) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDetailModal(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [detailModal]);
+
+  if (isLoading) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+          <DashboardHeader
+            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
+            title="Campaign Overview"
+          />
+          <DashboardTabs activeTab="campaigns" />
+          <CampaignLoadingState />
+        </div>
+      </main>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+          <DashboardHeader
+            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
+            title="Campaign Overview"
+          />
+          <DashboardTabs activeTab="campaigns" />
+          <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-rose-800">
+              Campaign data could not be loaded
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {error ?? "Unable to load campaigns dashboard data."}
+            </p>
+            <button
+              className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              onClick={() => void loadCampaignsDashboard()}
+              type="button"
+            >
+              Retry
+            </button>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
-        <DashboardHeader
-          lastUpdated={formatGeneratedAt(campaignsMock.generatedAt)}
-          subtitle="Campaign-level pacing, CPL risk, and lead behavior."
-          title="Campaign Overview"
-        />
-        <DashboardTabs activeTab="campaigns" />
-        <CampaignAlert
-          campaignNames={campaignsMock.alert.campaignNames}
-          cplLimit={cplLimit}
-          message={campaignsMock.alert.message}
-        />
-        <section className="grid gap-3 md:grid-cols-3">
-          {campaignsMock.scorecards.map((scorecard) => (
-            <CampaignScorecardItem key={scorecard.id} scorecard={scorecard} />
-          ))}
-        </section>
-        <section className="grid gap-5 xl:grid-cols-2">
-          <StateCompletionPanel
-            chartsReady={chartsReady}
-            rows={stateChartData}
+    <>
+      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+          <DashboardHeader
+            lastUpdated={formatGeneratedAt(data.generatedAt)}
+            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
+            title="Campaign Overview"
           />
-          <LeadBehaviorPanel
-            chartsReady={chartsReady}
-            rows={campaignsMock.leadTrendRows}
+          <DashboardTabs activeTab="campaigns" />
+          <CampaignAlert
+            campaignNames={data.alert.campaignNames}
+            cplLimit={cplLimit}
+            message={data.alert.message}
           />
-        </section>
-        <section className="grid gap-3 md:grid-cols-2">
-          <InsightCard insight={campaignsMock.topPerformer} tone="positive" />
-          <InsightCard insight={campaignsMock.lowestPerformer} tone="warning" />
-        </section>
-        <CampaignResultsTable
-          cplLimit={cplLimit}
-          rows={campaignsMock.campaignRows}
-        />
-      </div>
-    </main>
+          <section className="grid gap-3 md:grid-cols-3">
+            {data.scorecards.map((scorecard) => (
+              <CampaignScorecardItem
+                key={scorecard.id}
+                scorecard={scorecard}
+              />
+            ))}
+          </section>
+          <section className="grid gap-5">
+            <StateCompletionPanel
+              chartsReady={chartsReady}
+              onViewMore={() => setDetailModal("states")}
+              rows={stateChartData}
+            />
+            <LeadBehaviorPanel
+              chartsReady={chartsReady}
+              onViewMore={() => setDetailModal("campaigns")}
+              rows={data.leadTrendRows}
+            />
+          </section>
+          <section className="grid gap-3 md:grid-cols-2">
+            <InsightCard insight={data.topPerformer} tone="positive" />
+            <InsightCard insight={data.lowestPerformer} tone="warning" />
+          </section>
+          <CampaignResultsTable
+            cplLimit={cplLimit}
+            rows={data.campaignRows}
+          />
+          <CampaignLowerDetailSection
+            chartsReady={chartsReady}
+            cplLimit={cplLimit}
+            snapshotRows={data.lowerSnapshotRows}
+            spendRows={data.spendRows}
+            statusDistributionRows={data.statusDistributionRows}
+          />
+        </div>
+      </main>
+      <CampaignDetailModal
+        leadRows={data.leadTrendRows}
+        onClose={() => setDetailModal(null)}
+        stateRows={stateChartData}
+        view={detailModal}
+      />
+    </>
+  );
+}
+
+function CampaignLoadingState() {
+  return (
+    <>
+      <section className="h-20 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
+      <section className="grid gap-3 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            className="h-36 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm"
+            key={index}
+          />
+        ))}
+      </section>
+      <section className="grid gap-5">
+        <div className="h-96 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
+        <div className="h-96 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
+      </section>
+      <section className="h-80 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
+    </>
   );
 }
 
@@ -161,13 +330,21 @@ function CampaignScorecardItem({
 
 function StateCompletionPanel({
   chartsReady,
+  onViewMore,
   rows,
 }: {
   chartsReady: boolean;
+  onViewMore: () => void;
   rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
 }) {
+  const visibleRows = rows.slice(0, PANEL_ROW_LIMIT);
+  const chartDomainMax = getRateDomainMax(
+    visibleRows.map((row) => row.completionPct),
+    1.25,
+  );
+
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-950">
@@ -177,41 +354,41 @@ function StateCompletionPanel({
             Actual signed leads against accident-state goals.
           </p>
         </div>
-        <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-          Life Cycle ?
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+            Life Cycle ?
+          </span>
+          <ViewMoreButton
+            onClick={onViewMore}
+            visible={rows.length > PANEL_ROW_LIMIT}
+          />
+        </div>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
-        <MiniMetricsTable
-          columns={["State", "SL", "Goal", "%"]}
-          rows={rows.map((row) => [
-            row.state,
-            formatNumber(row.sl),
-            formatNumber(row.slGoal),
-            formatPercentage(row.completionPct),
-          ])}
-        />
-        <div className="h-80 min-w-0">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)]">
+        <CompactStateSummary rows={visibleRows} totalCount={rows.length} />
+        <div className="h-96 min-w-0 overflow-hidden">
           {chartsReady ? (
             <ResponsiveContainer height="100%" width="100%">
               <BarChart
-                data={rows}
+                data={visibleRows}
                 layout="vertical"
-                margin={{ bottom: 8, left: 8, right: 24, top: 8 }}
+                margin={{ bottom: 12, left: 8, right: 28, top: 12 }}
               >
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                 <XAxis
-                  domain={[0, 1.25]}
+                  domain={[0, chartDomainMax]}
                   tickFormatter={formatPercentage}
                   type="number"
                 />
                 <YAxis
                   dataKey="state"
+                  tickFormatter={(value) => truncateLabel(String(value), 16)}
                   tick={{ fontSize: 12 }}
                   type="category"
-                  width={92}
+                  width={112}
                 />
                 <Tooltip
+                  labelFormatter={(label) => String(label)}
                   formatter={(value) => [
                     formatPercentage(
                       typeof value === "number" ? value : Number(value),
@@ -230,7 +407,7 @@ function StateCompletionPanel({
                   name="SL completion"
                   radius={[0, 4, 4, 0]}
                 >
-                  {rows.map((row) => (
+                  {visibleRows.map((row) => (
                     <Cell
                       fill={
                         row.completionPct >= 1
@@ -250,45 +427,55 @@ function StateCompletionPanel({
           )}
         </div>
       </div>
+      {rows.length > visibleRows.length ? (
+        <p className="mt-3 text-xs font-medium text-slate-500">
+          Top {visibleRows.length} of {rows.length} states shown here. Full
+          state detail appears in the table below.
+        </p>
+      ) : null}
     </section>
   );
 }
 
 function LeadBehaviorPanel({
   chartsReady,
+  onViewMore,
   rows,
 }: {
   chartsReady: boolean;
+  onViewMore: () => void;
   rows: CampaignLeadTrendRow[];
 }) {
+  const visibleRows = rows.slice(0, PANEL_ROW_LIMIT);
+
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div>
-        <h2 className="text-base font-semibold text-slate-950">
-          Lead behaviour trends by campaign
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          SL, drops, leads, drop rate, conversion, and no-accident rate.
-        </p>
-      </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-        <MiniMetricsTable
-          columns={["Campaign", "SL", "Drops", "Leads", "Drop %"]}
-          rows={rows.map((row) => [
-            row.campaign,
-            formatNumber(row.sl),
-            formatNumber(row.drops),
-            formatNumber(row.leads),
-            formatPercentage(row.dropRate),
-          ])}
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">
+            Lead behaviour trends by campaign
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            SL, drops, leads, drop rate, conversion, and no-accident rate.
+          </p>
+        </div>
+        <ViewMoreButton
+          onClick={onViewMore}
+          visible={rows.length > PANEL_ROW_LIMIT}
         />
-        <div className="h-80 min-w-0">
+      </div>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(22rem,0.72fr)_minmax(0,1.28fr)]">
+        <CompactCampaignSummary
+          rows={visibleRows}
+          totalCount={rows.length}
+        />
+        <div className="h-96 min-w-0 overflow-hidden">
           {chartsReady ? (
             <ResponsiveContainer height="100%" width="100%">
               <ComposedChart
-                data={rows}
+                data={visibleRows}
                 layout="vertical"
-                margin={{ bottom: 8, left: 8, right: 16, top: 8 }}
+                margin={{ bottom: 12, left: 8, right: 24, top: 12 }}
               >
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                 <XAxis
@@ -300,11 +487,13 @@ function LeadBehaviorPanel({
                 <XAxis domain={[0, 1]} hide type="number" xAxisId="rate" />
                 <YAxis
                   dataKey="campaign"
+                  tickFormatter={(value) => truncateLabel(String(value), 24)}
                   tick={{ fontSize: 12 }}
                   type="category"
-                  width={132}
+                  width={168}
                 />
                 <Tooltip
+                  labelFormatter={(label) => String(label)}
                   formatter={(value, name) => {
                     const label = String(name);
                     const numericValue =
@@ -355,6 +544,12 @@ function LeadBehaviorPanel({
           )}
         </div>
       </div>
+      {rows.length > visibleRows.length ? (
+        <p className="mt-3 text-xs font-medium text-slate-500">
+          Top {visibleRows.length} of {rows.length} campaigns shown here. Full
+          campaign detail appears in the table below.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -365,42 +560,359 @@ function ChartPlaceholder() {
   );
 }
 
-function MiniMetricsTable({
-  columns,
+function ViewMoreButton({
+  onClick,
+  visible,
+}: {
+  onClick: () => void;
+  visible: boolean;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <button
+      className="w-fit rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+      onClick={onClick}
+      type="button"
+    >
+      View more
+    </button>
+  );
+}
+
+function CampaignDetailModal({
+  leadRows,
+  onClose,
+  stateRows,
+  view,
+}: {
+  leadRows: CampaignLeadTrendRow[];
+  onClose: () => void;
+  stateRows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  view: CampaignDetailModalView;
+}) {
+  if (!view) {
+    return null;
+  }
+
+  const isStateView = view === "states";
+
+  return (
+    <div
+      aria-labelledby="campaign-detail-modal-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-3 text-slate-950 sm:p-6"
+      role="dialog"
+    >
+      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+          <div>
+            <h2
+              className="text-base font-semibold text-slate-950"
+              id="campaign-detail-modal-title"
+            >
+              {isStateView
+                ? "SL completion by accident state"
+                : "Lead behaviour trends by campaign"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isStateView
+                ? "Full accident-state table with signed leads, goals, and completion."
+                : "Full campaign table with leads, signed leads, drops, and drop rate."}
+            </p>
+          </div>
+          <button
+            className="w-fit rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <div className="overflow-y-auto p-4 sm:p-5">
+          {isStateView ? (
+            <DetailedStateCompletionTable rows={stateRows} />
+          ) : (
+            <DetailedLeadBehaviorTable rows={leadRows} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailedStateCompletionTable({
   rows,
 }: {
-  columns: string[];
-  rows: string[][];
+  rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
 }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full min-w-[360px] border-collapse text-left text-xs">
-        <thead className="bg-slate-100 text-slate-600">
-          <tr>
-            {columns.map((column) => (
-              <th className="px-3 py-2 font-semibold" key={column} scope="col">
-                {column}
+    <>
+      <div className="hidden overflow-hidden rounded-lg border border-slate-200 md:block">
+        <table className="w-full table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col className="w-[46%]" />
+            <col className="w-[16%]" />
+            <col className="w-[18%]" />
+            <col className="w-[20%]" />
+          </colgroup>
+          <thead className="bg-slate-100 text-xs uppercase tracking-normal text-slate-600">
+            <tr>
+              <th className="px-4 py-3 font-semibold" scope="col">
+                State
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200 bg-white">
-          {rows.map((row) => (
-            <tr key={row.join("-")}>
-              {row.map((cell, index) => (
-                <td
-                  className={`px-3 py-2 text-slate-700 ${
-                    index === 0 ? "font-medium text-slate-950" : ""
-                  }`}
-                  key={`${cell}-${index}`}
-                >
-                  {cell}
-                </td>
-              ))}
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                SL
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Goal
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Completion
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {rows.map((row) => (
+              <tr className="bg-white" key={row.state}>
+                <td className="px-4 py-3 font-medium text-slate-950">
+                  {row.state}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatNumber(row.sl)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatNumber(row.slGoal)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold text-slate-950">
+                  {formatPercentage(row.completionPct)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 md:hidden">
+        {rows.map((row) => (
+          <article
+            className="rounded-lg border border-slate-200 bg-white p-3"
+            key={row.state}
+          >
+            <h3 className="text-sm font-semibold text-slate-950">
+              {row.state}
+            </h3>
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <MetricItem label="SL" value={formatNumber(row.sl)} />
+              <MetricItem label="Goal" value={formatNumber(row.slGoal)} />
+              <MetricItem
+                label="Completion"
+                value={formatPercentage(row.completionPct)}
+              />
+            </dl>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DetailedLeadBehaviorTable({
+  rows,
+}: {
+  rows: CampaignLeadTrendRow[];
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-lg border border-slate-200 lg:block">
+        <table className="w-full table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col className="w-[42%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+          </colgroup>
+          <thead className="bg-slate-100 text-xs uppercase tracking-normal text-slate-600">
+            <tr>
+              <th className="px-4 py-3 font-semibold" scope="col">
+                Campaign
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Leads
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                SL
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Drops
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Drop rate
+              </th>
+              <th className="px-4 py-3 text-right font-semibold" scope="col">
+                Conv.
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {rows.map((row) => (
+              <tr className="bg-white" key={row.campaign}>
+                <td className="px-4 py-3">
+                  <div
+                    className="truncate font-medium text-slate-950"
+                    title={row.campaign}
+                  >
+                    {row.campaign}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatNumber(row.leads)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatNumber(row.sl)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatNumber(row.drops)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                  {formatPercentage(row.dropRate)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold text-slate-950">
+                  {formatPercentage(row.conversionRate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 lg:hidden">
+        {rows.map((row) => (
+          <article
+            className="rounded-lg border border-slate-200 bg-white p-3"
+            key={row.campaign}
+          >
+            <h3 className="truncate text-sm font-semibold text-slate-950">
+              {row.campaign}
+            </h3>
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+              <MetricItem label="Leads" value={formatNumber(row.leads)} />
+              <MetricItem label="SL" value={formatNumber(row.sl)} />
+              <MetricItem label="Drops" value={formatNumber(row.drops)} />
+              <MetricItem
+                label="Drop rate"
+                value={formatPercentage(row.dropRate)}
+              />
+              <MetricItem
+                label="Conversion"
+                value={formatPercentage(row.conversionRate)}
+              />
+            </dl>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function CompactStateSummary({
+  rows,
+  totalCount,
+}: {
+  rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  totalCount: number;
+}) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 text-xs">
+      <div className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 bg-slate-100 px-3 py-2 font-semibold text-slate-600">
+        <span>State</span>
+        <span className="text-right">SL</span>
+        <span className="text-right">Goal</span>
+        <span className="text-right">%</span>
+      </div>
+      <div className="divide-y divide-slate-200 bg-white">
+        {rows.map((row) => (
+          <div
+            className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 px-3 py-2 text-slate-700"
+            key={row.state}
+          >
+            <span
+              className="min-w-0 truncate font-medium text-slate-950"
+              title={row.state}
+            >
+              {row.state}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatNumber(row.sl)}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatNumber(row.slGoal)}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatPercentage(row.completionPct)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {totalCount > rows.length ? (
+        <div className="border-t border-slate-200 bg-slate-50 px-3 py-2 text-slate-500">
+          {rows.length} of {totalCount} states
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CompactCampaignSummary({
+  rows,
+  totalCount,
+}: {
+  rows: CampaignLeadTrendRow[];
+  totalCount: number;
+}) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 text-xs">
+      <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_2.6rem_3.2rem_3.8rem] gap-2 bg-slate-100 px-3 py-2 font-semibold text-slate-600">
+        <span>Campaign</span>
+        <span className="text-right">Leads</span>
+        <span className="text-right">SL</span>
+        <span className="text-right">Drops</span>
+        <span className="text-right">Drop %</span>
+      </div>
+      <div className="divide-y divide-slate-200 bg-white">
+        {rows.map((row) => (
+          <div
+            className="grid grid-cols-[minmax(0,1fr)_3.2rem_2.6rem_3.2rem_3.8rem] gap-2 px-3 py-2 text-slate-700"
+            key={row.campaign}
+          >
+            <span
+              className="min-w-0 truncate font-medium text-slate-950"
+              title={row.campaign}
+            >
+              {row.campaign}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatNumber(row.leads)}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatNumber(row.sl)}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatNumber(row.drops)}
+            </span>
+            <span className="text-right tabular-nums">
+              {formatPercentage(row.dropRate)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {totalCount > rows.length ? (
+        <div className="border-t border-slate-200 bg-slate-50 px-3 py-2 text-slate-500">
+          {rows.length} of {totalCount} campaigns
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -430,7 +942,9 @@ function InsightCard({
           </p>
         </div>
         <div className="w-fit rounded-md border border-white/70 bg-white/70 px-3 py-2">
-          <p className="text-xs font-medium opacity-70">{insight.metricLabel}</p>
+          <p className="text-xs font-medium opacity-70">
+            {insight.metricLabel}
+          </p>
           <p className="mt-1 text-lg font-bold">{insight.metricValue}</p>
         </div>
       </div>
@@ -452,38 +966,58 @@ function CampaignResultsTable({
           Results table by campaign
         </h2>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
-          <thead className="bg-slate-100 text-xs uppercase tracking-normal text-slate-600">
+      <div className="hidden xl:block">
+        <table className="w-full table-fixed border-collapse text-left text-xs">
+          <colgroup>
+            <col className="w-[22%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[5%]" />
+            <col className="w-[6.5%]" />
+            <col className="w-[7.5%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[7%]" />
+            <col className="w-[7%]" />
+            <col className="w-[5%]" />
+          </colgroup>
+          <thead className="bg-slate-100 uppercase tracking-normal text-slate-600">
             <tr>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Campaign
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Active marketing states
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 CPL
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
+                CPQL
+              </th>
+              <th className="px-3 py-3 font-semibold" scope="col">
                 SL
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 SL Goal
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
+                Q. Leads Goal
+              </th>
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Leads
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Drops
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Drop rate
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 Conversion
               </th>
-              <th className="px-4 py-3 font-semibold" scope="col">
+              <th className="px-3 py-3 font-semibold" scope="col">
                 MQL
               </th>
             </tr>
@@ -491,46 +1025,564 @@ function CampaignResultsTable({
           <tbody className="divide-y divide-slate-200">
             {rows.map((row) => (
               <tr
-                className={row.cpl > cplLimit ? "bg-rose-50" : "bg-white"}
+                className={
+                  row.cpl != null && row.cpl > cplLimit
+                    ? "bg-rose-50"
+                    : "bg-white"
+                }
                 key={row.campaign}
               >
-                <td className="px-4 py-3">
-                  <div className="font-semibold text-slate-950">
+                <td className="px-3 py-3">
+                  <div
+                    className="truncate font-semibold text-slate-950"
+                    title={row.campaign}
+                  >
                     {row.campaign}
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">{row.status}</div>
+                  <div
+                    className="mt-1 truncate text-slate-500"
+                    title={row.status}
+                  >
+                    {row.status}
+                  </div>
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td
+                  className="truncate px-3 py-3 text-slate-700"
+                  title={row.activeMarketingStates}
+                >
                   {row.activeMarketingStates}
                 </td>
-                <td className="px-4 py-3 font-semibold text-slate-950">
+                <td className="px-3 py-3 font-semibold text-slate-950">
                   {formatCurrency(row.cpl)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 font-semibold text-slate-950">
+                  {formatCurrency(row.cpql)}
+                </td>
+                <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.sl)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.slGoal)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
+                  {formatNumber(row.qLeadsGoal)}
+                </td>
+                <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.leads)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.drops)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
                   {formatPercentage(row.dropRate)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
                   {formatPercentage(row.conversionRate)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">
+                <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.mql)}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="grid gap-3 p-3 xl:hidden">
+        {rows.map((row) => (
+          <CampaignResultCard
+            cplLimit={cplLimit}
+            key={row.campaign}
+            row={row}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CampaignResultCard({
+  cplLimit,
+  row,
+}: {
+  cplLimit: number;
+  row: CampaignResultRow;
+}) {
+  return (
+    <article
+      className={`rounded-lg border p-3 ${
+        row.cpl != null && row.cpl > cplLimit
+          ? "border-rose-200 bg-rose-50"
+          : "border-slate-200 bg-white"
+      }`}
+    >
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-slate-950">
+            {row.campaign}
+          </h3>
+          <p className="mt-1 truncate text-xs text-slate-500">{row.status}</p>
+        </div>
+        <p className="text-xs font-medium text-slate-500">
+          {row.activeMarketingStates}
+        </p>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <MetricItem label="CPL" value={formatCurrency(row.cpl)} />
+        <MetricItem label="CPQL" value={formatCurrency(row.cpql)} />
+        <MetricItem label="SL" value={formatNumber(row.sl)} />
+        <MetricItem label="SL Goal" value={formatNumber(row.slGoal)} />
+        <MetricItem label="Q. Leads Goal" value={formatNumber(row.qLeadsGoal)} />
+        <MetricItem label="Leads" value={formatNumber(row.leads)} />
+        <MetricItem label="Drops" value={formatNumber(row.drops)} />
+        <MetricItem label="Drop rate" value={formatPercentage(row.dropRate)} />
+        <MetricItem
+          label="Conversion"
+          value={formatPercentage(row.conversionRate)}
+        />
+        <MetricItem label="MQL" value={formatNumber(row.mql)} />
+      </dl>
+    </article>
+  );
+}
+
+function MetricItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+      <dt className="truncate text-slate-500">{label}</dt>
+      <dd className="mt-1 truncate font-semibold text-slate-950">{value}</dd>
+    </div>
+  );
+}
+
+function CampaignLowerDetailSection({
+  chartsReady,
+  cplLimit,
+  snapshotRows,
+  spendRows,
+  statusDistributionRows,
+}: {
+  chartsReady: boolean;
+  cplLimit: number;
+  snapshotRows: CampaignStateSnapshotRow[];
+  spendRows: CampaignSpendRow[];
+  statusDistributionRows: CampaignStatusDistributionRow[];
+}) {
+  return (
+    <section className="grid gap-5">
+      <CampaignSnapshotTable cplLimit={cplLimit} rows={snapshotRows} />
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">MQL</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Conditional formatting reference for CPL and campaign quality
+              checks.
+            </p>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-3 lg:w-[34rem] lg:max-w-full">
+            <ConditionalLegend label="Below CPL limit" tone="healthy" />
+            <ConditionalLegend label="Near CPL limit" tone="watch" />
+            <ConditionalLegend label="Above CPL limit" tone="critical" />
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+        <SpendByCampaignPanel
+          chartsReady={chartsReady}
+          rows={spendRows}
+        />
+        <LeadStatusDistributionPanel
+          chartsReady={chartsReady}
+          rows={statusDistributionRows}
+        />
+      </div>
+    </section>
+  );
+}
+
+function CampaignSnapshotTable({
+  cplLimit,
+  rows,
+}: {
+  cplLimit: number;
+  rows: CampaignStateSnapshotRow[];
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">
+            Results table by campaign
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            All brands state snapshot with conditional CPL formatting.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="font-semibold text-slate-700">
+            Formato condicional
+          </span>
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+            %
+          </span>
+        </div>
+      </div>
+      <div className="hidden xl:block">
+        <table className="w-full table-fixed border-collapse text-left text-xs">
+          <colgroup>
+            <col className="w-[11%]" />
+            <col className="w-[8.5%]" />
+            <col className="w-[6.5%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8.5%]" />
+            <col className="w-[7%]" />
+            <col className="w-[7%]" />
+            <col className="w-[8.5%]" />
+            <col className="w-[8.5%]" />
+            <col className="w-[6%]" />
+            <col className="w-[6%]" />
+            <col className="w-[8%]" />
+            <col className="w-[6.5%]" />
+          </colgroup>
+          <thead>
+            <tr className="bg-emerald-900 text-white">
+              <th className="px-2 py-2 text-red-200" scope="col">
+                All brands
+              </th>
+              <th className="px-2 py-2" scope="col">
+                Budget
+              </th>
+              <th className="px-2 py-2" scope="col">
+                SL Goal
+              </th>
+              <th className="px-2 py-2" scope="col">
+                Q. Leads Goal
+              </th>
+              <th className="px-2 py-2" scope="col">
+                MTD Spent
+              </th>
+              <th className="px-2 py-2" scope="col">
+                % Spent
+              </th>
+              <th className="px-2 py-2" scope="col">
+                % Goal
+              </th>
+              <th className="px-2 py-2" scope="col">
+                CPSL
+              </th>
+              <th className="px-2 py-2" scope="col">
+                CPQL
+              </th>
+              <th className="px-2 py-2" scope="col">
+                MTD SL
+              </th>
+              <th className="px-2 py-2" scope="col">
+                Leads
+              </th>
+              <th className="px-2 py-2" scope="col">
+                Conversion Rate
+              </th>
+              <th className="border-l-4 border-red-500 px-2 py-2" scope="col">
+                CPL
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-emerald-700/20">
+            {rows.map((row) => {
+              const spentPct = safeRatio(row.mtdSpent, row.budget);
+              const goalPct = safeRatio(row.mtdSl, row.slGoal);
+
+              return (
+                <tr className="bg-emerald-700/85 text-white" key={row.state}>
+                  <td
+                    className="truncate px-2 py-2 font-bold uppercase"
+                    title={row.state}
+                  >
+                    {row.state}
+                  </td>
+                  <td className="px-2 py-2">{formatCurrency(row.budget)}</td>
+                  <td className="px-2 py-2">{formatNumber(row.slGoal)}</td>
+                  <td className="px-2 py-2">
+                    {formatNumber(row.qLeadsGoal)}
+                  </td>
+                  <td className="px-2 py-2">{formatCurrency(row.mtdSpent)}</td>
+                  <td className="px-2 py-2">{formatPercentage(spentPct)}</td>
+                  <td className="px-2 py-2">{formatPercentage(goalPct)}</td>
+                  <td className="px-2 py-2">{formatCurrency(row.cpsl)}</td>
+                  <td className="px-2 py-2">{formatCurrency(row.cpql)}</td>
+                  <td className="px-2 py-2">{formatNumber(row.mtdSl)}</td>
+                  <td className="px-2 py-2">{formatNumber(row.leads)}</td>
+                  <td className="px-2 py-2">
+                    {formatPercentage(row.conversionRate)}
+                  </td>
+                  <td
+                    className={`border-l-4 border-red-500 px-2 py-2 font-semibold ${
+                      row.cpl != null && row.cpl > cplLimit
+                        ? "bg-rose-100 text-rose-950"
+                        : row.cpl != null && row.cpl > cplLimit * 0.8
+                          ? "bg-amber-100 text-amber-950"
+                          : "bg-emerald-100 text-emerald-950"
+                    }`}
+                  >
+                    {formatCurrency(row.cpl)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 p-3 xl:hidden">
+        {rows.map((row) => (
+          <CampaignSnapshotCard
+            cplLimit={cplLimit}
+            key={row.state}
+            row={row}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CampaignSnapshotCard({
+  cplLimit,
+  row,
+}: {
+  cplLimit: number;
+  row: CampaignStateSnapshotRow;
+}) {
+  const spentPct = safeRatio(row.mtdSpent, row.budget);
+  const goalPct = safeRatio(row.mtdSl, row.slGoal);
+
+  return (
+    <article className="rounded-lg border border-emerald-800 bg-emerald-700 p-3 text-white">
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="min-w-0 truncate text-sm font-bold uppercase">
+          {row.state}
+        </h3>
+        <span
+          className={`rounded-md px-2 py-1 text-xs font-semibold ${
+            row.cpl != null && row.cpl > cplLimit
+              ? "bg-rose-100 text-rose-950"
+              : row.cpl != null && row.cpl > cplLimit * 0.8
+                ? "bg-amber-100 text-amber-950"
+                : "bg-emerald-100 text-emerald-950"
+          }`}
+        >
+          CPL {formatCurrency(row.cpl)}
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <SnapshotMetricItem label="Budget" value={formatCurrency(row.budget)} />
+        <SnapshotMetricItem label="MTD Spent" value={formatCurrency(row.mtdSpent)} />
+        <SnapshotMetricItem label="% Spent" value={formatPercentage(spentPct)} />
+        <SnapshotMetricItem label="SL Goal" value={formatNumber(row.slGoal)} />
+        <SnapshotMetricItem
+          label="Q. Leads Goal"
+          value={formatNumber(row.qLeadsGoal)}
+        />
+        <SnapshotMetricItem label="% Goal" value={formatPercentage(goalPct)} />
+        <SnapshotMetricItem label="CPSL" value={formatCurrency(row.cpsl)} />
+        <SnapshotMetricItem label="CPQL" value={formatCurrency(row.cpql)} />
+        <SnapshotMetricItem label="MTD SL" value={formatNumber(row.mtdSl)} />
+        <SnapshotMetricItem label="Leads" value={formatNumber(row.leads)} />
+        <SnapshotMetricItem
+          label="Conversion"
+          value={formatPercentage(row.conversionRate)}
+        />
+      </dl>
+    </article>
+  );
+}
+
+function SnapshotMetricItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/20 bg-white/10 px-2 py-2">
+      <dt className="truncate text-emerald-50/80">{label}</dt>
+      <dd className="mt-1 truncate font-semibold text-white">{value}</dd>
+    </div>
+  );
+}
+
+function ConditionalLegend({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "healthy" | "watch" | "critical";
+}) {
+  const classes = {
+    critical: "border-rose-200 bg-rose-50 text-rose-800",
+    healthy: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    watch: "border-amber-200 bg-amber-50 text-amber-800",
+  };
+
+  return (
+    <div
+      className={`flex items-center justify-between rounded-md border px-3 py-2 ${classes[tone]}`}
+    >
+      <span>{label}</span>
+      <span className="h-3 w-10 rounded-full bg-current opacity-70" />
+    </div>
+  );
+}
+
+function SpendByCampaignPanel({
+  chartsReady,
+  rows,
+}: {
+  chartsReady: boolean;
+  rows: CampaignSpendRow[];
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div>
+        <h2 className="text-base font-semibold text-slate-950">
+          Spend by campaign
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Horizontal bar chart of MTD spend.
+        </p>
+      </div>
+      <div className="mt-4 h-80 min-w-0 rounded-lg bg-slate-950 p-4">
+        {chartsReady ? (
+          <ResponsiveContainer height="100%" width="100%">
+            <BarChart
+              data={rows}
+              layout="vertical"
+              margin={{ bottom: 8, left: 16, right: 24, top: 8 }}
+            >
+              <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+              <XAxis
+                tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                tickFormatter={formatCurrency}
+                type="number"
+              />
+              <YAxis
+                dataKey="campaign"
+                tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                type="category"
+                width={132}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#020617",
+                  border: "1px solid #334155",
+                  borderRadius: 8,
+                  color: "#f8fafc",
+                }}
+                formatter={(value) => [
+                  formatCurrency(
+                    typeof value === "number" ? value : Number(value),
+                  ),
+                  "MTD spend",
+                ]}
+              />
+              <Bar
+                dataKey="spend"
+                fill="#0ea5e9"
+                name="Spend"
+                radius={[0, 4, 4, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <ChartPlaceholder />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LeadStatusDistributionPanel({
+  chartsReady,
+  rows,
+}: {
+  chartsReady: boolean;
+  rows: CampaignStatusDistributionRow[];
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div>
+        <h2 className="text-base font-semibold text-slate-950">
+          Leads by status by marketing state
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Stacked percentage distribution by lead status.
+        </p>
+      </div>
+      <div className="mt-4 h-[28rem] min-w-0">
+        {chartsReady ? (
+          <ResponsiveContainer height="100%" width="100%">
+            <BarChart
+              data={rows}
+              layout="vertical"
+              margin={{ bottom: 8, left: 16, right: 24, top: 8 }}
+            >
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+              <XAxis
+                domain={[0, 1]}
+                tickFormatter={formatPercentage}
+                type="number"
+              />
+              <YAxis
+                dataKey="marketingState"
+                tick={{ fontSize: 12 }}
+                type="category"
+                width={116}
+              />
+              <Tooltip
+                formatter={(value, name) => [
+                  formatPercentage(
+                    typeof value === "number" ? value : Number(value),
+                  ),
+                  String(name),
+                ]}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar
+                dataKey="hotLeads"
+                fill="#c49a3a"
+                name="Hot Leads"
+                stackId="status"
+              />
+              <Bar dataKey="drop" fill="#9c7628" name="Drop" stackId="status" />
+              <Bar
+                dataKey="signedUp"
+                fill="#111827"
+                name="Signed Up"
+                stackId="status"
+              />
+              <Bar
+                dataKey="appointment"
+                fill="#eabf4f"
+                name="Appointment"
+                stackId="status"
+              />
+              <Bar
+                dataKey="retainerSent"
+                fill="#403523"
+                name="Retainer Sent - U"
+                stackId="status"
+              />
+              <Bar
+                dataKey="nullStatus"
+                fill="#9ca3af"
+                name="Null"
+                stackId="status"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <ChartPlaceholder />
+        )}
       </div>
     </section>
   );
@@ -547,4 +1599,39 @@ function formatGeneratedAt(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function safeRatio(
+  numerator: number | null | undefined,
+  denominator: number | null | undefined,
+): number | null {
+  if (
+    typeof numerator !== "number" ||
+    typeof denominator !== "number" ||
+    !Number.isFinite(numerator) ||
+    !Number.isFinite(denominator) ||
+    denominator === 0
+  ) {
+    return null;
+  }
+
+  return numerator / denominator;
+}
+
+function truncateLabel(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(maxLength - 3, 1))}...`;
+}
+
+function getRateDomainMax(values: number[], fallback: number): number {
+  const maxValue = values.reduce(
+    (currentMax, value) =>
+      Number.isFinite(value) ? Math.max(currentMax, value) : currentMax,
+    fallback,
+  );
+
+  return Math.ceil(maxValue * 4) / 4;
 }
