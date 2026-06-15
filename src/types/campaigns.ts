@@ -55,6 +55,7 @@ export interface CampaignResultRow extends CampaignLeadTrendRow {
   mql: number;
   qLeadsGoal: number | null;
   slGoal: number | null;
+  spend: number;
   status: "Active" | "Inactive";
 }
 

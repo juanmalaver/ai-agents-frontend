@@ -21,6 +21,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 175,
       sl: 132,
       slGoal: 120,
+      spend: 38824,
       status: "Active",
     },
     {
@@ -37,6 +38,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 150,
       sl: 89,
       slGoal: 130,
+      spend: 67734,
       status: "Active",
     },
     {
@@ -53,6 +55,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 142,
       sl: 119,
       slGoal: 112,
+      spend: 42436,
       status: "Active",
     },
     {
@@ -69,6 +72,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 101,
       sl: 65,
       slGoal: 92,
+      spend: 45816,
       status: "Active",
     },
     {
@@ -85,6 +89,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 72,
       sl: 53,
       slGoal: 62,
+      spend: 25648,
       status: "Active",
     },
     {
@@ -101,6 +106,7 @@ export const campaignsMock: CampaignsDashboardMock = {
       qLeadsGoal: 83,
       sl: 37,
       slGoal: 70,
+      spend: 35910,
       status: "Active",
     },
   ],
