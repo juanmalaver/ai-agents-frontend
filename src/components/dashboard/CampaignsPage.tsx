@@ -69,7 +69,10 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
             );
           }
 
-          const apiResponse = await fetch(apiUrl, { signal });
+          const apiResponse = await fetch(apiUrl, {
+            credentials: "include",
+            signal,
+          });
 
           if (!apiResponse.ok) {
             throw new Error("Unable to load campaigns dashboard data.");
