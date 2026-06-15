@@ -55,7 +55,10 @@ export function AuthGate({ children }: AuthGateProps) {
         // Keep the primary session error as the useful state signal.
       }
 
+      const authRedirectError = readAuthRedirectError();
+
       setUser(null);
+      setError(authRedirectError);
       setAuthState(
         sessionError instanceof Error &&
           sessionError.message.toLowerCase().includes("forbidden")
@@ -312,4 +315,26 @@ function formatUserLabel(user: AuthUser | null): string {
     .join(" ");
 
   return fullName ? `${fullName} (${user.email})` : user.email;
+}
+
+function readAuthRedirectError(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const url = new URL(window.location.href);
+  const authError = url.searchParams.get("authError");
+
+  if (!authError) {
+    return null;
+  }
+
+  url.searchParams.delete("authError");
+  window.history.replaceState({}, "", url.toString());
+
+  if (authError === "google_sign_in_failed") {
+    return "Google sign-in failed. Use the Google account attached to your intake workspace.";
+  }
+
+  return "Authentication failed. Please try again.";
 }
