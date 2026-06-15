@@ -1,13 +1,16 @@
+import { AuthGate } from "@/src/components/auth/AuthGate";
 import { CampaignsPage } from "@/src/components/dashboard/CampaignsPage";
 
 export default function MarketingDashboardCampaigns() {
   return (
-    <CampaignsPage
-      apiUrl={
-        process.env.NEXT_PUBLIC_CAMPAIGNS_DASHBOARD_API_URL ??
-        deriveCampaignsApiUrl(process.env.NEXT_PUBLIC_DASHBOARD_API_URL)
-      }
-    />
+    <AuthGate>
+      <CampaignsPage
+        apiUrl={
+          process.env.NEXT_PUBLIC_CAMPAIGNS_DASHBOARD_API_URL ??
+          deriveCampaignsApiUrl(process.env.NEXT_PUBLIC_DASHBOARD_API_URL)
+        }
+      />
+    </AuthGate>
   );
 }
 
