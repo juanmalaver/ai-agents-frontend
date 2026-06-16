@@ -19,14 +19,12 @@ import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
 import { KpiCardsGrid } from "./KpiCardsGrid";
 
-const brandOptions = ["All Brands"];
 const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
 export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   const [data, setData] = useState<CampaignDashboardApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [, setSelectedBrand] = useState(brandOptions[0]);
 
   const loadDashboard = useCallback(
     async (signal?: AbortSignal) => {
@@ -92,10 +90,6 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     [data],
   );
 
-  const handleBrandChange = useCallback((brand: string) => {
-    setSelectedBrand(brand);
-  }, []);
-
   if (isLoading) {
     return (
       <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
@@ -105,10 +99,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             title="Marketing Campaign Performance"
           />
           {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-          <BrandFilter
-            onBrandChange={handleBrandChange}
-            options={brandOptions}
-          />
+          <BrandFilter />
           <KpiSkeletonGrid />
           <CampaignPerformanceChart data={[]} isLoading />
           <TableSkeleton />
@@ -126,10 +117,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             title="Marketing Campaign Performance"
           />
           {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-          <BrandFilter
-            onBrandChange={handleBrandChange}
-            options={brandOptions}
-          />
+          <BrandFilter />
           <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold text-rose-800">
               Dashboard data could not be loaded
@@ -157,7 +145,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           title="Marketing Campaign Performance"
         />
         {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-        <BrandFilter onBrandChange={handleBrandChange} options={brandOptions} />
+        <BrandFilter />
         <KpiCardsGrid items={kpiCards} />
         <CampaignPerformanceChart data={data?.monthlyPerformance ?? []} />
         <CampaignStateTable rows={data?.stateCampaigns ?? []} />
