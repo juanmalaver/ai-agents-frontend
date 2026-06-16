@@ -98,7 +98,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
             subtitle={dashboardSubtitle}
@@ -119,7 +119,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
             subtitle={dashboardSubtitle}
@@ -136,7 +136,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">{error}</p>
             <button
-              className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
               onClick={() => void loadDashboard()}
               type="button"
             >
@@ -149,7 +149,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+    <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
         <DashboardHeader
           lastUpdated={data ? formatGeneratedAt(data.generatedAt) : undefined}

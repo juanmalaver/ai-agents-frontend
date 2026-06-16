@@ -19,7 +19,7 @@ export function BrandFilter({ onBrandChange, options }: BrandFilterProps) {
         Brand
       </label>
       <select
-        className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
         id="brand"
         onChange={(event) => {
           setSelectedBrand(event.target.value);

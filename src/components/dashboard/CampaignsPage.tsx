@@ -37,13 +37,17 @@ import { DashboardTabs } from "./DashboardTabs";
 
 const scorecardClasses: Record<CampaignScorecard["status"], string> = {
   critical: "border-rose-200 bg-rose-50 text-rose-950",
-  healthy: "border-emerald-200 bg-emerald-50 text-emerald-950",
+  healthy: "border-teal-200 bg-teal-50 text-teal-950",
   watch: "border-amber-200 bg-amber-50 text-amber-950",
 };
 
 const PANEL_ROW_LIMIT = 8;
 
 type CampaignDetailModalView = "campaigns" | "states" | null;
+
+type StateCompletionChartRow = CampaignStateCompletionRow & {
+  completionPct: number;
+};
 
 export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
   const [chartsReady, setChartsReady] = useState(false);
@@ -106,6 +110,7 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
     ...row,
     completionPct: row.slGoal && row.slGoal > 0 ? row.sl / row.slGoal : 0,
   }));
+  const visibleStateChartData = stateChartData.filter(hasStateCompletionData);
   const cplLimit = data?.alert.cplLimit ?? 250;
 
   useEffect(() => {
@@ -138,7 +143,7 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
             subtitle="Campaign-level pacing, CPL risk, and lead behavior."
@@ -153,7 +158,7 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
 
   if (error || !data) {
     return (
-      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
             subtitle="Campaign-level pacing, CPL risk, and lead behavior."
@@ -168,7 +173,7 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
               {error ?? "Unable to load campaigns dashboard data."}
             </p>
             <button
-              className="mt-4 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
               onClick={() => void loadCampaignsDashboard()}
               type="button"
             >
@@ -182,7 +187,7 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
 
   return (
     <>
-      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 md:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
             lastUpdated={formatGeneratedAt(data.generatedAt)}
@@ -207,7 +212,8 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
             <StateCompletionPanel
               chartsReady={chartsReady}
               onViewMore={() => setDetailModal("states")}
-              rows={stateChartData}
+              rows={visibleStateChartData}
+              totalRows={stateChartData.length}
             />
             <LeadBehaviorPanel
               chartsReady={chartsReady}
@@ -233,9 +239,10 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
         </div>
       </main>
       <CampaignDetailModal
+        chartsReady={chartsReady}
         leadRows={data.leadTrendRows}
         onClose={() => setDetailModal(null)}
-        stateRows={stateChartData}
+        stateRows={visibleStateChartData}
         view={detailModal}
       />
     </>
@@ -273,7 +280,7 @@ function CampaignAlert({
   message: string;
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
+    <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
       <div>
         <p className="text-sm font-semibold text-amber-950">
           {message} CPL limit: {formatCurrency(cplLimit)}.
@@ -282,12 +289,6 @@ function CampaignAlert({
           {campaignNames.join(", ")}
         </p>
       </div>
-      <button
-        className="w-fit rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100"
-        type="button"
-      >
-        Share the document
-      </button>
     </section>
   );
 }
@@ -335,16 +336,21 @@ function StateCompletionPanel({
   chartsReady,
   onViewMore,
   rows,
+  totalRows,
 }: {
   chartsReady: boolean;
   onViewMore: () => void;
-  rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  rows: StateCompletionChartRow[];
+  totalRows: number;
 }) {
-  const visibleRows = rows.slice(0, PANEL_ROW_LIMIT);
+  const chartRows = rows.filter(hasVisibleStateCompletionBar);
+  const visibleRows = chartRows.slice(0, PANEL_ROW_LIMIT);
   const chartDomainMax = getRateDomainMax(
     visibleRows.map((row) => row.completionPct),
     1.25,
   );
+  const hiddenEmptyRows = Math.max(totalRows - rows.length, 0);
+  const hiddenZeroRows = Math.max(rows.length - chartRows.length, 0);
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -358,16 +364,25 @@ function StateCompletionPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <StateCompletionLegend />
           <ViewMoreButton
             onClick={onViewMore}
-            visible={rows.length > PANEL_ROW_LIMIT}
+            visible={rows.length > visibleRows.length}
           />
         </div>
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)]">
         <CompactStateSummary rows={visibleRows} totalCount={rows.length} />
         <div className="h-96 min-w-0 overflow-hidden">
-          {chartsReady ? (
+          {visibleRows.length === 0 ? (
+            <EmptyChartState
+              message={
+                rows.length > 0
+                  ? "No states have positive signed-lead completion yet."
+                  : "No states have signed leads or goals yet."
+              }
+            />
+          ) : chartsReady ? (
             <ResponsiveContainer height="100%" width="100%">
               <BarChart
                 data={visibleRows}
@@ -398,7 +413,7 @@ function StateCompletionPanel({
                 />
                 <ReferenceLine
                   ifOverflow="extendDomain"
-                  stroke="#2563eb"
+                  stroke="#0ea5e9"
                   strokeWidth={2}
                   x={1}
                 />
@@ -409,13 +424,7 @@ function StateCompletionPanel({
                 >
                   {visibleRows.map((row) => (
                     <Cell
-                      fill={
-                        row.completionPct >= 1
-                          ? "#22c55e"
-                          : row.completionPct >= 0.75
-                            ? "#f59e0b"
-                            : "#ef4444"
-                      }
+                      fill={getStateCompletionColor(row.completionPct)}
                       key={row.state}
                     />
                   ))}
@@ -427,13 +436,58 @@ function StateCompletionPanel({
           )}
         </div>
       </div>
-      {rows.length > visibleRows.length ? (
+      {chartRows.length > visibleRows.length ? (
         <p className="mt-3 text-xs font-medium text-slate-500">
-          Top {visibleRows.length} of {rows.length} states shown here. Full
-          state detail appears in the table below.
+          Top {visibleRows.length} of {chartRows.length} states with positive
+          completion shown here. Use View more for the complete active-state
+          list.
+        </p>
+      ) : null}
+      {hiddenZeroRows > 0 ? (
+        <p className="mt-2 text-xs font-medium text-slate-500">
+          {hiddenZeroRows} zero-completion states are hidden from this mini
+          chart and available in View more.
+        </p>
+      ) : null}
+      {hiddenEmptyRows > 0 ? (
+        <p className="mt-2 text-xs font-medium text-slate-500">
+          {hiddenEmptyRows} states with no signed leads or goals are hidden from
+          this chart.
         </p>
       ) : null}
     </section>
+  );
+}
+
+function StateCompletionLegend() {
+  const items = [
+    { className: "bg-teal-500", label: "At or above goal" },
+    { className: "bg-amber-400", label: "Near goal" },
+    { className: "bg-rose-600", label: "Below goal" },
+  ];
+
+  return (
+    <div
+      aria-label="State completion chart legend"
+      className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600"
+    >
+      {items.map((item) => (
+        <span className="inline-flex items-center gap-1.5" key={item.label}>
+          <span
+            aria-hidden="true"
+            className={`size-2.5 rounded-sm ${item.className}`}
+          />
+          {item.label}
+        </span>
+      ))}
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className="h-3.5 w-2 border-l-2 border-sky-500"
+        />
+        Goal line
+      </span>
+    </div>
   );
 }
 
@@ -509,30 +563,30 @@ function LeadBehaviorPanel({
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar
                   dataKey="leads"
-                  fill="#94a3b8"
+                  fill="#7dd3fc"
                   name="Leads"
                   radius={[0, 4, 4, 0]}
                   xAxisId="count"
                 />
                 <Bar
                   dataKey="sl"
-                  fill="#22c55e"
+                  fill="#14b8a6"
                   name="SL"
                   radius={[0, 4, 4, 0]}
                   xAxisId="count"
                 />
                 <Bar
                   dataKey="drops"
-                  fill="#f97316"
+                  fill="#f59e0b"
                   name="Drops"
                   radius={[0, 4, 4, 0]}
                   xAxisId="count"
                 />
                 <Line
                   dataKey="conversionRate"
-                  dot={{ fill: "#2563eb", r: 3 }}
+                  dot={{ fill: "#0ea5e9", r: 3 }}
                   name="Conversion rate"
-                  stroke="#2563eb"
+                  stroke="#0ea5e9"
                   strokeWidth={3}
                   type="monotone"
                   xAxisId="rate"
@@ -560,6 +614,14 @@ function ChartPlaceholder() {
   );
 }
 
+function EmptyChartState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-4 text-center text-sm font-medium text-slate-500">
+      {message}
+    </div>
+  );
+}
+
 function ViewMoreButton({
   onClick,
   visible,
@@ -583,14 +645,16 @@ function ViewMoreButton({
 }
 
 function CampaignDetailModal({
+  chartsReady,
   leadRows,
   onClose,
   stateRows,
   view,
 }: {
+  chartsReady: boolean;
   leadRows: CampaignLeadTrendRow[];
   onClose: () => void;
-  stateRows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  stateRows: StateCompletionChartRow[];
   view: CampaignDetailModalView;
 }) {
   if (!view) {
@@ -633,7 +697,13 @@ function CampaignDetailModal({
         </div>
         <div className="overflow-y-auto p-4 sm:p-5">
           {isStateView ? (
-            <DetailedStateCompletionTable rows={stateRows} />
+            <div className="grid gap-5">
+              <DetailedStateCompletionChart
+                chartsReady={chartsReady}
+                rows={stateRows}
+              />
+              <DetailedStateCompletionTable rows={stateRows} />
+            </div>
           ) : (
             <DetailedLeadBehaviorTable rows={leadRows} />
           )}
@@ -646,7 +716,7 @@ function CampaignDetailModal({
 function DetailedStateCompletionTable({
   rows,
 }: {
-  rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  rows: StateCompletionChartRow[];
 }) {
   return (
     <>
@@ -658,7 +728,7 @@ function DetailedStateCompletionTable({
             <col className="w-[18%]" />
             <col className="w-[20%]" />
           </colgroup>
-          <thead className="bg-slate-100 text-xs uppercase tracking-normal text-slate-600">
+          <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
             <tr>
               <th className="px-4 py-3 font-semibold" scope="col">
                 State
@@ -718,6 +788,95 @@ function DetailedStateCompletionTable({
   );
 }
 
+function DetailedStateCompletionChart({
+  chartsReady,
+  rows,
+}: {
+  chartsReady: boolean;
+  rows: StateCompletionChartRow[];
+}) {
+  const chartDomainMax = getRateDomainMax(
+    rows.map((row) => row.completionPct),
+    1.25,
+  );
+  const chartHeight = Math.max(320, rows.length * 42 + 72);
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">
+            Complete active-state chart
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            States with no signed leads or goals are omitted.
+          </p>
+        </div>
+        <StateCompletionLegend />
+      </div>
+
+      <div className="mt-4 min-w-0 overflow-x-auto">
+        <div className="min-w-[720px]" style={{ height: chartHeight }}>
+          {rows.length === 0 ? (
+            <EmptyChartState message="No states have signed leads or goals yet." />
+          ) : chartsReady ? (
+            <ResponsiveContainer height="100%" width="100%">
+              <BarChart
+                data={rows}
+                layout="vertical"
+                margin={{ bottom: 12, left: 8, right: 28, top: 12 }}
+              >
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis
+                  domain={[0, chartDomainMax]}
+                  tickFormatter={formatPercentage}
+                  type="number"
+                />
+                <YAxis
+                  dataKey="state"
+                  tickFormatter={(value) => truncateLabel(String(value), 22)}
+                  tick={{ fontSize: 12 }}
+                  type="category"
+                  width={140}
+                />
+                <Tooltip
+                  labelFormatter={(label) => String(label)}
+                  formatter={(value) => [
+                    formatPercentage(
+                      typeof value === "number" ? value : Number(value),
+                    ),
+                    "SL completion",
+                  ]}
+                />
+                <ReferenceLine
+                  ifOverflow="extendDomain"
+                  stroke="#0ea5e9"
+                  strokeWidth={2}
+                  x={1}
+                />
+                <Bar
+                  dataKey="completionPct"
+                  name="SL completion"
+                  radius={[0, 4, 4, 0]}
+                >
+                  {rows.map((row) => (
+                    <Cell
+                      fill={getStateCompletionColor(row.completionPct)}
+                      key={row.state}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <ChartPlaceholder />
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DetailedLeadBehaviorTable({
   rows,
 }: {
@@ -735,7 +894,7 @@ function DetailedLeadBehaviorTable({
             <col className="w-[12%]" />
             <col className="w-[10%]" />
           </colgroup>
-          <thead className="bg-slate-100 text-xs uppercase tracking-normal text-slate-600">
+          <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
             <tr>
               <th className="px-4 py-3 font-semibold" scope="col">
                 Campaign
@@ -821,40 +980,46 @@ function CompactStateSummary({
   rows,
   totalCount,
 }: {
-  rows: Array<CampaignStateCompletionRow & { completionPct: number }>;
+  rows: StateCompletionChartRow[];
   totalCount: number;
 }) {
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 text-xs">
-      <div className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 bg-slate-100 px-3 py-2 font-semibold text-slate-600">
+      <div className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 bg-sky-50 px-3 py-2 font-semibold text-slate-600">
         <span>State</span>
         <span className="text-right">SL</span>
         <span className="text-right">Goal</span>
         <span className="text-right">%</span>
       </div>
       <div className="divide-y divide-slate-200 bg-white">
-        {rows.map((row) => (
-          <div
-            className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 px-3 py-2 text-slate-700"
-            key={row.state}
-          >
-            <span
-              className="min-w-0 truncate font-medium text-slate-950"
-              title={row.state}
+        {rows.length > 0 ? (
+          rows.map((row) => (
+            <div
+              className="grid grid-cols-[minmax(0,1fr)_3rem_3.4rem_3.8rem] gap-2 px-3 py-2 text-slate-700"
+              key={row.state}
             >
-              {row.state}
-            </span>
-            <span className="text-right tabular-nums">
-              {formatNumber(row.sl)}
-            </span>
-            <span className="text-right tabular-nums">
-              {formatNumber(row.slGoal)}
-            </span>
-            <span className="text-right tabular-nums">
-              {formatPercentage(row.completionPct)}
-            </span>
+              <span
+                className="min-w-0 truncate font-medium text-slate-950"
+                title={row.state}
+              >
+                {row.state}
+              </span>
+              <span className="text-right tabular-nums">
+                {formatNumber(row.sl)}
+              </span>
+              <span className="text-right tabular-nums">
+                {formatNumber(row.slGoal)}
+              </span>
+              <span className="text-right tabular-nums">
+                {formatPercentage(row.completionPct)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="px-3 py-4 text-center text-slate-500">
+            No active states yet.
           </div>
-        ))}
+        )}
       </div>
       {totalCount > rows.length ? (
         <div className="border-t border-slate-200 bg-slate-50 px-3 py-2 text-slate-500">
@@ -874,7 +1039,7 @@ function CompactCampaignSummary({
 }) {
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 text-xs">
-      <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_2.6rem_3.2rem_3.8rem] gap-2 bg-slate-100 px-3 py-2 font-semibold text-slate-600">
+      <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_2.6rem_3.2rem_3.8rem] gap-2 bg-sky-50 px-3 py-2 font-semibold text-slate-600">
         <span>Campaign</span>
         <span className="text-right">Leads</span>
         <span className="text-right">SL</span>
@@ -926,7 +1091,7 @@ function InsightCard({
 }) {
   const toneClass =
     tone === "positive"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      ? "border-teal-200 bg-teal-50 text-teal-950"
       : "border-amber-200 bg-amber-50 text-amber-950";
 
   return (
@@ -993,7 +1158,7 @@ function CampaignResultsTable({
             <col className="w-[7%]" />
             <col className="w-[6%]" />
           </colgroup>
-          <thead className="bg-slate-100 uppercase tracking-normal text-slate-600">
+          <thead className="bg-sky-50 uppercase tracking-normal text-slate-600">
             <tr>
               <th className="px-3 py-3 font-semibold" scope="col">
                 Campaign
@@ -1340,8 +1505,8 @@ function CampaignSnapshotTable({
             <col className="w-[6.5%]" />
           </colgroup>
           <thead>
-            <tr className="bg-emerald-900 text-white">
-              <th className="px-2 py-2 text-red-200" scope="col">
+            <tr className="bg-slate-950 text-white">
+              <th className="px-2 py-2 text-amber-200" scope="col">
                 All brands
               </th>
               <th className="px-2 py-2" scope="col">
@@ -1377,18 +1542,18 @@ function CampaignSnapshotTable({
               <th className="px-2 py-2" scope="col">
                 Conversion Rate
               </th>
-              <th className="border-l-4 border-red-500 px-2 py-2" scope="col">
+              <th className="border-l-4 border-amber-400 px-2 py-2" scope="col">
                 CPL
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-emerald-700/20">
+          <tbody className="divide-y divide-teal-700/20">
             {rows.map((row) => {
               const spentPct = safeRatio(row.mtdSpent, row.budget);
               const goalPct = safeRatio(row.mtdSl, row.slGoal);
 
               return (
-                <tr className="bg-emerald-700/85 text-white" key={row.state}>
+                <tr className="bg-teal-700/90 text-white" key={row.state}>
                   <td
                     className="truncate px-2 py-2 font-bold uppercase"
                     title={row.state}
@@ -1411,12 +1576,12 @@ function CampaignSnapshotTable({
                     {formatPercentage(row.conversionRate)}
                   </td>
                   <td
-                    className={`border-l-4 border-red-500 px-2 py-2 font-semibold ${
+                    className={`border-l-4 border-amber-400 px-2 py-2 font-semibold ${
                       row.cpl != null && row.cpl > cplLimit
                         ? "bg-rose-100 text-rose-950"
                         : row.cpl != null && row.cpl > cplLimit * 0.8
                           ? "bg-amber-100 text-amber-950"
-                          : "bg-emerald-100 text-emerald-950"
+                          : "bg-teal-100 text-teal-950"
                     }`}
                   >
                     {formatCurrency(row.cpl)}
@@ -1451,7 +1616,7 @@ function CampaignSnapshotCard({
   const goalPct = safeRatio(row.mtdSl, row.slGoal);
 
   return (
-    <article className="rounded-lg border border-emerald-800 bg-emerald-700 p-3 text-white">
+    <article className="rounded-lg border border-teal-800 bg-teal-700 p-3 text-white">
       <div className="flex items-start justify-between gap-3">
         <h3 className="min-w-0 truncate text-sm font-bold uppercase">
           {row.state}
@@ -1462,7 +1627,7 @@ function CampaignSnapshotCard({
               ? "bg-rose-100 text-rose-950"
               : row.cpl != null && row.cpl > cplLimit * 0.8
                 ? "bg-amber-100 text-amber-950"
-                : "bg-emerald-100 text-emerald-950"
+                : "bg-teal-100 text-teal-950"
           }`}
         >
           CPL {formatCurrency(row.cpl)}
@@ -1500,7 +1665,7 @@ function SnapshotMetricItem({
 }) {
   return (
     <div className="min-w-0 rounded-md border border-white/20 bg-white/10 px-2 py-2">
-      <dt className="truncate text-emerald-50/80">{label}</dt>
+      <dt className="truncate text-teal-50/80">{label}</dt>
       <dd className="mt-1 truncate font-semibold text-white">{value}</dd>
     </div>
   );
@@ -1515,7 +1680,7 @@ function ConditionalLegend({
 }) {
   const classes = {
     critical: "border-rose-200 bg-rose-50 text-rose-800",
-    healthy: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    healthy: "border-teal-200 bg-teal-50 text-teal-800",
     watch: "border-amber-200 bg-amber-50 text-amber-800",
   };
 
@@ -1644,26 +1809,26 @@ function LeadStatusDistributionPanel({
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar
                 dataKey="hotLeads"
-                fill="#c49a3a"
+                fill="#f59e0b"
                 name="Hot Leads"
                 stackId="status"
               />
-              <Bar dataKey="drop" fill="#9c7628" name="Drop" stackId="status" />
+              <Bar dataKey="drop" fill="#e11d48" name="Drop" stackId="status" />
               <Bar
                 dataKey="signedUp"
-                fill="#111827"
+                fill="#14b8a6"
                 name="Signed Up"
                 stackId="status"
               />
               <Bar
                 dataKey="appointment"
-                fill="#eabf4f"
+                fill="#0ea5e9"
                 name="Appointment"
                 stackId="status"
               />
               <Bar
                 dataKey="retainerSent"
-                fill="#403523"
+                fill="#b45309"
                 name="Retainer Sent - U"
                 stackId="status"
               />
@@ -1681,6 +1846,26 @@ function LeadStatusDistributionPanel({
       </div>
     </section>
   );
+}
+
+function hasStateCompletionData(row: StateCompletionChartRow): boolean {
+  return row.sl > 0 || (row.slGoal ?? 0) > 0;
+}
+
+function hasVisibleStateCompletionBar(row: StateCompletionChartRow): boolean {
+  return row.completionPct > 0;
+}
+
+function getStateCompletionColor(completionPct: number): string {
+  if (completionPct >= 1) {
+    return "#14b8a6";
+  }
+
+  if (completionPct >= 0.75) {
+    return "#f59e0b";
+  }
+
+  return "#e11d48";
 }
 
 function formatGeneratedAt(value: string): string {

@@ -24,8 +24,8 @@ export function DashboardTabs({ activeTab }: { activeTab: DashboardTabId }) {
             aria-current={isActive ? "page" : undefined}
             className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
               isActive
-                ? "border-slate-950 text-slate-950"
-                : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
+                ? "border-teal-500 text-slate-950"
+                : "border-transparent text-slate-500 hover:border-sky-300 hover:text-slate-800"
             }`}
             href={tab.href}
             key={tab.id}

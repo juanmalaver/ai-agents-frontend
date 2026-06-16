@@ -113,7 +113,7 @@ export function CampaignPerformanceChart({
             <Legend wrapperStyle={{ color: "#f8fafc", fontSize: 12 }} />
             <Bar
               dataKey="sl"
-              fill="#22c55e"
+              fill="#14b8a6"
               name="SL"
               radius={[4, 4, 0, 0]}
               yAxisId="count"
@@ -124,7 +124,7 @@ export function CampaignPerformanceChart({
                   dataKey="slGoal"
                   dot={false}
                   name="SL Goal"
-                  stroke="#3b82f6"
+                  stroke="#0ea5e9"
                   strokeWidth={3}
                   type="monotone"
                   yAxisId="count"
@@ -132,9 +132,9 @@ export function CampaignPerformanceChart({
                 <Line
                   connectNulls={false}
                   dataKey="slPctToTarget"
-                  dot={{ fill: "#f8fafc", r: 3, stroke: "#f8fafc" }}
+                  dot={{ fill: "#f59e0b", r: 3, stroke: "#f59e0b" }}
                   name="SL % to target"
-                  stroke="#f8fafc"
+                  stroke="#f59e0b"
                   strokeWidth={3}
                   type="monotone"
                   yAxisId="percent"

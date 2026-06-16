@@ -7,7 +7,7 @@ import { formatPercentage } from "@/src/utils/dashboardFormatters";
 
 const priorityStyles: Record<RecommendationPriority, string> = {
   critical: "bg-rose-100 text-rose-800 ring-rose-200",
-  high: "bg-orange-100 text-orange-800 ring-orange-200",
+  high: "bg-sky-100 text-sky-800 ring-sky-200",
   low: "bg-slate-100 text-slate-700 ring-slate-200",
   medium: "bg-amber-100 text-amber-800 ring-amber-200",
 };

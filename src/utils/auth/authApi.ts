@@ -14,37 +14,8 @@ export interface AuthenticatedResponse {
   user: AuthUser;
 }
 
-export interface OtpRequiredResponse {
-  status: "otp_required";
-}
-
-export type LoginResponse = AuthenticatedResponse | OtpRequiredResponse;
-
 export async function getCurrentUser(): Promise<AuthenticatedResponse> {
   return requestAuth<AuthenticatedResponse>("/me");
-}
-
-export async function getChallenge(): Promise<{ requiresOtp: boolean }> {
-  return requestAuth<{ requiresOtp: boolean }>("/challenge");
-}
-
-export async function loginWithPassword(input: {
-  email: string;
-  password: string;
-}): Promise<LoginResponse> {
-  return requestAuth<LoginResponse>("/password", {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
-}
-
-export async function loginWithOtp(input: {
-  otp: string;
-}): Promise<AuthenticatedResponse> {
-  return requestAuth<AuthenticatedResponse>("/otp", {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
 }
 
 export async function logout(): Promise<void> {
