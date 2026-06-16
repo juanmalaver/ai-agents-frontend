@@ -32,6 +32,7 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
+import { resolveCampaignsDashboardApiUrl } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
 
@@ -67,13 +68,18 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
         if (useMock) {
           response = campaignsMock;
         } else {
-          if (!apiUrl) {
+          const resolvedApiUrl = resolveCampaignsDashboardApiUrl({
+            dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+            explicitCampaignsApiUrl: apiUrl,
+          });
+
+          if (!resolvedApiUrl) {
             throw new Error(
               "Campaigns API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
             );
           }
 
-          const apiResponse = await fetch(apiUrl, {
+          const apiResponse = await fetch(resolvedApiUrl, {
             credentials: "include",
             signal,
           });

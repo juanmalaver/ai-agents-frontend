@@ -1,3 +1,5 @@
+import { resolveAuthApiUrl } from "@/src/utils/runtimeApiUrls";
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -77,20 +79,9 @@ function buildAuthUrl(path: string): string {
 
 function resolveAuthBaseUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_AUTH_API_URL?.trim();
-
-  if (explicit) {
-    return explicit.endsWith("/auth") ? explicit : `${explicit}/auth`;
-  }
-
   const dashboardApiUrl = process.env.NEXT_PUBLIC_DASHBOARD_API_URL?.trim();
 
-  if (dashboardApiUrl) {
-    const url = new URL(dashboardApiUrl);
-
-    return `${url.origin}/auth`;
-  }
-
-  return "http://localhost:3002/auth";
+  return resolveAuthApiUrl(explicit, dashboardApiUrl);
 }
 
 function isMessageResponse(value: unknown): value is { message: string } {

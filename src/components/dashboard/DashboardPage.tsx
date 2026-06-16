@@ -12,6 +12,7 @@ import type {
   MonthlyCampaignPerformance,
 } from "@/src/types/dashboard";
 import { safeDivide } from "@/src/utils/dashboardFormatters";
+import { resolveDashboardApiUrl } from "@/src/utils/runtimeApiUrls";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
@@ -38,13 +39,15 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
         if (useMock) {
           response = dashboardMock;
         } else {
-          if (!apiUrl) {
+          const resolvedApiUrl = resolveDashboardApiUrl(apiUrl);
+
+          if (!resolvedApiUrl) {
             throw new Error(
               "Dashboard API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
             );
           }
 
-          const apiResponse = await fetch(apiUrl, {
+          const apiResponse = await fetch(resolvedApiUrl, {
             credentials: "include",
             signal,
           });
