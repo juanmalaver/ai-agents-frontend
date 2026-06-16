@@ -28,3 +28,13 @@ Register this Google OAuth redirect URI for local development:
 ```text
 http://localhost:3000/auth/google/redirect
 ```
+
+## A1 Agent Brief
+
+The marketing dashboard derives A1 endpoints from `NEXT_PUBLIC_DASHBOARD_API_URL`.
+Override them when needed:
+
+```text
+NEXT_PUBLIC_A1_AGENT_LATEST_URL=http://localhost:3002/api/agents/a1-kcars-performance-agent/latest
+NEXT_PUBLIC_A1_AGENT_RERUN_URL=http://localhost:3002/api/agents/a1-kcars-performance-agent/rerun
+```

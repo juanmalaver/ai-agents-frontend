@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { dashboardMock } from "@/src/mocks/dashboardMock";
 import type {
   AggregatedKpis,
+  A1AgentLatestResponse,
   CampaignDashboardApiResponse,
   CampaignStateRow,
   DashboardPageProps,
@@ -13,6 +14,7 @@ import type {
 } from "@/src/types/dashboard";
 import { safeDivide } from "@/src/utils/dashboardFormatters";
 import { resolveDashboardApiUrl } from "@/src/utils/runtimeApiUrls";
+import { AgentBriefPanel } from "./AgentBriefPanel";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
@@ -22,10 +24,29 @@ import { KpiCardsGrid } from "./KpiCardsGrid";
 
 const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
-export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
+export function DashboardPage({
+  activeTab,
+  agentLatestUrl,
+  agentRerunUrl,
+  apiUrl,
+}: DashboardPageProps) {
   const [data, setData] = useState<CampaignDashboardApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [agentRun, setAgentRun] = useState<A1AgentLatestResponse | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [isAgentLoading, setIsAgentLoading] = useState(false);
+  const [isRerunning, setIsRerunning] = useState(false);
+  const [rerunStatus, setRerunStatus] = useState<string | null>(null);
+
+  const resolvedAgentLatestUrl = useMemo(
+    () => agentLatestUrl ?? deriveAgentEndpoint(apiUrl, "latest"),
+    [agentLatestUrl, apiUrl],
+  );
+  const resolvedAgentRerunUrl = useMemo(
+    () => agentRerunUrl ?? deriveAgentEndpoint(apiUrl, "rerun"),
+    [agentRerunUrl, apiUrl],
+  );
 
   const loadDashboard = useCallback(
     async (signal?: AbortSignal) => {
@@ -80,6 +101,92 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     [apiUrl],
   );
 
+  const loadAgentLatest = useCallback(
+    async (signal?: AbortSignal) => {
+      if (
+        process.env.NEXT_PUBLIC_USE_MOCK === "true" ||
+        !resolvedAgentLatestUrl
+      ) {
+        setAgentRun(null);
+        return;
+      }
+
+      setIsAgentLoading(true);
+      setAgentError(null);
+
+      try {
+        const response = await fetch(resolvedAgentLatestUrl, {
+          credentials: "include",
+          signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load A1 agent brief.");
+        }
+
+        const latestRun = (await response.json()) as A1AgentLatestResponse;
+
+        if (!signal?.aborted) {
+          setAgentRun(latestRun);
+        }
+      } catch (caughtError) {
+        if (!signal?.aborted) {
+          setAgentError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Unable to load A1 agent brief.",
+          );
+        }
+      } finally {
+        if (!signal?.aborted) {
+          setIsAgentLoading(false);
+        }
+      }
+    },
+    [resolvedAgentLatestUrl],
+  );
+
+  const handleRunAgain = useCallback(async () => {
+    if (!resolvedAgentRerunUrl) {
+      setRerunStatus("Run again endpoint is not configured.");
+      return;
+    }
+
+    setIsRerunning(true);
+    setRerunStatus(null);
+
+    try {
+      const response = await fetch(resolvedAgentRerunUrl, {
+        body: JSON.stringify({
+          reason: "manual_dashboard_rerun",
+          requested_by: "dashboard",
+        }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to queue A1 agent rerun.");
+      }
+
+      setRerunStatus("Run queued. Waiting for n8n output.");
+      window.setTimeout(() => {
+        void loadAgentLatest();
+      }, 3000);
+    } catch (caughtError) {
+      setRerunStatus(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to queue A1 agent rerun.",
+      );
+    } finally {
+      setIsRerunning(false);
+    }
+  }, [loadAgentLatest, resolvedAgentRerunUrl]);
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -87,6 +194,21 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
 
     return () => controller.abort();
   }, [loadDashboard]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadAgentLatest(controller.signal);
+
+    const interval = window.setInterval(() => {
+      void loadAgentLatest();
+    }, 30000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [loadAgentLatest]);
 
   const kpiCards = useMemo(
     () => (data ? buildKpiCards(data.aggregatedKpis) : []),
@@ -149,12 +271,44 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
         />
         {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
         <BrandFilter />
+        <AgentBriefPanel
+          error={agentError}
+          isLoading={isAgentLoading}
+          isRerunning={isRerunning}
+          latestRun={agentRun}
+          onRefresh={() => void loadAgentLatest()}
+          onRunAgain={resolvedAgentRerunUrl ? handleRunAgain : undefined}
+          rerunStatus={rerunStatus}
+        />
         <KpiCardsGrid items={kpiCards} />
         <CampaignPerformanceChart data={data?.monthlyPerformance ?? []} />
         <CampaignStateTable rows={data?.stateCampaigns ?? []} />
       </div>
     </main>
   );
+}
+
+function deriveAgentEndpoint(
+  apiUrl: string | undefined,
+  action: "latest" | "rerun",
+): string | undefined {
+  const resolvedApiUrl = resolveDashboardApiUrl(apiUrl);
+
+  if (!resolvedApiUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(resolvedApiUrl);
+    return `${url.origin}/api/agents/a1-kcars-performance-agent/${action}`;
+  } catch {
+    const trimmed = resolvedApiUrl.replace(/\/+$/, "");
+    const base = trimmed.endsWith("/marketing-dashboard")
+      ? trimmed.slice(0, -"/marketing-dashboard".length)
+      : trimmed;
+
+    return `${base}/api/agents/a1-kcars-performance-agent/${action}`;
+  }
 }
 
 function normalizeDashboardData(
