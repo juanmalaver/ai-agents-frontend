@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -27,12 +27,17 @@ import type {
   CampaignStateSnapshotRow,
   CampaignStatusDistributionRow,
 } from "@/src/types/campaigns";
+import type { A1AgentLatestResponse } from "@/src/types/dashboard";
 import {
   formatCurrency,
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
-import { resolveCampaignsDashboardApiUrl } from "@/src/utils/runtimeApiUrls";
+import {
+  resolveAgentEndpointUrl,
+  resolveCampaignsDashboardApiUrl,
+} from "@/src/utils/runtimeApiUrls";
+import { AgentBriefPanel } from "./AgentBriefPanel";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
 
@@ -50,12 +55,47 @@ type StateCompletionChartRow = CampaignStateCompletionRow & {
   completionPct: number;
 };
 
-export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
+interface CampaignsPageProps {
+  agentLatestUrl?: string;
+  agentRerunUrl?: string;
+  apiUrl?: string;
+}
+
+export function CampaignsPage({
+  agentLatestUrl,
+  agentRerunUrl,
+  apiUrl,
+}: CampaignsPageProps) {
   const [chartsReady, setChartsReady] = useState(false);
   const [data, setData] = useState<CampaignsDashboardApiResponse | null>(null);
   const [detailModal, setDetailModal] = useState<CampaignDetailModalView>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [agentRun, setAgentRun] = useState<A1AgentLatestResponse | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [isAgentLoading, setIsAgentLoading] = useState(false);
+  const [isRerunning, setIsRerunning] = useState(false);
+  const [rerunStatus, setRerunStatus] = useState<string | null>(null);
+
+  const resolvedAgentLatestUrl = useMemo(
+    () =>
+      resolveAgentEndpointUrl({
+        action: "latest",
+        dashboardApiUrl: apiUrl,
+        explicitAgentUrl: agentLatestUrl,
+      }),
+    [agentLatestUrl, apiUrl],
+  );
+  const resolvedAgentRerunUrl = useMemo(
+    () =>
+      resolveAgentEndpointUrl({
+        action: "rerun",
+        dashboardApiUrl: apiUrl,
+        explicitAgentUrl: agentRerunUrl,
+      }),
+    [agentRerunUrl, apiUrl],
+  );
+
   const loadCampaignsDashboard = useCallback(
     async (signal?: AbortSignal) => {
       setIsLoading(true);
@@ -112,6 +152,92 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
     [apiUrl],
   );
 
+  const loadAgentLatest = useCallback(
+    async (signal?: AbortSignal) => {
+      if (
+        process.env.NEXT_PUBLIC_USE_MOCK === "true" ||
+        !resolvedAgentLatestUrl
+      ) {
+        setAgentRun(null);
+        return;
+      }
+
+      setIsAgentLoading(true);
+      setAgentError(null);
+
+      try {
+        const response = await fetch(resolvedAgentLatestUrl, {
+          credentials: "include",
+          signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load A1 campaign brief.");
+        }
+
+        const latestRun = (await response.json()) as A1AgentLatestResponse;
+
+        if (!signal?.aborted) {
+          setAgentRun(latestRun);
+        }
+      } catch (caughtError) {
+        if (!signal?.aborted) {
+          setAgentError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Unable to load A1 campaign brief.",
+          );
+        }
+      } finally {
+        if (!signal?.aborted) {
+          setIsAgentLoading(false);
+        }
+      }
+    },
+    [resolvedAgentLatestUrl],
+  );
+
+  const handleRunAgain = useCallback(async () => {
+    if (!resolvedAgentRerunUrl) {
+      setRerunStatus("Run again endpoint is not configured.");
+      return;
+    }
+
+    setIsRerunning(true);
+    setRerunStatus(null);
+
+    try {
+      const response = await fetch(resolvedAgentRerunUrl, {
+        body: JSON.stringify({
+          reason: "manual_dashboard_rerun",
+          requested_by: "dashboard",
+        }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to queue A1 campaign brief.");
+      }
+
+      setRerunStatus("Run queued. Waiting for n8n output.");
+      window.setTimeout(() => {
+        void loadAgentLatest();
+      }, 3000);
+    } catch (caughtError) {
+      setRerunStatus(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to queue A1 campaign brief.",
+      );
+    } finally {
+      setIsRerunning(false);
+    }
+  }, [loadAgentLatest, resolvedAgentRerunUrl]);
+
   const stateChartData = (data?.stateCompletionRows ?? []).map((row) => ({
     ...row,
     completionPct: row.slGoal && row.slGoal > 0 ? row.sl / row.slGoal : 0,
@@ -130,6 +256,21 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
 
     return () => controller.abort();
   }, [loadCampaignsDashboard]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadAgentLatest(controller.signal);
+
+    const interval = window.setInterval(() => {
+      void loadAgentLatest();
+    }, 30000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [loadAgentLatest]);
 
   useEffect(() => {
     if (!detailModal) {
@@ -205,6 +346,15 @@ export function CampaignsPage({ apiUrl }: { apiUrl?: string }) {
             campaignNames={data.alert.campaignNames}
             cplLimit={cplLimit}
             message={data.alert.message}
+          />
+          <AgentBriefPanel
+            error={agentError}
+            isLoading={isAgentLoading}
+            isRerunning={isRerunning}
+            latestRun={agentRun}
+            onRefresh={() => void loadAgentLatest()}
+            onRunAgain={resolvedAgentRerunUrl ? handleRunAgain : undefined}
+            rerunStatus={rerunStatus}
           />
           <section className="grid gap-3 md:grid-cols-3">
             {data.scorecards.map((scorecard) => (

@@ -5,6 +5,8 @@ export default function MarketingDashboardCampaigns() {
   return (
     <AuthGate>
       <CampaignsPage
+        agentLatestUrl={process.env.NEXT_PUBLIC_A1_AGENT_LATEST_URL}
+        agentRerunUrl={process.env.NEXT_PUBLIC_A1_AGENT_RERUN_URL}
         apiUrl={
           process.env.NEXT_PUBLIC_CAMPAIGNS_DASHBOARD_API_URL ??
           deriveCampaignsApiUrl(process.env.NEXT_PUBLIC_DASHBOARD_API_URL)

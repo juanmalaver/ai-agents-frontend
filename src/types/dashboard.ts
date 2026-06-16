@@ -1,8 +1,6 @@
 export interface DashboardPageProps {
   apiUrl?: string;
   activeTab?: DashboardTabId;
-  agentLatestUrl?: string;
-  agentRerunUrl?: string;
 }
 
 export interface DashboardPageState {
@@ -194,7 +192,9 @@ export interface A1AgentFleetSummary {
   total_spend?: number | null;
   total_leads?: number | null;
   total_signed?: number | null;
+  total_qualified?: number | null;
   fleet_cpl?: number | null;
+  fleet_cpsl?: number | null;
   fleet_signed_rate?: number | null;
   fleet_qualify_rate?: number | null;
   mom_summary?: string;

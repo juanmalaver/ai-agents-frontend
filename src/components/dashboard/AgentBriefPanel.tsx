@@ -1,4 +1,8 @@
-import type { A1AgentLatestResponse } from "@/src/types/dashboard";
+import type {
+  A1AgentLatestResponse,
+  A1AgentOutput,
+  A1DashboardAgentPayload,
+} from "@/src/types/dashboard";
 import {
   formatCurrency,
   formatNumber,
@@ -15,6 +19,14 @@ interface AgentBriefPanelProps {
   rerunStatus: string | null;
 }
 
+interface BriefListItem {
+  detail?: string;
+  meta?: string;
+  title: string;
+}
+
+type MetricTone = "critical" | "healthy" | "neutral" | "watch";
+
 export function AgentBriefPanel({
   error,
   isLoading,
@@ -25,32 +37,55 @@ export function AgentBriefPanel({
   rerunStatus,
 }: AgentBriefPanelProps) {
   const payload = latestRun?.payload ?? null;
-  const agentOutput = payload?.agent_output ?? null;
+  const agentOutput = payload ? resolveAgentOutput(payload) : null;
   const fleetSummary = agentOutput?.fleet_summary ?? null;
-  const health =
-    fleetSummary?.overall_health ?? payload?.summary?.overall_health;
+  const summary = payload?.summary ?? null;
+  const health = fleetSummary?.overall_health ?? summary?.overall_health;
+  const topCampaigns = agentOutput?.top_campaigns ?? [];
+  const underperformers = agentOutput?.underperformers ?? [];
   const anomalies = agentOutput?.anomalies ?? [];
   const recommendations = agentOutput?.recommendations ?? [];
+  const dataQualityNotes =
+    agentOutput?.data_quality_notes ?? getDataQualityWarnings(payload);
+  const anomalyCount =
+    anomalies.length > 0 ? anomalies.length : summary?.anomaly_count;
+  const hasBriefContent =
+    Boolean(agentOutput?.summary) ||
+    topCampaigns.length > 0 ||
+    underperformers.length > 0 ||
+    anomalies.length > 0 ||
+    recommendations.length > 0;
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-            A1 Agent Brief
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+              A1 Campaign Brief
+            </p>
+            {latestRun?.generated_at ? (
+              <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                {formatTimestamp(latestRun.generated_at)}
+              </span>
+            ) : null}
+          </div>
+          <h2 className="mt-2 text-lg font-semibold text-slate-950">
             {agentOutput?.report_date
-              ? `Daily performance brief — ${agentOutput.report_date}`
-              : "Daily performance brief"}
+              ? `Campaign performance review for ${agentOutput.report_date}`
+              : "Campaign performance review"}
           </h2>
           {agentOutput?.summary ? (
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+            <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
               {agentOutput.summary}
             </p>
           ) : (
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {isLoading ? "Loading A1 brief..." : "No A1 brief received yet."}
+              {isLoading
+                ? "Loading A1 campaign brief..."
+                : latestRun?.status === "success"
+                  ? "A1 output was received, but no readable brief is available yet."
+                  : "No A1 campaign brief received yet."}
             </p>
           )}
           {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
@@ -58,9 +93,10 @@ export function AgentBriefPanel({
             <p className="mt-2 text-sm text-slate-500">{rerunStatus}</p>
           ) : null}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isLoading}
             onClick={onRefresh}
             type="button"
           >
@@ -79,52 +115,108 @@ export function AgentBriefPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <BriefMetric
           label="Health"
           tone={healthTone(health)}
           value={health ?? "-"}
         />
         <BriefMetric
-          label="Fleet CPL"
-          value={formatCurrency(fleetSummary?.fleet_cpl)}
+          label="Leads"
+          value={formatNumber(
+            fleetSummary?.total_leads ?? summary?.total_leads,
+          )}
+        />
+        <BriefMetric
+          label="Signed"
+          value={formatNumber(
+            fleetSummary?.total_signed ?? summary?.total_signed,
+          )}
         />
         <BriefMetric
           label="Signed rate"
           value={formatPercentage(fleetSummary?.fleet_signed_rate)}
         />
         <BriefMetric
-          label="Signed"
-          value={formatNumber(fleetSummary?.total_signed)}
+          label="Fleet CPL"
+          value={formatCurrency(fleetSummary?.fleet_cpl ?? summary?.fleet_cpl)}
         />
-        <BriefMetric label="Anomalies" value={formatNumber(anomalies.length)} />
+        <BriefMetric
+          label="Fleet CPSL"
+          value={formatCurrency(fleetSummary?.fleet_cpsl)}
+        />
       </div>
 
-      {anomalies.length || recommendations.length ? (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      {dataQualityNotes.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <h3 className="text-sm font-semibold text-amber-950">
+            Data quality notes
+          </h3>
+          <ul className="mt-2 space-y-1 text-sm leading-5 text-amber-900">
+            {dataQualityNotes.slice(0, 4).map((note, index) => (
+              <li key={`${note}-${index}`}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {hasBriefContent ? (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
           <BriefList
-            emptyLabel="No anomalies returned."
-            items={anomalies.slice(0, 4).map((item) => ({
-              detail: item.recommended_action,
-              title: [item.campaign_name, item.anomaly_type]
-                .filter(Boolean)
-                .join(" — "),
+            emptyLabel="No top campaigns returned."
+            items={topCampaigns.slice(0, 5).map((item) => ({
+              detail: item.why_top,
+              meta: compactMeta([
+                item.brand,
+                item.channel,
+                formatOptionalCurrency(item.cpl),
+                formatOptionalPercentage(item.signed_rate),
+              ]),
+              title: item.campaign_name || "Unnamed campaign",
             }))}
-            title="Anomalies"
+            title="Top campaigns"
           />
           <BriefList
-            emptyLabel="No recommendations returned."
-            items={recommendations.slice(0, 4).map((item) => ({
+            emptyLabel="No priority recommendations returned."
+            items={recommendations.slice(0, 5).map((item) => ({
               detail: item.rationale,
-              title: [
+              meta: compactMeta([
                 item.priority ? `P${item.priority}` : null,
-                item.campaign_name,
-                item.action,
-              ]
+                item.brand,
+                item.channel,
+                item.requires_approval ? "Approval needed" : null,
+              ]),
+              title: [item.campaign_name, item.action]
                 .filter(Boolean)
-                .join(" — "),
+                .join(" - "),
             }))}
-            title="Recommendations"
+            title="Priority recommendations"
+          />
+          <BriefList
+            emptyLabel="No underperformers returned."
+            items={underperformers.slice(0, 5).map((item) => ({
+              detail: item.detail,
+              meta: compactMeta([
+                item.brand,
+                item.channel,
+                formatIssue(item.issue),
+              ]),
+              title: item.campaign_name || "Unnamed campaign",
+            }))}
+            title="Underperformers"
+          />
+          <BriefList
+            emptyLabel="No anomalies returned."
+            items={anomalies.slice(0, 5).map((item) => ({
+              detail: item.recommended_action,
+              meta: compactMeta([
+                item.brand,
+                item.channel,
+                formatIssue(item.anomaly_type),
+              ]),
+              title: item.campaign_name || "Unnamed campaign",
+            }))}
+            title={`Anomalies (${formatNumber(anomalyCount)})`}
           />
         </div>
       ) : null}
@@ -138,14 +230,14 @@ function BriefMetric({
   value,
 }: {
   label: string;
-  tone?: "critical" | "healthy" | "neutral" | "watch";
+  tone?: MetricTone;
   value: string | number;
 }) {
   const toneClass =
     tone === "critical"
       ? "border-rose-200 bg-rose-50 text-rose-950"
       : tone === "healthy"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+        ? "border-teal-200 bg-teal-50 text-teal-950"
         : tone === "watch"
           ? "border-amber-200 bg-amber-50 text-amber-950"
           : "border-slate-200 bg-slate-50 text-slate-950";
@@ -166,19 +258,28 @@ function BriefList({
   title,
 }: {
   emptyLabel: string;
-  items: Array<{ detail?: string; title: string }>;
+  items: BriefListItem[];
   title: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
+    <div className="rounded-lg border border-slate-200 p-4">
       <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
       {items.length ? (
-        <ul className="mt-3 space-y-3">
+        <ul className="mt-3 divide-y divide-slate-200">
           {items.map((item, index) => (
-            <li className="text-sm" key={`${title}-${index}`}>
-              <p className="font-medium text-slate-800">{item.title || "-"}</p>
+            <li className="py-3 first:pt-0 last:pb-0" key={`${title}-${index}`}>
+              <p className="text-sm font-semibold text-slate-900">
+                {item.title || "-"}
+              </p>
+              {item.meta ? (
+                <p className="mt-1 text-xs font-medium uppercase tracking-normal text-slate-500">
+                  {item.meta}
+                </p>
+              ) : null}
               {item.detail ? (
-                <p className="mt-1 leading-5 text-slate-600">{item.detail}</p>
+                <p className="mt-1 text-sm leading-5 text-slate-600">
+                  {item.detail}
+                </p>
               ) : null}
             </li>
           ))}
@@ -190,9 +291,81 @@ function BriefList({
   );
 }
 
-function healthTone(
-  value: string | null | undefined,
-): "critical" | "healthy" | "neutral" | "watch" {
+function resolveAgentOutput(
+  payload: A1DashboardAgentPayload,
+): A1AgentOutput | null {
+  if (payload.agent_output) {
+    return payload.agent_output;
+  }
+
+  const rawOutput = payload.raw_agent_output?.output;
+
+  if (typeof rawOutput !== "string") {
+    return null;
+  }
+
+  const jsonText =
+    rawOutput.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? rawOutput;
+
+  try {
+    const parsed = JSON.parse(jsonText);
+
+    return isRecord(parsed) ? (parsed as A1AgentOutput) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getDataQualityWarnings(
+  payload: A1DashboardAgentPayload | null,
+): string[] {
+  const crmOutput = payload?.crm_output;
+  const dataQuality = isRecord(crmOutput)
+    ? crmOutput.data_quality
+    : undefined;
+  const warnings = isRecord(dataQuality) ? dataQuality.warnings : undefined;
+
+  return Array.isArray(warnings)
+    ? warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+}
+
+function formatIssue(value: string | null | undefined): string | null {
+  return value ? value.replace(/_/g, " ") : null;
+}
+
+function compactMeta(items: Array<string | null | undefined>): string {
+  return items.filter(Boolean).join(" / ");
+}
+
+function formatOptionalCurrency(value: number | null | undefined): string | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? formatCurrency(value)
+    : null;
+}
+
+function formatOptionalPercentage(
+  value: number | null | undefined,
+): string | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? formatPercentage(value)
+    : null;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function healthTone(value: string | null | undefined): MetricTone {
   if (!value) {
     return "neutral";
   }
@@ -212,4 +385,8 @@ function healthTone(
   }
 
   return "neutral";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -69,6 +69,42 @@ export function resolveCampaignsDashboardApiUrl({
     : `${trimmed}/marketing-dashboard/campaigns`;
 }
 
+export function resolveAgentEndpointUrl({
+  action,
+  dashboardApiUrl,
+  explicitAgentUrl,
+}: {
+  action: "latest" | "rerun";
+  dashboardApiUrl?: string | null;
+  explicitAgentUrl?: string | null;
+}): string | undefined {
+  const explicit = explicitAgentUrl?.trim();
+
+  if (explicit) {
+    return explicit;
+  }
+
+  const dashboardUrl = resolveDashboardApiUrl(dashboardApiUrl);
+
+  if (!dashboardUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(dashboardUrl);
+    return `${url.origin}/api/agents/a1-kcars-performance-agent/${action}`;
+  } catch {
+    const trimmed = dashboardUrl.replace(/\/+$/, "");
+    const base = trimmed.endsWith("/marketing-dashboard/campaigns")
+      ? trimmed.slice(0, -"/marketing-dashboard/campaigns".length)
+      : trimmed.endsWith("/marketing-dashboard")
+      ? trimmed.slice(0, -"/marketing-dashboard".length)
+      : trimmed;
+
+    return `${base}/api/agents/a1-kcars-performance-agent/${action}`;
+  }
+}
+
 function normalizeAuthBaseUrl(value: string): string {
   const normalized = value.replace(/\/+$/, "");
 
