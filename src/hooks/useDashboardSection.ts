@@ -86,6 +86,7 @@ export function useDashboardSection<TResponse, TData = TResponse>({
     async function loadSection() {
       try {
         const apiResponse = await fetch(url as string, {
+          cache: "no-store",
           credentials: "include",
           signal: controller.signal,
         });
