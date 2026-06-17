@@ -16,12 +16,15 @@ import {
   YAxis,
 } from "recharts";
 import { campaignsMock } from "@/src/mocks/campaignsMock";
+import { useDashboardSection } from "@/src/hooks/useDashboardSection";
 import type {
   CampaignInsight,
   CampaignLeadTrendRow,
   CampaignResultRow,
   CampaignScorecard,
-  CampaignsDashboardApiResponse,
+  CampaignsLowerDetailSection,
+  CampaignsResultsSection,
+  CampaignsSummarySection,
   CampaignSpendRow,
   CampaignStateCompletionRow,
   CampaignStateSnapshotRow,
@@ -35,7 +38,7 @@ import {
 } from "@/src/utils/dashboardFormatters";
 import {
   resolveAgentEndpointUrl,
-  resolveCampaignsDashboardApiUrl,
+  resolveCampaignsDashboardSectionApiUrl,
 } from "@/src/utils/runtimeApiUrls";
 import { AgentBriefPanel } from "./AgentBriefPanel";
 import { DashboardHeader } from "./DashboardHeader";
@@ -67,10 +70,7 @@ export function CampaignsPage({
   apiUrl,
 }: CampaignsPageProps) {
   const [chartsReady, setChartsReady] = useState(false);
-  const [data, setData] = useState<CampaignsDashboardApiResponse | null>(null);
   const [detailModal, setDetailModal] = useState<CampaignDetailModalView>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [agentRun, setAgentRun] = useState<A1AgentLatestResponse | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isAgentLoading, setIsAgentLoading] = useState(false);
@@ -95,62 +95,108 @@ export function CampaignsPage({
       }),
     [agentRerunUrl, apiUrl],
   );
-
-  const loadCampaignsDashboard = useCallback(
-    async (signal?: AbortSignal) => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const useMock = process.env.NEXT_PUBLIC_USE_MOCK === "true";
-        let response: CampaignsDashboardApiResponse;
-
-        if (useMock) {
-          response = campaignsMock;
-        } else {
-          const resolvedApiUrl = resolveCampaignsDashboardApiUrl({
-            dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-            explicitCampaignsApiUrl: apiUrl,
-          });
-
-          if (!resolvedApiUrl) {
-            throw new Error(
-              "Campaigns API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
-            );
-          }
-
-          const apiResponse = await fetch(resolvedApiUrl, {
-            credentials: "include",
-            signal,
-          });
-
-          if (!apiResponse.ok) {
-            throw new Error("Unable to load campaigns dashboard data.");
-          }
-
-          response = (await apiResponse.json()) as CampaignsDashboardApiResponse;
-        }
-
-        if (!signal?.aborted) {
-          setData(response);
-        }
-      } catch (caughtError) {
-        if (!signal?.aborted) {
-          setData(null);
-          setError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Unable to load campaigns dashboard data.",
-          );
-        }
-      } finally {
-        if (!signal?.aborted) {
-          setIsLoading(false);
-        }
-      }
-    },
+  const summaryUrl = useMemo(
+    () =>
+      resolveCampaignsDashboardSectionApiUrl({
+        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+        explicitCampaignsApiUrl: apiUrl,
+        section: "summary",
+      }),
     [apiUrl],
   );
+  const stateCompletionUrl = useMemo(
+    () =>
+      resolveCampaignsDashboardSectionApiUrl({
+        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+        explicitCampaignsApiUrl: apiUrl,
+        section: "state-completion",
+      }),
+    [apiUrl],
+  );
+  const leadBehaviorUrl = useMemo(
+    () =>
+      resolveCampaignsDashboardSectionApiUrl({
+        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+        explicitCampaignsApiUrl: apiUrl,
+        section: "lead-behavior",
+      }),
+    [apiUrl],
+  );
+  const resultsUrl = useMemo(
+    () =>
+      resolveCampaignsDashboardSectionApiUrl({
+        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+        explicitCampaignsApiUrl: apiUrl,
+        section: "results",
+      }),
+    [apiUrl],
+  );
+  const lowerDetailUrl = useMemo(
+    () =>
+      resolveCampaignsDashboardSectionApiUrl({
+        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+        explicitCampaignsApiUrl: apiUrl,
+        section: "lower-detail",
+      }),
+    [apiUrl],
+  );
+  const mockSummary = useMemo<CampaignsSummarySection>(
+    () => ({
+      alert: campaignsMock.alert,
+      lowestPerformer: campaignsMock.lowestPerformer,
+      scorecards: campaignsMock.scorecards,
+      topPerformer: campaignsMock.topPerformer,
+    }),
+    [],
+  );
+  const mockResults = useMemo<CampaignsResultsSection>(
+    () => ({
+      campaignRows: campaignsMock.campaignRows,
+      cplLimit: campaignsMock.alert.cplLimit,
+    }),
+    [],
+  );
+  const mockLowerDetail = useMemo<CampaignsLowerDetailSection>(
+    () => ({
+      cplLimit: campaignsMock.alert.cplLimit,
+      lowerSnapshotRows: campaignsMock.lowerSnapshotRows,
+      spendRows: campaignsMock.spendRows,
+      statusDistributionRows: campaignsMock.statusDistributionRows,
+    }),
+    [],
+  );
+  const summarySection = useDashboardSection<CampaignsSummarySection>({
+    errorMessage: "Unable to load campaign summary.",
+    mockData: mockSummary,
+    mockGeneratedAt: campaignsMock.generatedAt,
+    url: summaryUrl,
+  });
+  const stateCompletionSection = useDashboardSection<
+    CampaignStateCompletionRow[]
+  >({
+    errorMessage: "Unable to load state completion.",
+    mockData: campaignsMock.stateCompletionRows,
+    mockGeneratedAt: campaignsMock.generatedAt,
+    url: stateCompletionUrl,
+  });
+  const leadBehaviorSection = useDashboardSection<CampaignLeadTrendRow[]>({
+    errorMessage: "Unable to load lead behaviour trends.",
+    mockData: campaignsMock.leadTrendRows,
+    mockGeneratedAt: campaignsMock.generatedAt,
+    url: leadBehaviorUrl,
+  });
+  const resultsSection = useDashboardSection<CampaignsResultsSection>({
+    errorMessage: "Unable to load campaign results.",
+    mockData: mockResults,
+    mockGeneratedAt: campaignsMock.generatedAt,
+    url: resultsUrl,
+  });
+  const lowerDetailSection = useDashboardSection<CampaignsLowerDetailSection>({
+    errorMessage: "Unable to load lower campaign detail.",
+    mockData: mockLowerDetail,
+    mockGeneratedAt: campaignsMock.generatedAt,
+    url: lowerDetailUrl,
+  });
 
   const loadAgentLatest = useCallback(
     async (signal?: AbortSignal) => {
@@ -238,24 +284,27 @@ export function CampaignsPage({
     }
   }, [loadAgentLatest, resolvedAgentRerunUrl]);
 
-  const stateChartData = (data?.stateCompletionRows ?? []).map((row) => ({
+  const stateChartData = (stateCompletionSection.data ?? []).map((row) => ({
     ...row,
     completionPct: row.slGoal && row.slGoal > 0 ? row.sl / row.slGoal : 0,
   }));
   const visibleStateChartData = stateChartData.filter(hasStateCompletionData);
-  const cplLimit = data?.alert.cplLimit ?? 250;
+  const cplLimit =
+    resultsSection.data?.cplLimit ??
+    lowerDetailSection.data?.cplLimit ??
+    summarySection.data?.alert.cplLimit ??
+    250;
+  const lastUpdated = formatLatestGeneratedAt([
+    summarySection.generatedAt,
+    stateCompletionSection.generatedAt,
+    leadBehaviorSection.generatedAt,
+    resultsSection.generatedAt,
+    lowerDetailSection.generatedAt,
+  ]);
 
   useEffect(() => {
     setChartsReady(true);
   }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    void loadCampaignsDashboard(controller.signal);
-
-    return () => controller.abort();
-  }, [loadCampaignsDashboard]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -288,65 +337,38 @@ export function CampaignsPage({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [detailModal]);
 
-  if (isLoading) {
-    return (
-      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
-          <DashboardHeader
-            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
-            title="Campaign Overview"
-          />
-          <DashboardTabs activeTab="campaigns" />
-          <CampaignLoadingState />
-        </div>
-      </main>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
-          <DashboardHeader
-            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
-            title="Campaign Overview"
-          />
-          <DashboardTabs activeTab="campaigns" />
-          <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-rose-800">
-              Campaign data could not be loaded
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {error ?? "Unable to load campaigns dashboard data."}
-            </p>
-            <button
-              className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-              onClick={() => void loadCampaignsDashboard()}
-              type="button"
-            >
-              Retry
-            </button>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <>
       <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5">
           <DashboardHeader
-            lastUpdated={formatGeneratedAt(data.generatedAt)}
+            lastUpdated={lastUpdated}
             subtitle="Campaign-level pacing, CPL risk, and lead behavior."
             title="Campaign Overview"
           />
           <DashboardTabs activeTab="campaigns" />
-          <CampaignAlert
-            campaignNames={data.alert.campaignNames}
-            cplLimit={cplLimit}
-            message={data.alert.message}
+          <CampaignSectionStatus
+            error={summarySection.data ? summarySection.error : null}
+            isRefreshing={summarySection.isRefreshing}
+            onRetry={summarySection.retry}
           />
+          {summarySection.data ? (
+            <CampaignAlert
+              campaignNames={summarySection.data.alert.campaignNames}
+              cplLimit={cplLimit}
+              message={summarySection.data.alert.message}
+            />
+          ) : summarySection.isLoading ? (
+            <CampaignPanelSkeleton className="h-20" />
+          ) : (
+            <CampaignSectionError
+              message={
+                summarySection.error ?? "Unable to load campaign summary."
+              }
+              onRetry={summarySection.retry}
+              title="Campaign summary could not be loaded"
+            />
+          )}
           <AgentBriefPanel
             error={agentError}
             isLoading={isAgentLoading}
@@ -356,47 +378,138 @@ export function CampaignsPage({
             onRunAgain={resolvedAgentRerunUrl ? handleRunAgain : undefined}
             rerunStatus={rerunStatus}
           />
-          <section className="grid gap-3 md:grid-cols-3">
-            {data.scorecards.map((scorecard) => (
-              <CampaignScorecardItem
-                key={scorecard.id}
-                scorecard={scorecard}
-              />
-            ))}
-          </section>
+          {summarySection.data ? (
+            <section className="grid gap-3 md:grid-cols-3">
+              {summarySection.data.scorecards.map((scorecard) => (
+                <CampaignScorecardItem
+                  key={scorecard.id}
+                  scorecard={scorecard}
+                />
+              ))}
+            </section>
+          ) : summarySection.isLoading ? (
+            <CampaignScorecardSkeletonGrid />
+          ) : null}
           <section className="grid gap-5">
-            <StateCompletionPanel
-              chartsReady={chartsReady}
-              onViewMore={() => setDetailModal("states")}
-              rows={visibleStateChartData}
-              totalRows={stateChartData.length}
+            <CampaignSectionStatus
+              error={
+                stateCompletionSection.data
+                  ? stateCompletionSection.error
+                  : null
+              }
+              isRefreshing={stateCompletionSection.isRefreshing}
+              onRetry={stateCompletionSection.retry}
             />
-            <LeadBehaviorPanel
-              chartsReady={chartsReady}
-              onViewMore={() => setDetailModal("campaigns")}
-              rows={data.leadTrendRows}
+            {stateCompletionSection.data ? (
+              <StateCompletionPanel
+                chartsReady={chartsReady}
+                onViewMore={() => setDetailModal("states")}
+                rows={visibleStateChartData}
+                totalRows={stateChartData.length}
+              />
+            ) : stateCompletionSection.isLoading ? (
+              <CampaignPanelSkeleton className="h-96" />
+            ) : (
+              <CampaignSectionError
+                message={
+                  stateCompletionSection.error ??
+                  "Unable to load state completion."
+                }
+                onRetry={stateCompletionSection.retry}
+                title="State completion could not be loaded"
+              />
+            )}
+            <CampaignSectionStatus
+              error={
+                leadBehaviorSection.data ? leadBehaviorSection.error : null
+              }
+              isRefreshing={leadBehaviorSection.isRefreshing}
+              onRetry={leadBehaviorSection.retry}
             />
+            {leadBehaviorSection.data ? (
+              <LeadBehaviorPanel
+                chartsReady={chartsReady}
+                onViewMore={() => setDetailModal("campaigns")}
+                rows={leadBehaviorSection.data}
+              />
+            ) : leadBehaviorSection.isLoading ? (
+              <CampaignPanelSkeleton className="h-96" />
+            ) : (
+              <CampaignSectionError
+                message={
+                  leadBehaviorSection.error ??
+                  "Unable to load lead behaviour trends."
+                }
+                onRetry={leadBehaviorSection.retry}
+                title="Lead behaviour could not be loaded"
+              />
+            )}
           </section>
-          <section className="grid gap-3 md:grid-cols-2">
-            <InsightCard insight={data.topPerformer} tone="positive" />
-            <InsightCard insight={data.lowestPerformer} tone="warning" />
-          </section>
-          <CampaignResultsTable
-            cplLimit={cplLimit}
-            rows={data.campaignRows}
+          {summarySection.data ? (
+            <section className="grid gap-3 md:grid-cols-2">
+              <InsightCard
+                insight={summarySection.data.topPerformer}
+                tone="positive"
+              />
+              <InsightCard
+                insight={summarySection.data.lowestPerformer}
+                tone="warning"
+              />
+            </section>
+          ) : summarySection.isLoading ? (
+            <CampaignInsightSkeletonGrid />
+          ) : null}
+          <CampaignSectionStatus
+            error={resultsSection.data ? resultsSection.error : null}
+            isRefreshing={resultsSection.isRefreshing}
+            onRetry={resultsSection.retry}
           />
-          <CampaignLowerDetailSection
-            chartsReady={chartsReady}
-            cplLimit={cplLimit}
-            snapshotRows={data.lowerSnapshotRows}
-            spendRows={data.spendRows}
-            statusDistributionRows={data.statusDistributionRows}
+          {resultsSection.data ? (
+            <CampaignResultsTable
+              cplLimit={resultsSection.data.cplLimit}
+              rows={resultsSection.data.campaignRows}
+            />
+          ) : resultsSection.isLoading ? (
+            <CampaignPanelSkeleton className="h-80" />
+          ) : (
+            <CampaignSectionError
+              message={resultsSection.error ?? "Unable to load campaign results."}
+              onRetry={resultsSection.retry}
+              title="Campaign results could not be loaded"
+            />
+          )}
+          <CampaignSectionStatus
+            error={lowerDetailSection.data ? lowerDetailSection.error : null}
+            isRefreshing={lowerDetailSection.isRefreshing}
+            onRetry={lowerDetailSection.retry}
           />
+          {lowerDetailSection.data ? (
+            <CampaignLowerDetailSection
+              chartsReady={chartsReady}
+              cplLimit={lowerDetailSection.data.cplLimit}
+              snapshotRows={lowerDetailSection.data.lowerSnapshotRows}
+              spendRows={lowerDetailSection.data.spendRows}
+              statusDistributionRows={
+                lowerDetailSection.data.statusDistributionRows
+              }
+            />
+          ) : lowerDetailSection.isLoading ? (
+            <CampaignLowerDetailSkeleton />
+          ) : (
+            <CampaignSectionError
+              message={
+                lowerDetailSection.error ??
+                "Unable to load lower campaign detail."
+              }
+              onRetry={lowerDetailSection.retry}
+              title="Lower detail could not be loaded"
+            />
+          )}
         </div>
       </main>
       <CampaignDetailModal
         chartsReady={chartsReady}
-        leadRows={data.leadTrendRows}
+        leadRows={leadBehaviorSection.data ?? []}
         onClose={() => setDetailModal(null)}
         stateRows={visibleStateChartData}
         view={detailModal}
@@ -405,24 +518,103 @@ export function CampaignsPage({
   );
 }
 
-function CampaignLoadingState() {
+function CampaignPanelSkeleton({ className = "h-80" }: { className?: string }) {
   return (
-    <>
-      <section className="h-20 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
-      <section className="grid gap-3 md:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div
-            className="h-36 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm"
-            key={index}
-          />
-        ))}
+    <section
+      className={`animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}
+    />
+  );
+}
+
+function CampaignScorecardSkeletonGrid() {
+  return (
+    <section className="grid gap-3 md:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <CampaignPanelSkeleton className="h-36" key={index} />
+      ))}
+    </section>
+  );
+}
+
+function CampaignInsightSkeletonGrid() {
+  return (
+    <section className="grid gap-3 md:grid-cols-2">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <CampaignPanelSkeleton className="h-36" key={index} />
+      ))}
+    </section>
+  );
+}
+
+function CampaignLowerDetailSkeleton() {
+  return (
+    <section className="grid gap-5">
+      <CampaignPanelSkeleton className="h-80" />
+      <CampaignPanelSkeleton className="h-28" />
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+        <CampaignPanelSkeleton className="h-96" />
+        <CampaignPanelSkeleton className="h-96" />
       </section>
-      <section className="grid gap-5">
-        <div className="h-96 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
-        <div className="h-96 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
-      </section>
-      <section className="h-80 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm" />
-    </>
+    </section>
+  );
+}
+
+function CampaignSectionStatus({
+  error,
+  isRefreshing,
+  onRetry,
+}: {
+  error: string | null;
+  isRefreshing: boolean;
+  onRetry: () => void;
+}) {
+  if (!error && !isRefreshing) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <p
+        className={
+          error ? "font-medium text-rose-700" : "font-medium text-slate-600"
+        }
+      >
+        {error ?? "Refreshing cached data..."}
+      </p>
+      {error ? (
+        <button
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          onClick={onRetry}
+          type="button"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function CampaignSectionError({
+  message,
+  onRetry,
+  title,
+}: {
+  message: string;
+  onRetry: () => void;
+  title: string;
+}) {
+  return (
+    <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-rose-800">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+      <button
+        className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+        onClick={onRetry}
+        type="button"
+      >
+        Retry
+      </button>
+    </section>
   );
 }
 
@@ -2035,6 +2227,28 @@ function formatGeneratedAt(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
+  const latest = values.reduce<Date | null>((currentLatest, value) => {
+    if (!value) {
+      return currentLatest;
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return currentLatest;
+    }
+
+    if (!currentLatest || date.getTime() > currentLatest.getTime()) {
+      return date;
+    }
+
+    return currentLatest;
+  }, null);
+
+  return latest ? formatGeneratedAt(latest.toISOString()) : undefined;
 }
 
 function safeRatio(

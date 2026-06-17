@@ -44,6 +44,20 @@ export interface CampaignDashboardApiResponse {
   stateCampaigns: CampaignStateRow[];
 }
 
+export type DashboardSectionCacheStatus = "fresh" | "stale";
+
+export interface DashboardSectionCacheMetadata {
+  status: DashboardSectionCacheStatus;
+  refreshedAt: string | null;
+  expiresAt: string | null;
+}
+
+export interface DashboardSectionResponse<T> {
+  cache: DashboardSectionCacheMetadata;
+  data: T;
+  generatedAt: string;
+}
+
 export interface AggregatedKpis {
   finalCpl: number | null;
   cpsl: number | null;

@@ -14,6 +14,25 @@ export interface CampaignsDashboardApiResponse {
 
 export type CampaignsDashboardMock = CampaignsDashboardApiResponse;
 
+export interface CampaignsSummarySection {
+  alert: CampaignAlert;
+  lowestPerformer: CampaignInsight;
+  scorecards: CampaignScorecard[];
+  topPerformer: CampaignInsight;
+}
+
+export interface CampaignsResultsSection {
+  campaignRows: CampaignResultRow[];
+  cplLimit: number;
+}
+
+export interface CampaignsLowerDetailSection {
+  cplLimit: number;
+  lowerSnapshotRows: CampaignStateSnapshotRow[];
+  spendRows: CampaignSpendRow[];
+  statusDistributionRows: CampaignStatusDistributionRow[];
+}
+
 export interface CampaignAlert {
   campaignNames: string[];
   cplLimit: number;

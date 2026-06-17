@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useDashboardSection } from "@/src/hooks/useDashboardSection";
 import { dashboardMock } from "@/src/mocks/dashboardMock";
 import type {
   AggregatedKpis,
-  CampaignDashboardApiResponse,
   CampaignStateRow,
   DashboardPageProps,
   KpiCardData,
@@ -12,7 +12,7 @@ import type {
   MonthlyCampaignPerformance,
 } from "@/src/types/dashboard";
 import { safeDivide } from "@/src/utils/dashboardFormatters";
-import { resolveDashboardApiUrl } from "@/src/utils/runtimeApiUrls";
+import { resolveDashboardSectionApiUrl } from "@/src/utils/runtimeApiUrls";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
@@ -26,151 +26,143 @@ export function DashboardPage({
   activeTab,
   apiUrl,
 }: DashboardPageProps) {
-  const [data, setData] = useState<CampaignDashboardApiResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadDashboard = useCallback(
-    async (signal?: AbortSignal) => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const useMock = process.env.NEXT_PUBLIC_USE_MOCK === "true";
-        let response: CampaignDashboardApiResponse;
-
-        if (useMock) {
-          response = dashboardMock;
-        } else {
-          const resolvedApiUrl = resolveDashboardApiUrl(apiUrl);
-
-          if (!resolvedApiUrl) {
-            throw new Error(
-              "Dashboard API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
-            );
-          }
-
-          const apiResponse = await fetch(resolvedApiUrl, {
-            credentials: "include",
-            signal,
-          });
-
-          if (!apiResponse.ok) {
-            throw new Error("Unable to load dashboard data.");
-          }
-
-          response = (await apiResponse.json()) as CampaignDashboardApiResponse;
-        }
-
-        if (!signal?.aborted) {
-          setData(normalizeDashboardData(response));
-        }
-      } catch (caughtError) {
-        if (!signal?.aborted) {
-          setData(null);
-          setError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Unable to load dashboard data.",
-          );
-        }
-      } finally {
-        if (!signal?.aborted) {
-          setIsLoading(false);
-        }
-      }
-    },
+  const kpisUrl = useMemo(
+    () => resolveDashboardSectionApiUrl("kpis", apiUrl),
     [apiUrl],
   );
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    void loadDashboard(controller.signal);
-
-    return () => controller.abort();
-  }, [loadDashboard]);
+  const monthlyPerformanceUrl = useMemo(
+    () => resolveDashboardSectionApiUrl("monthly-performance", apiUrl),
+    [apiUrl],
+  );
+  const stateCampaignsUrl = useMemo(
+    () => resolveDashboardSectionApiUrl("state-campaigns", apiUrl),
+    [apiUrl],
+  );
+  const mockKpis = useMemo(
+    () => normalizeAggregatedKpis(dashboardMock.aggregatedKpis),
+    [],
+  );
+  const mockMonthlyPerformance = useMemo(
+    () => dashboardMock.monthlyPerformance.map(normalizeMonthlyPerformance),
+    [],
+  );
+  const mockStateCampaigns = useMemo(
+    () => dashboardMock.stateCampaigns.map(normalizeStateCampaignRow),
+    [],
+  );
+  const kpisSection = useDashboardSection<AggregatedKpis>({
+    errorMessage: "Unable to load KPI cards.",
+    mockData: mockKpis,
+    mockGeneratedAt: dashboardMock.generatedAt,
+    normalize: normalizeAggregatedKpis,
+    url: kpisUrl,
+  });
+  const monthlyPerformanceSection = useDashboardSection<
+    MonthlyCampaignPerformance[]
+  >({
+    errorMessage: "Unable to load monthly performance.",
+    mockData: mockMonthlyPerformance,
+    mockGeneratedAt: dashboardMock.generatedAt,
+    normalize: normalizeMonthlyPerformanceRows,
+    url: monthlyPerformanceUrl,
+  });
+  const stateCampaignsSection = useDashboardSection<CampaignStateRow[]>({
+    errorMessage: "Unable to load state campaign performance.",
+    mockData: mockStateCampaigns,
+    mockGeneratedAt: dashboardMock.generatedAt,
+    normalize: normalizeStateCampaignRows,
+    url: stateCampaignsUrl,
+  });
 
   const kpiCards = useMemo(
-    () => (data ? buildKpiCards(data.aggregatedKpis) : []),
-    [data],
+    () => (kpisSection.data ? buildKpiCards(kpisSection.data) : []),
+    [kpisSection.data],
   );
-
-  if (isLoading) {
-    return (
-      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
-          <DashboardHeader
-            subtitle={dashboardSubtitle}
-            title="Marketing Campaign Performance"
-          />
-          {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-          <BrandFilter />
-          <KpiSkeletonGrid />
-          <CampaignPerformanceChart data={[]} isLoading />
-          <TableSkeleton />
-        </div>
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
-          <DashboardHeader
-            subtitle={dashboardSubtitle}
-            title="Marketing Campaign Performance"
-          />
-          {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-          <BrandFilter />
-          <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-rose-800">
-              Dashboard data could not be loaded
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{error}</p>
-            <button
-              className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-              onClick={() => void loadDashboard()}
-              type="button"
-            >
-              Retry
-            </button>
-          </section>
-        </div>
-      </main>
-    );
-  }
+  const lastUpdated = useMemo(
+    () =>
+      formatLatestGeneratedAt([
+        kpisSection.generatedAt,
+        monthlyPerformanceSection.generatedAt,
+        stateCampaignsSection.generatedAt,
+      ]),
+    [
+      kpisSection.generatedAt,
+      monthlyPerformanceSection.generatedAt,
+      stateCampaignsSection.generatedAt,
+    ],
+  );
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
         <DashboardHeader
-          lastUpdated={data ? formatGeneratedAt(data.generatedAt) : undefined}
+          lastUpdated={lastUpdated}
           subtitle={dashboardSubtitle}
           title="Marketing Campaign Performance"
         />
         {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
         <BrandFilter />
-        <KpiCardsGrid items={kpiCards} />
-        <CampaignPerformanceChart data={data?.monthlyPerformance ?? []} />
-        <CampaignStateTable rows={data?.stateCampaigns ?? []} />
+        <SectionStatus
+          error={kpisSection.data ? kpisSection.error : null}
+          isRefreshing={kpisSection.isRefreshing}
+          onRetry={kpisSection.retry}
+        />
+        {kpisSection.data ? (
+          <KpiCardsGrid items={kpiCards} />
+        ) : kpisSection.isLoading ? (
+          <KpiSkeletonGrid />
+        ) : (
+          <SectionError
+            message={kpisSection.error ?? "Unable to load KPI cards."}
+            onRetry={kpisSection.retry}
+          />
+        )}
+        <SectionStatus
+          error={
+            monthlyPerformanceSection.data
+              ? monthlyPerformanceSection.error
+              : null
+          }
+          isRefreshing={monthlyPerformanceSection.isRefreshing}
+          onRetry={monthlyPerformanceSection.retry}
+        />
+        {monthlyPerformanceSection.error &&
+        !monthlyPerformanceSection.data &&
+        !monthlyPerformanceSection.isLoading ? (
+          <SectionError
+            message={monthlyPerformanceSection.error}
+            onRetry={monthlyPerformanceSection.retry}
+          />
+        ) : (
+          <CampaignPerformanceChart
+            data={monthlyPerformanceSection.data ?? []}
+            isLoading={
+              monthlyPerformanceSection.isLoading &&
+              !monthlyPerformanceSection.data
+            }
+          />
+        )}
+        <SectionStatus
+          error={stateCampaignsSection.data ? stateCampaignsSection.error : null}
+          isRefreshing={stateCampaignsSection.isRefreshing}
+          onRetry={stateCampaignsSection.retry}
+        />
+        {stateCampaignsSection.data ? (
+          <CampaignStateTable rows={stateCampaignsSection.data} />
+        ) : stateCampaignsSection.isLoading ? (
+          <TableSkeleton />
+        ) : (
+          <SectionError
+            message={
+              stateCampaignsSection.error ??
+              "Unable to load state campaign performance."
+            }
+            onRetry={stateCampaignsSection.retry}
+          />
+        )}
       </div>
     </main>
   );
-}
-
-function normalizeDashboardData(
-  response: CampaignDashboardApiResponse,
-): CampaignDashboardApiResponse {
-  return {
-    ...response,
-    aggregatedKpis: normalizeAggregatedKpis(response.aggregatedKpis),
-    monthlyPerformance: response.monthlyPerformance.map(
-      normalizeMonthlyPerformance,
-    ),
-    stateCampaigns: response.stateCampaigns.map(normalizeStateCampaignRow),
-  };
 }
 
 function normalizeAggregatedKpis(kpis: AggregatedKpis): AggregatedKpis {
@@ -183,6 +175,12 @@ function normalizeAggregatedKpis(kpis: AggregatedKpis): AggregatedKpis {
     mtdSpentPct: numberOrNull(kpis.mtdSpentPct),
     slGoalCompletionPct: numberOrNull(kpis.slGoalCompletionPct),
   };
+}
+
+function normalizeMonthlyPerformanceRows(
+  rows: MonthlyCampaignPerformance[],
+): MonthlyCampaignPerformance[] {
+  return rows.map(normalizeMonthlyPerformance);
 }
 
 function normalizeMonthlyPerformance(
@@ -223,6 +221,10 @@ function normalizeStateCampaignRow(row: CampaignStateRow): CampaignStateRow {
     slGoal,
     spentPct: numberOrNull(row.spentPct) ?? safeDivide(mtdSpent, budget),
   };
+}
+
+function normalizeStateCampaignRows(rows: CampaignStateRow[]): CampaignStateRow[] {
+  return rows.map(normalizeStateCampaignRow);
 }
 
 function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
@@ -326,6 +328,83 @@ function formatGeneratedAt(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
+  const latest = values.reduce<Date | null>((currentLatest, value) => {
+    if (!value) {
+      return currentLatest;
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return currentLatest;
+    }
+
+    if (!currentLatest || date.getTime() > currentLatest.getTime()) {
+      return date;
+    }
+
+    return currentLatest;
+  }, null);
+
+  return latest ? formatGeneratedAt(latest.toISOString()) : undefined;
+}
+
+function SectionStatus({
+  error,
+  isRefreshing,
+  onRetry,
+}: {
+  error: string | null;
+  isRefreshing: boolean;
+  onRetry: () => void;
+}) {
+  if (!error && !isRefreshing) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <p className={error ? "font-medium text-rose-700" : "font-medium text-slate-600"}>
+        {error ?? "Refreshing cached data..."}
+      </p>
+      {error ? (
+        <button
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          onClick={onRetry}
+          type="button"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SectionError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="rounded-lg border border-rose-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-rose-800">
+        Dashboard section could not be loaded
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+      <button
+        className="mt-4 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+        onClick={onRetry}
+        type="button"
+      >
+        Retry
+      </button>
+    </section>
+  );
 }
 
 function KpiSkeletonGrid() {

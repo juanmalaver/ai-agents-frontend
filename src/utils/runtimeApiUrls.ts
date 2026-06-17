@@ -69,6 +69,40 @@ export function resolveCampaignsDashboardApiUrl({
     : `${trimmed}/marketing-dashboard/campaigns`;
 }
 
+export function resolveDashboardSectionApiUrl(
+  section:
+    | "kpis"
+    | "monthly-performance"
+    | "state-campaigns",
+  explicitDashboardApiUrl?: string | null,
+): string | undefined {
+  const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
+
+  return appendSectionPath(dashboardUrl, `sections/${section}`);
+}
+
+export function resolveCampaignsDashboardSectionApiUrl({
+  dashboardApiUrl,
+  explicitCampaignsApiUrl,
+  section,
+}: {
+  dashboardApiUrl?: string | null;
+  explicitCampaignsApiUrl?: string | null;
+  section:
+    | "lead-behavior"
+    | "lower-detail"
+    | "results"
+    | "state-completion"
+    | "summary";
+}): string | undefined {
+  const campaignsUrl = resolveCampaignsDashboardApiUrl({
+    dashboardApiUrl,
+    explicitCampaignsApiUrl,
+  });
+
+  return appendSectionPath(campaignsUrl, `sections/${section}`);
+}
+
 export function resolveAgentEndpointUrl({
   action,
   dashboardApiUrl,
@@ -109,6 +143,17 @@ function normalizeAuthBaseUrl(value: string): string {
   const normalized = value.replace(/\/+$/, "");
 
   return normalized.endsWith("/auth") ? normalized : `${normalized}/auth`;
+}
+
+function appendSectionPath(
+  baseUrl: string | undefined,
+  sectionPath: string,
+): string | undefined {
+  if (!baseUrl) {
+    return undefined;
+  }
+
+  return `${baseUrl.replace(/\/+$/, "")}/${sectionPath}`;
 }
 
 function getRuntimeBackendOrigin(): string | null {
