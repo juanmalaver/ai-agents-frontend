@@ -181,7 +181,7 @@ function AuthLayout({
                 Sign in
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Use the Google account attached to your intake workspace.
+                Use your Google account to sign in.
               </p>
             </div>
 
