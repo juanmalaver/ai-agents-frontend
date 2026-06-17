@@ -52,6 +52,7 @@ export interface CampaignResultRow extends CampaignLeadTrendRow {
   activeMarketingStates: string;
   cpl: number | null;
   cpql: number | null;
+  cpsl: number | null;
   mql: number;
   qLeadsGoal: number | null;
   slGoal: number | null;

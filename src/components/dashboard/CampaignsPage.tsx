@@ -1329,7 +1329,7 @@ function CampaignResultsTable({
                 CPL
               </th>
               <th className="px-3 py-3 font-semibold" scope="col">
-                CPQL
+                CPSL
               </th>
               <th className="px-3 py-3 font-semibold" scope="col">
                 SL
@@ -1394,7 +1394,7 @@ function CampaignResultsTable({
                   {formatCurrency(row.cpl)}
                 </td>
                 <td className="px-3 py-3 font-semibold text-slate-950">
-                  {formatCurrency(row.cpql)}
+                  {formatCurrency(row.cpsl)}
                 </td>
                 <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.sl)}
@@ -1446,7 +1446,7 @@ function exportCampaignResultsCsv(rows: CampaignResultRow[]): void {
       "Active marketing states",
       "Spend (USD)",
       "CPL (USD)",
-      "CPQL (USD)",
+      "CPSL (USD)",
       "SL",
       "SL Goal",
       "Q. Leads Goal",
@@ -1462,7 +1462,7 @@ function exportCampaignResultsCsv(rows: CampaignResultRow[]): void {
       row.activeMarketingStates,
       row.spend,
       row.cpl,
-      row.cpql,
+      row.cpsl,
       row.sl,
       row.slGoal,
       row.qLeadsGoal,
@@ -1544,7 +1544,7 @@ function CampaignResultCard({
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <MetricItem label="Spend" value={formatCurrency(row.spend)} />
         <MetricItem label="CPL" value={formatCurrency(row.cpl)} />
-        <MetricItem label="CPQL" value={formatCurrency(row.cpql)} />
+        <MetricItem label="CPSL" value={formatCurrency(row.cpsl)} />
         <MetricItem label="SL" value={formatNumber(row.sl)} />
         <MetricItem label="SL Goal" value={formatNumber(row.slGoal)} />
         <MetricItem label="Q. Leads Goal" value={formatNumber(row.qLeadsGoal)} />
