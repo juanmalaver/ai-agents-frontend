@@ -33,6 +33,7 @@ import type {
 import type { A1AgentLatestResponse } from "@/src/types/dashboard";
 import {
   formatCurrency,
+  formatDashboardTimestamp,
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
@@ -2216,19 +2217,6 @@ function getStateCompletionColor(completionPct: number): string {
   return "#e11d48";
 }
 
-function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
   const latest = values.reduce<Date | null>((currentLatest, value) => {
     if (!value) {
@@ -2248,7 +2236,7 @@ function formatLatestGeneratedAt(values: Array<string | null>): string | undefin
     return currentLatest;
   }, null);
 
-  return latest ? formatGeneratedAt(latest.toISOString()) : undefined;
+  return latest ? formatDashboardTimestamp(latest.toISOString()) : undefined;
 }
 
 function safeRatio(

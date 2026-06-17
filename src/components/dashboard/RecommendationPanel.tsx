@@ -3,7 +3,10 @@ import type {
   RecommendationPanelViewModel,
   RecommendationPriority,
 } from "@/src/types/dashboard";
-import { formatPercentage } from "@/src/utils/dashboardFormatters";
+import {
+  formatDashboardTimestamp,
+  formatPercentage,
+} from "@/src/utils/dashboardFormatters";
 
 const priorityStyles: Record<RecommendationPriority, string> = {
   critical: "bg-rose-100 text-rose-800 ring-rose-200",
@@ -95,10 +98,7 @@ function toViewModel(
         ? undefined
         : formatPercentage(recommendation.confidenceScore),
     generatedAtLabel: recommendation.generatedAt
-      ? new Intl.DateTimeFormat("en-US", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(new Date(recommendation.generatedAt))
+      ? formatDashboardTimestamp(recommendation.generatedAt)
       : undefined,
     priorityLabel: recommendation.priority,
     rationale: recommendation.rationale,

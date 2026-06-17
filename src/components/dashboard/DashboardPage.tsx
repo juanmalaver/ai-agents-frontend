@@ -11,7 +11,10 @@ import type {
   MetricStatus,
   MonthlyCampaignPerformance,
 } from "@/src/types/dashboard";
-import { safeDivide } from "@/src/utils/dashboardFormatters";
+import {
+  formatDashboardTimestamp,
+  safeDivide,
+} from "@/src/utils/dashboardFormatters";
 import { resolveDashboardSectionApiUrl } from "@/src/utils/runtimeApiUrls";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
@@ -317,19 +320,6 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
   const latest = values.reduce<Date | null>((currentLatest, value) => {
     if (!value) {
@@ -349,7 +339,7 @@ function formatLatestGeneratedAt(values: Array<string | null>): string | undefin
     return currentLatest;
   }, null);
 
-  return latest ? formatGeneratedAt(latest.toISOString()) : undefined;
+  return latest ? formatDashboardTimestamp(latest.toISOString()) : undefined;
 }
 
 function SectionStatus({
