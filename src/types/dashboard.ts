@@ -3,6 +3,21 @@ export interface DashboardPageProps {
   activeTab?: DashboardTabId;
 }
 
+export interface MarketingDashboardBrand {
+  accountId: string | null;
+  id: string;
+  name: string | null;
+}
+
+export interface DashboardDateRange {
+  from: string | null;
+  to: string | null;
+}
+
+export interface DashboardQueryParams extends DashboardDateRange {
+  brand: string | null;
+}
+
 export interface DashboardPageState {
   data: CampaignDashboardApiResponse | null;
   isLoading: boolean;
@@ -133,7 +148,7 @@ export type MetricFormat = "currency" | "number" | "percentage";
 
 export type MetricStatus = "on-track" | "alert" | "critical" | "unavailable";
 
-export type DashboardTabId = "overview" | "campaigns";
+export type DashboardTabId = "overview" | "campaigns" | "health";
 
 export type RowHealth = "met" | "near" | "critical" | "neutral";
 
@@ -154,7 +169,6 @@ export interface RecommendationPanelViewModel {
 }
 
 export type NullableNumber = number | null | undefined;
-
 
 export interface A1AgentLatestResponse {
   agent_id: string;

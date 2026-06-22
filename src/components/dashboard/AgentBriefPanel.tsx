@@ -9,6 +9,7 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 interface AgentBriefPanelProps {
   error: string | null;
@@ -80,13 +81,16 @@ export function AgentBriefPanel({
             <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
               {agentOutput.summary}
             </p>
+          ) : isLoading ? (
+            <p className="mt-2 flex items-center gap-2 text-sm leading-6 text-slate-600">
+              <LoadingSpinner label="Loading A1 campaign brief" />
+              Loading A1 campaign brief...
+            </p>
           ) : (
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {isLoading
-                ? "Loading A1 campaign brief..."
-                : latestRun?.status === "success"
-                  ? "A1 output was received, but no readable brief is available yet."
-                  : "No A1 campaign brief received yet."}
+              {latestRun?.status === "success"
+                ? "A1 output was received, but no readable brief is available yet."
+                : "No A1 campaign brief received yet."}
             </p>
           )}
           {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
@@ -96,20 +100,32 @@ export function AgentBriefPanel({
         </div>
         <div className="flex shrink-0 gap-2">
           <button
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}
             onClick={onRefresh}
             type="button"
           >
-            Refresh
+            {isLoading ? (
+              <LoadingSpinner
+                className="h-3.5 w-3.5 text-slate-500"
+                label="Refreshing A1 campaign brief"
+              />
+            ) : null}
+            {isLoading ? "Refreshing" : "Refresh"}
           </button>
           {onRunAgain ? (
             <button
-              className="rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               disabled={isRerunning}
               onClick={onRunAgain}
               type="button"
             >
+              {isRerunning ? (
+                <LoadingSpinner
+                  className="h-3.5 w-3.5 text-white"
+                  label="Queueing A1 campaign brief"
+                />
+              ) : null}
               {isRerunning ? "Running..." : "Run again"}
             </button>
           ) : null}
@@ -321,13 +337,13 @@ function getDataQualityWarnings(
   payload: A1DashboardAgentPayload | null,
 ): string[] {
   const crmOutput = payload?.crm_output;
-  const dataQuality = isRecord(crmOutput)
-    ? crmOutput.data_quality
-    : undefined;
+  const dataQuality = isRecord(crmOutput) ? crmOutput.data_quality : undefined;
   const warnings = isRecord(dataQuality) ? dataQuality.warnings : undefined;
 
   return Array.isArray(warnings)
-    ? warnings.filter((warning): warning is string => typeof warning === "string")
+    ? warnings.filter(
+        (warning): warning is string => typeof warning === "string",
+      )
     : [];
 }
 
@@ -339,7 +355,9 @@ function compactMeta(items: Array<string | null | undefined>): string {
   return items.filter(Boolean).join(" / ");
 }
 
-function formatOptionalCurrency(value: number | null | undefined): string | null {
+function formatOptionalCurrency(
+  value: number | null | undefined,
+): string | null {
   return typeof value === "number" && Number.isFinite(value)
     ? formatCurrency(value)
     : null;

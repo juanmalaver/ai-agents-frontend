@@ -1,16 +1,31 @@
 import Link from "next/link";
-import type { DashboardTabId } from "@/src/types/dashboard";
+import type {
+  DashboardQueryParams,
+  DashboardTabId,
+} from "@/src/types/dashboard";
+import { appendDashboardQueryParams } from "@/src/utils/runtimeApiUrls";
 
 const tabs: Array<{ href: string; id: DashboardTabId; label: string }> = [
-  { href: "/marketing-dashboard", id: "overview", label: "Overview" },
+  { href: "/marketing-dashboard", id: "overview", label: "Ad Performance" },
+  {
+    href: "/marketing-dashboard/health",
+    id: "health",
+    label: "Audit",
+  },
   {
     href: "/marketing-dashboard/campaigns",
     id: "campaigns",
-    label: "Campaigns",
+    label: "AI Rec.",
   },
 ];
 
-export function DashboardTabs({ activeTab }: { activeTab: DashboardTabId }) {
+export function DashboardTabs({
+  activeTab,
+  query,
+}: {
+  activeTab: DashboardTabId;
+  query?: DashboardQueryParams;
+}) {
   return (
     <nav
       aria-label="Marketing dashboard sections"
@@ -27,7 +42,7 @@ export function DashboardTabs({ activeTab }: { activeTab: DashboardTabId }) {
                 ? "border-teal-500 text-slate-950"
                 : "border-transparent text-slate-500 hover:border-sky-300 hover:text-slate-800"
             }`}
-            href={tab.href}
+            href={appendDashboardQueryParams(tab.href, query) ?? tab.href}
             key={tab.id}
           >
             {tab.label}

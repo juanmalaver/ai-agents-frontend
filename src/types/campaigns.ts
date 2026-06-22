@@ -12,8 +12,6 @@ export interface CampaignsDashboardApiResponse {
   lowestPerformer: CampaignInsight;
 }
 
-export type CampaignsDashboardMock = CampaignsDashboardApiResponse;
-
 export interface CampaignsSummarySection {
   alert: CampaignAlert;
   lowestPerformer: CampaignInsight;

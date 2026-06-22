@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import { useDashboardQueryParams } from "@/src/hooks/useDashboardQueryParams";
 import { useDashboardSection } from "@/src/hooks/useDashboardSection";
-import { dashboardMock } from "@/src/mocks/dashboardMock";
 import type {
   AggregatedKpis,
   CampaignStateRow,
@@ -15,48 +15,55 @@ import {
   formatDashboardTimestamp,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
-import { resolveDashboardSectionApiUrl } from "@/src/utils/runtimeApiUrls";
+import {
+  appendDashboardQueryParams,
+  resolveDashboardSectionApiUrl,
+} from "@/src/utils/runtimeApiUrls";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
+import { DateRangeFilter } from "./DateRangeFilter";
 import { KpiCardsGrid } from "./KpiCardsGrid";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
-export function DashboardPage({
-  activeTab,
-  apiUrl,
-}: DashboardPageProps) {
+export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
+  const {
+    dashboardQuery,
+    dateRange,
+    selectedBrand,
+    setDateRange,
+    setSelectedBrand,
+  } = useDashboardQueryParams();
   const kpisUrl = useMemo(
-    () => resolveDashboardSectionApiUrl("kpis", apiUrl),
-    [apiUrl],
+    () =>
+      appendDashboardQueryParams(
+        resolveDashboardSectionApiUrl("kpis", apiUrl),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const monthlyPerformanceUrl = useMemo(
-    () => resolveDashboardSectionApiUrl("monthly-performance", apiUrl),
-    [apiUrl],
+    () =>
+      appendDashboardQueryParams(
+        resolveDashboardSectionApiUrl("monthly-performance", apiUrl),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const stateCampaignsUrl = useMemo(
-    () => resolveDashboardSectionApiUrl("state-campaigns", apiUrl),
-    [apiUrl],
-  );
-  const mockKpis = useMemo(
-    () => normalizeAggregatedKpis(dashboardMock.aggregatedKpis),
-    [],
-  );
-  const mockMonthlyPerformance = useMemo(
-    () => dashboardMock.monthlyPerformance.map(normalizeMonthlyPerformance),
-    [],
-  );
-  const mockStateCampaigns = useMemo(
-    () => dashboardMock.stateCampaigns.map(normalizeStateCampaignRow),
-    [],
+    () =>
+      appendDashboardQueryParams(
+        resolveDashboardSectionApiUrl("state-campaigns", apiUrl),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const kpisSection = useDashboardSection<AggregatedKpis>({
     errorMessage: "Unable to load KPI cards.",
-    mockData: mockKpis,
-    mockGeneratedAt: dashboardMock.generatedAt,
     normalize: normalizeAggregatedKpis,
     url: kpisUrl,
   });
@@ -64,15 +71,11 @@ export function DashboardPage({
     MonthlyCampaignPerformance[]
   >({
     errorMessage: "Unable to load monthly performance.",
-    mockData: mockMonthlyPerformance,
-    mockGeneratedAt: dashboardMock.generatedAt,
     normalize: normalizeMonthlyPerformanceRows,
     url: monthlyPerformanceUrl,
   });
   const stateCampaignsSection = useDashboardSection<CampaignStateRow[]>({
     errorMessage: "Unable to load state campaign performance.",
-    mockData: mockStateCampaigns,
-    mockGeneratedAt: dashboardMock.generatedAt,
     normalize: normalizeStateCampaignRows,
     url: stateCampaignsUrl,
   });
@@ -97,14 +100,32 @@ export function DashboardPage({
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
         <DashboardHeader
           lastUpdated={lastUpdated}
           subtitle={dashboardSubtitle}
-          title="Marketing Campaign Performance"
+          title="Ad Performance"
         />
-        {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
-        <BrandFilter />
+        {activeTab ? (
+          <DashboardTabs activeTab={activeTab} query={dashboardQuery} />
+        ) : null}
+        <section
+          aria-label="Dashboard filters"
+          className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+        >
+          <div className="grid gap-3 xl:grid-cols-[minmax(14rem,0.75fr)_minmax(0,1.65fr)] xl:items-start">
+            <BrandFilter
+              apiUrl={apiUrl}
+              dateRange={dateRange}
+              onBrandChange={setSelectedBrand}
+              selectedBrand={selectedBrand}
+            />
+            <DateRangeFilter
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+            />
+          </div>
+        </section>
         <SectionStatus
           error={kpisSection.data ? kpisSection.error : null}
           isRefreshing={kpisSection.isRefreshing}
@@ -118,6 +139,26 @@ export function DashboardPage({
           <SectionError
             message={kpisSection.error ?? "Unable to load KPI cards."}
             onRetry={kpisSection.retry}
+          />
+        )}
+        <SectionStatus
+          error={
+            stateCampaignsSection.data ? stateCampaignsSection.error : null
+          }
+          isRefreshing={stateCampaignsSection.isRefreshing}
+          onRetry={stateCampaignsSection.retry}
+        />
+        {stateCampaignsSection.data ? (
+          <CampaignStateTable rows={stateCampaignsSection.data} />
+        ) : stateCampaignsSection.isLoading ? (
+          <TableSkeleton />
+        ) : (
+          <SectionError
+            message={
+              stateCampaignsSection.error ??
+              "Unable to load state campaign performance."
+            }
+            onRetry={stateCampaignsSection.retry}
           />
         )}
         <SectionStatus
@@ -143,24 +184,6 @@ export function DashboardPage({
               monthlyPerformanceSection.isLoading &&
               !monthlyPerformanceSection.data
             }
-          />
-        )}
-        <SectionStatus
-          error={stateCampaignsSection.data ? stateCampaignsSection.error : null}
-          isRefreshing={stateCampaignsSection.isRefreshing}
-          onRetry={stateCampaignsSection.retry}
-        />
-        {stateCampaignsSection.data ? (
-          <CampaignStateTable rows={stateCampaignsSection.data} />
-        ) : stateCampaignsSection.isLoading ? (
-          <TableSkeleton />
-        ) : (
-          <SectionError
-            message={
-              stateCampaignsSection.error ??
-              "Unable to load state campaign performance."
-            }
-            onRetry={stateCampaignsSection.retry}
           />
         )}
       </div>
@@ -196,8 +219,7 @@ function normalizeMonthlyPerformance(
     month: item.month,
     sl,
     slGoal,
-    slPctToTarget:
-      numberOrNull(item.slPctToTarget) ?? safeDivide(sl, slGoal),
+    slPctToTarget: numberOrNull(item.slPctToTarget) ?? safeDivide(sl, slGoal),
   };
 }
 
@@ -226,7 +248,9 @@ function normalizeStateCampaignRow(row: CampaignStateRow): CampaignStateRow {
   };
 }
 
-function normalizeStateCampaignRows(rows: CampaignStateRow[]): CampaignStateRow[] {
+function normalizeStateCampaignRows(
+  rows: CampaignStateRow[],
+): CampaignStateRow[] {
   return rows.map(normalizeStateCampaignRow);
 }
 
@@ -320,7 +344,9 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
+function formatLatestGeneratedAt(
+  values: Array<string | null>,
+): string | undefined {
   const latest = values.reduce<Date | null>((currentLatest, value) => {
     if (!value) {
       return currentLatest;
@@ -357,8 +383,13 @@ function SectionStatus({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-      <p className={error ? "font-medium text-rose-700" : "font-medium text-slate-600"}>
-        {error ?? "Refreshing cached data..."}
+      <p
+        className={`flex items-center gap-2 ${
+          error ? "font-medium text-rose-700" : "font-medium text-slate-600"
+        }`}
+      >
+        {!error ? <LoadingSpinner label="Refreshing dashboard data" /> : null}
+        <span>{error ?? "Showing cached data while fresh data loads."}</span>
       </p>
       {error ? (
         <button
@@ -399,16 +430,19 @@ function SectionError({
 
 function KpiSkeletonGrid() {
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {Array.from({ length: 7 }).map((_, index) => (
-        <div
-          className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-          key={index}
-        >
-          <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
-          <div className="mt-4 h-8 w-24 animate-pulse rounded bg-slate-200" />
-        </div>
-      ))}
+    <section className="grid gap-3">
+      <LoadingNotice label="Loading KPI cards..." />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 7 }).map((_, index) => (
+          <div
+            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+            key={index}
+          >
+            <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
+            <div className="mt-4 h-8 w-24 animate-pulse rounded bg-slate-200" />
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -416,12 +450,25 @@ function KpiSkeletonGrid() {
 function TableSkeleton() {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <LoadingNotice label="Loading state performance..." />
       <div className="h-5 w-64 animate-pulse rounded bg-slate-200" />
       <div className="mt-4 grid gap-2">
         {Array.from({ length: 6 }).map((_, index) => (
-          <div className="h-10 animate-pulse rounded bg-slate-100" key={index} />
+          <div
+            className="h-10 animate-pulse rounded bg-slate-100"
+            key={index}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+function LoadingNotice({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm">
+      <LoadingSpinner label={label} />
+      <span>{label}</span>
+    </div>
   );
 }

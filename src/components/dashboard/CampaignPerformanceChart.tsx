@@ -17,6 +17,7 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 export function CampaignPerformanceChart({
   data,
@@ -25,6 +26,13 @@ export function CampaignPerformanceChart({
   if (isLoading) {
     return (
       <section className="rounded-lg bg-slate-950 p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2 text-sm font-medium text-slate-300">
+          <LoadingSpinner
+            className="h-4 w-4 text-teal-300"
+            label="Loading monthly performance"
+          />
+          Loading monthly performance...
+        </div>
         <div className="h-6 w-64 animate-pulse rounded bg-slate-800" />
         <div className="mt-6 h-80 animate-pulse rounded bg-slate-900" />
       </section>

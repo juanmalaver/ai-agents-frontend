@@ -8,8 +8,6 @@ import type {
 
 interface UseDashboardSectionOptions<TResponse, TData> {
   errorMessage: string;
-  mockData: TData;
-  mockGeneratedAt?: string | null;
   normalize?: (data: TResponse) => TData;
   url?: string;
 }
@@ -26,8 +24,6 @@ export interface DashboardSectionState<TData> {
 
 export function useDashboardSection<TResponse, TData = TResponse>({
   errorMessage,
-  mockData,
-  mockGeneratedAt = null,
   normalize,
   url,
 }: UseDashboardSectionOptions<TResponse, TData>): DashboardSectionState<TData> {
@@ -48,25 +44,10 @@ export function useDashboardSection<TResponse, TData = TResponse>({
   }, []);
 
   useEffect(() => {
-    const useMock = process.env.NEXT_PUBLIC_USE_MOCK === "true";
-
-    if (useMock) {
-      setState({
-        cache: null,
-        data: mockData,
-        error: null,
-        generatedAt: mockGeneratedAt,
-        isLoading: false,
-        isRefreshing: false,
-      });
-      return;
-    }
-
     if (!url) {
       setState((current) => ({
         ...current,
-        error:
-          "Dashboard API URL is not configured. Set NEXT_PUBLIC_USE_MOCK=true to use mock data.",
+        error: "Dashboard API URL is not configured.",
         isLoading: false,
         isRefreshing: false,
       }));
@@ -92,7 +73,7 @@ export function useDashboardSection<TResponse, TData = TResponse>({
         });
 
         if (!apiResponse.ok) {
-          throw new Error(errorMessage);
+          throw new Error(await buildDashboardFetchError(apiResponse, errorMessage));
         }
 
         const response =
@@ -145,8 +126,6 @@ export function useDashboardSection<TResponse, TData = TResponse>({
     };
   }, [
     errorMessage,
-    mockData,
-    mockGeneratedAt,
     normalize,
     reloadKey,
     url,
@@ -156,4 +135,47 @@ export function useDashboardSection<TResponse, TData = TResponse>({
     ...state,
     retry,
   };
+}
+
+async function buildDashboardFetchError(
+  response: Response,
+  fallbackMessage: string,
+): Promise<string> {
+  const responseMessage = await readResponseMessage(response);
+
+  if (response.status === 401) {
+    return "Authentication expired. Sign out and sign in again.";
+  }
+
+  if (responseMessage) {
+    return responseMessage;
+  }
+
+  return `${fallbackMessage} (${response.status})`;
+}
+
+async function readResponseMessage(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as unknown;
+
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "message" in body
+    ) {
+      const { message } = body as { message?: unknown };
+
+      if (Array.isArray(message)) {
+        return message.filter((item) => typeof item === "string").join(" ");
+      }
+
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }

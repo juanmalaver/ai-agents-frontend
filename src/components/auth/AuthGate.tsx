@@ -76,7 +76,7 @@ export function AuthGate({ children }: AuthGateProps) {
             <span className="flex-1 bg-sky-500" />
             <span className="flex-1 bg-amber-400" />
           </div>
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 text-sm">
+          <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between gap-3 text-sm">
             <div className="flex min-w-0 items-center gap-3">
               <UserAvatar user={user} />
               <span className="truncate font-medium text-slate-700">
