@@ -195,7 +195,6 @@ export function CampaignStateTable({ apiUrl, query, rows }: CampaignStateTablePr
 
   const table = useReactTable({
     autoResetExpanded: false,
-    autoResetSorting: false,
     columns,
     data: rows,
     getCoreRowModel: getCoreRowModel(),
