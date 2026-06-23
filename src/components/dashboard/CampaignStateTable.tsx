@@ -64,7 +64,7 @@ export function CampaignStateTable({ apiUrl, query, rows }: CampaignStateTablePr
                 <span aria-hidden="true" className="h-7 w-7" />
               )}
               <Link
-                className="font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
                 href={buildHealthPageUrl({
                   brand: query.brand,
                   from: query.from,
