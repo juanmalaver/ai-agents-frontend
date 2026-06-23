@@ -6,9 +6,13 @@ import {
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
+  getSortedRowModel,
+  type SortingFn,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   CampaignStateRow,
   CampaignStateTableProps,
@@ -20,7 +24,9 @@ import {
   formatPercentage,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
+import { buildHealthPageUrl } from "@/src/utils/runtimeApiUrls";
 import { RecommendationPanel } from "./RecommendationPanel";
+import { StateLawFirmModal } from "./StateLawFirmModal";
 
 const rowHealthClasses: Record<RowHealth, string> = {
   critical: "bg-rose-50 hover:bg-rose-100",
@@ -29,8 +35,11 @@ const rowHealthClasses: Record<RowHealth, string> = {
   neutral: "bg-white hover:bg-sky-50",
 };
 
-export function CampaignStateTable({ rows }: CampaignStateTableProps) {
+export function CampaignStateTable({ apiUrl, query, rows }: CampaignStateTableProps) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [selectedStateRow, setSelectedStateRow] =
+    useState<CampaignStateRow | null>(null);
   const totalRow = useMemo(() => buildTotalRow(rows), [rows]);
 
   const columns = useMemo<ColumnDef<CampaignStateRow>[]>(
@@ -54,210 +63,291 @@ export function CampaignStateTable({ rows }: CampaignStateTableProps) {
               ) : (
                 <span aria-hidden="true" className="h-7 w-7" />
               )}
-              <span className="font-semibold text-slate-950">{stateName}</span>
+              <Link
+                className="font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                href={buildHealthPageUrl({
+                  brand: query.brand,
+                  from: query.from,
+                  states: [stateName],
+                  to: query.to,
+                })}
+              >
+                {stateName}
+              </Link>
             </div>
           );
         },
+        footer: () => (
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-7 w-7" />
+            <span className="font-semibold">Total</span>
+          </div>
+        ),
         header: "State",
       },
       {
         accessorKey: "budget",
         cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        footer: () => formatCurrency(totalRow?.budget ?? null),
         header: "Budget",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "slGoal",
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+        footer: () => formatNumber(totalRow?.slGoal ?? null),
         header: "SL Goal",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "leadsGoal",
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
-        header: "Q. Leads Goal",
+        footer: () => formatNumber(totalRow?.leadsGoal ?? null),
+        header: "Leads Goal",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "mtdSpent",
         cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        footer: () => formatCurrency(totalRow?.mtdSpent ?? null),
         header: "MTD Spent",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "spentPct",
         cell: ({ getValue }) => formatPercentage(getValue<number | null>()),
+        footer: () => formatPercentage(totalRow?.spentPct ?? null),
         header: "% Spent",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "goalPct",
         cell: ({ getValue }) => formatPercentage(getValue<number | null>()),
+        footer: () => formatPercentage(totalRow?.goalPct ?? null),
         header: "% Goal",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "cpsl",
         cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        footer: () => formatCurrency(totalRow?.cpsl ?? null),
         header: "CPSL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "mtdSl",
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+        footer: () => formatNumber(totalRow?.mtdSl ?? null),
         header: "MTD SL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "leads",
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+        footer: () => formatNumber(totalRow?.leads ?? null),
         header: "Leads",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "conversionRate",
         cell: ({ getValue }) => formatPercentage(getValue<number | null>()),
+        footer: () => formatPercentage(totalRow?.conversionRate ?? null),
         header: "Conversion Rate",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
       },
       {
         accessorKey: "cpl",
         cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        footer: () => formatCurrency(totalRow?.cpl ?? null),
         header: "CPL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        cell: ({ row }) => (
+          <button
+            aria-label={`View law firms for ${row.original.state}`}
+            className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            onClick={() => setSelectedStateRow(row.original)}
+            type="button"
+          >
+            View
+          </button>
+        ),
+        enableSorting: false,
+        footer: () => null,
+        header: "Law firms",
+        id: "lawFirms",
       },
     ],
-    [],
+    [query.brand, query.from, query.to, totalRow],
   );
 
   const table = useReactTable({
+    autoResetExpanded: false,
+    autoResetSorting: false,
     columns,
     data: rows,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getRowCanExpand: (row) => Boolean(row.original.recommendation),
+    getSortedRowModel: getSortedRowModel(),
     onExpandedChange: setExpanded,
+    onSortingChange: setSorting,
     state: {
       expanded,
+      sorting,
     },
   });
 
   return (
-    <section
-      aria-label="State campaign performance table"
-      className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
-    >
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold text-slate-950">
-          State campaign performance
-        </h2>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
-          <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    className="whitespace-nowrap px-4 py-3 font-semibold"
-                    key={header.id}
-                    scope="col"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
+    <>
+      <section
+        aria-label="State campaign performance table"
+        className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+      >
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-base font-semibold text-slate-950">
+            State campaign performance
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1200px] w-full border-collapse text-left text-sm">
+            <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      className="whitespace-nowrap px-4 py-3 font-semibold"
+                      key={header.id}
+                      scope="col"
+                    >
+                      {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                        <button
+                          className="flex items-center gap-1 text-left transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                          onClick={header.column.getToggleSortingHandler()}
+                          type="button"
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                          <span
+                            aria-hidden="true"
+                            className="text-[0.65rem] text-slate-400"
+                          >
+                            {formatSortIndicator(header.column.getIsSorted())}
+                          </span>
+                        </button>
+                      ) : (
+                        flexRender(
                           header.column.columnDef.header,
                           header.getContext(),
-                        )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td
-                  className="px-4 py-8 text-center text-sm text-slate-500"
-                  colSpan={columns.length}
-                >
-                  No state campaign rows available.
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <Fragment key={row.id}>
-                  <tr
-                    className={`transition-colors ${rowHealthClasses[getRowHealth(row.original.goalPct)]}`}
+                        )
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td
+                    className="px-4 py-8 text-center text-sm text-slate-500"
+                    colSpan={table.getVisibleLeafColumns().length}
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    No state campaign rows available.
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <Fragment key={row.id}>
+                    <tr
+                      className={`transition-colors ${rowHealthClasses[getRowHealth(row.original.goalPct)]}`}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          className="whitespace-nowrap px-4 py-3 text-slate-700"
+                          key={cell.id}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    {row.getIsExpanded() && row.original.recommendation ? (
+                      <tr>
+                        <td
+                          className="bg-white px-4 py-4"
+                          colSpan={row.getVisibleCells().length}
+                        >
+                          <RecommendationPanel
+                            recommendation={row.original.recommendation}
+                            stateName={row.original.state}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                ))
+              )}
+            </tbody>
+            {totalRow ? (
+              <tfoot className="border-t-2 border-slate-300 bg-slate-950 text-white">
+                {table.getFooterGroups().map((footerGroup) => (
+                  <tr key={footerGroup.id}>
+                    {footerGroup.headers.map((header) => (
                       <td
-                        className="whitespace-nowrap px-4 py-3 text-slate-700"
-                        key={cell.id}
+                        className="whitespace-nowrap px-4 py-3 font-semibold"
+                        key={header.id}
                       >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.footer,
+                              header.getContext(),
+                            )}
                       </td>
                     ))}
                   </tr>
-                  {row.getIsExpanded() && row.original.recommendation ? (
-                    <tr>
-                      <td
-                        className="bg-white px-4 py-4"
-                        colSpan={row.getVisibleCells().length}
-                      >
-                        <RecommendationPanel
-                          recommendation={row.original.recommendation}
-                          stateName={row.original.state}
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              ))
-            )}
-          </tbody>
-          {totalRow ? (
-            <tfoot className="border-t-2 border-slate-300 bg-slate-950 text-white">
-              <tr>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span aria-hidden="true" className="h-7 w-7" />
-                    <span className="font-semibold">{totalRow.state}</span>
-                  </div>
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatCurrency(totalRow.budget)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatNumber(totalRow.slGoal)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatNumber(totalRow.leadsGoal)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatCurrency(totalRow.mtdSpent)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatPercentage(totalRow.spentPct)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatPercentage(totalRow.goalPct)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatCurrency(totalRow.cpsl)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatNumber(totalRow.mtdSl)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatNumber(totalRow.leads)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatPercentage(totalRow.conversionRate)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {formatCurrency(totalRow.cpl)}
-                </td>
-              </tr>
-            </tfoot>
-          ) : null}
-        </table>
-      </div>
-    </section>
+                ))}
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </section>
+      {selectedStateRow ? (
+        <StateLawFirmModal
+          apiUrl={apiUrl}
+          onClose={() => setSelectedStateRow(null)}
+          query={query}
+          stateRow={selectedStateRow}
+        />
+      ) : null}
+    </>
   );
 }
+
+const nullableNumberSortingFn: SortingFn<CampaignStateRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  normalizeSortableNumber(first.getValue<number | null>(columnId)) -
+  normalizeSortableNumber(second.getValue<number | null>(columnId));
 
 function buildTotalRow(rows: CampaignStateRow[]): CampaignStateRow | null {
   if (rows.length === 0) {
@@ -271,9 +361,7 @@ function buildTotalRow(rows: CampaignStateRow[]): CampaignStateRow | null {
   const mtdSl = sumNullable(rows.map((row) => row.mtdSl));
   const leads = sumNullable(rows.map((row) => row.leads));
   const spendWithBudget = sumNullable(
-    rows
-      .filter((row) => isFiniteNumber(row.budget))
-      .map((row) => row.mtdSpent),
+    rows.filter((row) => isFiniteNumber(row.budget)).map((row) => row.mtdSpent),
   );
   const slWithGoal = sumNullable(
     rows.filter((row) => isFiniteNumber(row.slGoal)).map((row) => row.mtdSl),
@@ -329,4 +417,22 @@ function getRowHealth(goalPct: number | null): RowHealth {
   }
 
   return "met";
+}
+
+function normalizeSortableNumber(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : Number.NEGATIVE_INFINITY;
+}
+
+function formatSortIndicator(value: false | "asc" | "desc"): string {
+  if (value === "asc") {
+    return "↑";
+  }
+
+  if (value === "desc") {
+    return "↓";
+  }
+
+  return "↕";
 }

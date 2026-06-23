@@ -71,7 +71,7 @@ export interface CampaignResultRow extends CampaignLeadTrendRow {
   cpql: number | null;
   cpsl: number | null;
   mql: number;
-  qLeadsGoal: number | null;
+  leadsGoal: number | null;
   slGoal: number | null;
   spend: number;
   status: "Active" | "Inactive";
@@ -87,7 +87,7 @@ export interface CampaignStateSnapshotRow {
   leads: number;
   mtdSl: number;
   mtdSpent: number;
-  qLeadsGoal: number | null;
+  leadsGoal: number | null;
   slGoal: number | null;
   state: string;
 }

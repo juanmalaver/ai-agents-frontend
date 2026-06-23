@@ -13,12 +13,11 @@ export type CampaignHealthConfidence =
   | "Learning";
 
 export type CampaignHealthRecommendation =
-  | "Fix tracking"
-  | "Working"
-  | "Monitor"
-  | "Investigate"
-  | "Pause candidate"
-  | "Learning";
+  | "WINNER / REPLICATE / SCALE REVIEW"
+  | "KEEP / WATCH"
+  | "WATCH / DIAGNOSE"
+  | "REDUCE / REBUILD REVIEW"
+  | "PAUSE / SHUTDOWN REVIEW";
 
 export interface CampaignHealthMetric {
   label: string;
@@ -52,6 +51,22 @@ export interface CampaignHealthAdRow {
   recommendation: CampaignHealthRecommendation;
   signedLeads: number;
   spend: number;
+  states: string[];
+}
+
+export interface CampaignHealthAdMedia {
+  adId: string;
+  adName: string | null;
+  creativeId: string | null;
+  creativeName: string | null;
+  embedUrl: string | null;
+  mediaType: "image" | "unknown" | "video";
+  objectStoryId: string | null;
+  permalinkUrl: string | null;
+  thumbnailUrl: string | null;
+  videoId: string | null;
+  videoUnavailableReason: string | null;
+  videoUrl: string | null;
 }
 
 export interface CampaignMetaStatus {
@@ -89,6 +104,7 @@ export interface CampaignHealthRow {
   noAccidentRate: number | null;
   qualitySignals: {
     callNotAnswered: CampaignHealthQualitySignal;
+    commercial: CampaignHealthQualitySignal;
     noAccident: CampaignHealthQualitySignal;
     oldAccident: CampaignHealthQualitySignal;
     previousAttorney: CampaignHealthQualitySignal;
@@ -98,6 +114,7 @@ export interface CampaignHealthRow {
   signedLeads: number;
   spend: number;
   startedAt: string | null;
+  states: string[];
 }
 
 export interface CampaignHealthFilterOption {
@@ -112,6 +129,7 @@ export interface CampaignHealthFilterOptions {
   campaigns: CampaignHealthFilterOption[];
   grades: CampaignHealthGrade[];
   metaStatuses: CampaignHealthFilterOption[];
+  states: CampaignHealthFilterOption[];
 }
 
 export interface CampaignHealthThresholds {
@@ -121,6 +139,7 @@ export interface CampaignHealthThresholds {
   cpsl: {
     greenMaxExclusive: number;
     redMin: number;
+    shutdownReviewMinimumCampaignAgeDays: number;
     zeroSignedLeadRedSpendMin: number;
     zeroSignedLeadYellowSpendMin: number;
   };

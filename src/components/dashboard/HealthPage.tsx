@@ -1,8 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  type ColumnDef,
+  type SortingFn,
+  type SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
 import type {
+  CampaignHealthAdMedia,
   CampaignHealthAdRow,
   CampaignHealthConfidence,
   CampaignHealthGrade,
@@ -25,6 +41,7 @@ import {
 import { getCurrentMonthDateRange } from "@/src/utils/dateRangeDefaults";
 import {
   appendHealthDashboardQueryParams,
+  resolveDashboardAdMediaApiUrl,
   resolveHealthDashboardApiUrl,
 } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
@@ -33,12 +50,31 @@ import { DateRangeFilter } from "./DateRangeFilter";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const ALL_GRADES: CampaignHealthGrade[] = [
-  "A",
-  "B",
-  "C",
-  "D",
-  "F",
+const ALL_GRADES: CampaignHealthGrade[] = ["A", "B", "C", "D", "F"];
+const ALL_RECOMMENDATIONS: Array<{
+  id: CampaignHealthRecommendation;
+  label: string;
+}> = [
+  {
+    id: "WINNER / REPLICATE / SCALE REVIEW",
+    label: "Winner / Scale",
+  },
+  {
+    id: "KEEP / WATCH",
+    label: "Keep / Watch",
+  },
+  {
+    id: "WATCH / DIAGNOSE",
+    label: "Watch / Diagnose",
+  },
+  {
+    id: "REDUCE / REBUILD REVIEW",
+    label: "Reduce / Rebuild",
+  },
+  {
+    id: "PAUSE / SHUTDOWN REVIEW",
+    label: "Pause / Shutdown",
+  },
 ];
 const ALL_META_STATUSES: Array<{
   id: CampaignMetaDeliveryStatus;
@@ -54,13 +90,24 @@ interface HealthPageProps {
 }
 
 interface SelectedAdReuse {
-  key: string;
   label: string;
+  placements: AdNamePlacement[];
 }
 
 interface AdNamePlacement {
   ad: CampaignHealthAdRow;
   campaign: CampaignHealthRow;
+}
+
+interface AdMediaTarget {
+  adId: string;
+  campaignLabel: string;
+}
+
+interface AdMediaState {
+  error: string | null;
+  isLoading: boolean;
+  media: CampaignHealthAdMedia | null;
 }
 
 export function HealthPage({ apiUrl }: HealthPageProps) {
@@ -94,12 +141,27 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   const [selectedGrades, setSelectedGrades] = useState<CampaignHealthGrade[]>(
     [],
   );
+  const [selectedRecommendations, setSelectedRecommendations] = useState<
+    CampaignHealthRecommendation[]
+  >([]);
   const [selectedMetaStatuses, setSelectedMetaStatuses] = useState<
     CampaignMetaDeliveryStatus[]
   >([]);
+  const selectedStates = useMemo(
+    () =>
+      searchParams
+        .getAll("states")
+        .map((state) => state.trim())
+        .filter(Boolean),
+    [searchParams],
+  );
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const [selectedAdReuse, setSelectedAdReuse] =
     useState<SelectedAdReuse | null>(null);
+  const adMediaApiUrl = useMemo(
+    () => resolveDashboardAdMediaApiUrl(apiUrl),
+    [apiUrl],
+  );
   const healthUrl = useMemo(
     () =>
       appendHealthDashboardQueryParams(resolveHealthDashboardApiUrl(apiUrl), {
@@ -133,8 +195,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       label: grade,
     }),
   );
+  const recommendationOptions = ALL_RECOMMENDATIONS;
   const metaStatusOptions =
     data?.filterOptions.metaStatuses ?? ALL_META_STATUSES;
+  const stateOptions = data?.filterOptions.states ?? [];
   const rowsBeforeGradeFilter = useMemo(
     () =>
       filterHealthRows(data?.campaignRows ?? [], {
@@ -142,8 +206,17 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         selectedCampaignIds,
         selectedGrades: [],
         selectedMetaStatuses,
+        selectedRecommendations,
+        selectedStates,
       }),
-    [data, selectedAdIds, selectedCampaignIds, selectedMetaStatuses],
+    [
+      data,
+      selectedAdIds,
+      selectedCampaignIds,
+      selectedMetaStatuses,
+      selectedRecommendations,
+      selectedStates,
+    ],
   );
   const filteredRows = useMemo(
     () =>
@@ -152,6 +225,8 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         selectedCampaignIds,
         selectedGrades,
         selectedMetaStatuses,
+        selectedRecommendations,
+        selectedStates,
       }),
     [
       rowsBeforeGradeFilter,
@@ -159,16 +234,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       selectedCampaignIds,
       selectedGrades,
       selectedMetaStatuses,
+      selectedRecommendations,
+      selectedStates,
     ],
   );
   const adNamePlacements = useMemo(
     () => buildAdNamePlacementMap(data?.campaignRows ?? []),
     [data],
   );
-  const selectedAdReusePlacements = selectedAdReuse
-    ? adNamePlacements.get(selectedAdReuse.key) ?? []
-    : [];
-
   useEffect(() => {
     if (!healthUrl) {
       setData(null);
@@ -220,41 +293,6 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     return () => controller.abort();
   }, [healthUrl]);
 
-  useEffect(() => {
-    pruneSelection(
-      selectedCampaignIds,
-      campaignOptions.map((option) => option.id),
-      setSelectedCampaignIds,
-    );
-    pruneSelection(
-      selectedAdIds,
-      adOptions.map((option) => option.id),
-      setSelectedAdIds,
-    );
-    pruneSelection(
-      selectedGrades,
-      (data?.filterOptions.grades ?? ALL_GRADES) as string[],
-      (values) => setSelectedGrades(values as CampaignHealthGrade[]),
-    );
-    pruneSelection(
-      selectedMetaStatuses,
-      (data?.filterOptions.metaStatuses ?? ALL_META_STATUSES).map(
-        (option) => option.id,
-      ),
-      (values) =>
-        setSelectedMetaStatuses(values as CampaignMetaDeliveryStatus[]),
-    );
-  }, [
-    adOptions,
-    campaignOptions,
-    data?.filterOptions.grades,
-    data?.filterOptions.metaStatuses,
-    selectedAdIds,
-    selectedCampaignIds,
-    selectedGrades,
-    selectedMetaStatuses,
-  ]);
-
   const replaceParams = useCallback(
     (update: (nextParams: URLSearchParams) => void) => {
       const nextParams = new URLSearchParams(searchParams.toString());
@@ -269,11 +307,28 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [pathname, router, searchParams],
   );
+  const handleStatesChange = useCallback(
+    (states: string[]) => {
+      replaceParams((nextParams) => {
+        nextParams.delete("states");
+
+        for (const state of states) {
+          const normalized = state.trim();
+
+          if (normalized) {
+            nextParams.append("states", normalized);
+          }
+        }
+      });
+    },
+    [replaceParams],
+  );
   const handleBrandChange = useCallback(
     (brands: string[]) => {
       replaceParams((nextParams) => {
         nextParams.delete("brand");
         nextParams.delete("brands");
+        nextParams.delete("states");
 
         for (const brand of brands) {
           nextParams.append("brands", brand);
@@ -282,6 +337,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedGrades([]);
+      setSelectedRecommendations([]);
       setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
     },
@@ -299,15 +355,70 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           nextParams.delete("from");
           nextParams.delete("to");
         }
+
+        nextParams.delete("states");
       });
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedGrades([]);
+      setSelectedRecommendations([]);
       setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
   );
+  useEffect(() => {
+    pruneSelection(
+      selectedCampaignIds,
+      campaignOptions.map((option) => option.id),
+      setSelectedCampaignIds,
+    );
+    pruneSelection(
+      selectedAdIds,
+      adOptions.map((option) => option.id),
+      setSelectedAdIds,
+    );
+    pruneSelection(
+      selectedGrades,
+      (data?.filterOptions.grades ?? ALL_GRADES) as string[],
+      (values) => setSelectedGrades(values as CampaignHealthGrade[]),
+    );
+    pruneSelection(
+      selectedRecommendations,
+      ALL_RECOMMENDATIONS.map((option) => option.id),
+      (values) =>
+        setSelectedRecommendations(values as CampaignHealthRecommendation[]),
+    );
+    pruneSelection(
+      selectedMetaStatuses,
+      (data?.filterOptions.metaStatuses ?? ALL_META_STATUSES).map(
+        (option) => option.id,
+      ),
+      (values) =>
+        setSelectedMetaStatuses(values as CampaignMetaDeliveryStatus[]),
+    );
+
+    const allowedStateIds = (data?.filterOptions.states ?? []).map(
+      (option) => option.id,
+    );
+
+    if (allowedStateIds.length > 0) {
+      pruneSelection(selectedStates, allowedStateIds, handleStatesChange);
+    }
+  }, [
+    adOptions,
+    campaignOptions,
+    data?.filterOptions.grades,
+    data?.filterOptions.metaStatuses,
+    data?.filterOptions.states,
+    handleStatesChange,
+    selectedAdIds,
+    selectedCampaignIds,
+    selectedGrades,
+    selectedRecommendations,
+    selectedMetaStatuses,
+    selectedStates,
+  ]);
   const toggleExpandedRow = useCallback((id: string) => {
     setExpandedRows((current) =>
       current.includes(id)
@@ -320,28 +431,28 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     : undefined;
   const isRefreshingHealth = isLoading && Boolean(data);
   const dependentFiltersDisabled = !data || isRefreshingHealth;
-  const handleSummaryGradeToggle = useCallback(
-    (grade: CampaignHealthGrade) => {
-      setSelectedGrades((current) =>
-        current.includes(grade)
-          ? current.filter((currentGrade) => currentGrade !== grade)
-          : [...current, grade],
-      );
-    },
-    [],
-  );
-  const handleOpenAdReuse = useCallback((ad: CampaignHealthAdRow) => {
-    const key = normalizeAdName(ad.adName);
-
-    if (!key) {
-      return;
-    }
-
-    setSelectedAdReuse({
-      key,
-      label: ad.adName,
-    });
+  const handleSummaryGradeToggle = useCallback((grade: CampaignHealthGrade) => {
+    setSelectedGrades((current) =>
+      current.includes(grade)
+        ? current.filter((currentGrade) => currentGrade !== grade)
+        : [...current, grade],
+    );
   }, []);
+  const handleOpenAdReuse = useCallback(
+    (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => {
+      const key = normalizeAdName(ad.adName);
+
+      if (!key) {
+        return;
+      }
+
+      setSelectedAdReuse({
+        label: ad.adName,
+        placements: adNamePlacements.get(key) ?? [{ ad, campaign }],
+      });
+    },
+    [adNamePlacements],
+  );
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
@@ -356,7 +467,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           aria-label="Audit filters"
           className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
         >
-          <div className="grid gap-3 xl:grid-cols-[minmax(14rem,1fr)_minmax(14rem,1fr)_minmax(14rem,1fr)_minmax(10rem,0.65fr)_minmax(10rem,0.65fr)]">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             <MultiSelectFilter
               disabled={isLoading && !data}
               label="Brands"
@@ -410,6 +521,24 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             />
             <MultiSelectFilter
               disabled={dependentFiltersDisabled}
+              label="Recommendation"
+              loading={isRefreshingHealth}
+              onChange={(values) =>
+                setSelectedRecommendations(
+                  values as CampaignHealthRecommendation[],
+                )
+              }
+              options={recommendationOptions}
+              selectedIds={selectedRecommendations}
+              summary={summarizeSelection(
+                selectedRecommendations,
+                "All recommendations",
+                "recommendations selected",
+              )}
+              withSearch={false}
+            />
+            <MultiSelectFilter
+              disabled={dependentFiltersDisabled}
               label="Meta status"
               loading={isRefreshingHealth}
               onChange={(values) =>
@@ -423,6 +552,19 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 "statuses selected",
               )}
               withSearch={false}
+            />
+            <MultiSelectFilter
+              disabled={dependentFiltersDisabled}
+              label="States"
+              loading={isRefreshingHealth}
+              onChange={handleStatesChange}
+              options={stateOptions}
+              selectedIds={selectedStates}
+              summary={summarizeSelection(
+                selectedStates,
+                "All states",
+                "states selected",
+              )}
             />
           </div>
           <div className="mt-3">
@@ -461,6 +603,8 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 rampUpDays={data.thresholds.rampUp.minimumCampaignAgeDays}
                 rows={filteredRows}
                 selectedAdIds={selectedAdIds}
+                selectedMetaStatuses={selectedMetaStatuses}
+                selectedStates={selectedStates}
               />
             </RefreshingRegion>
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
@@ -468,9 +612,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             </RefreshingRegion>
             {selectedAdReuse ? (
               <AdReuseModal
+                adMediaApiUrl={adMediaApiUrl}
                 adName={selectedAdReuse.label}
                 onClose={() => setSelectedAdReuse(null)}
-                placements={selectedAdReusePlacements}
+                placements={selectedAdReuse.placements}
               />
             ) : null}
           </>
@@ -516,7 +661,9 @@ function MultiSelectFilter({
   return (
     <fieldset className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <legend className="text-sm font-semibold text-slate-800">{label}</legend>
+        <legend className="text-sm font-semibold text-slate-800">
+          {label}
+        </legend>
         <button
           className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={disabled || selectedIds.length === 0}
@@ -700,36 +847,147 @@ function HealthTable({
   rampUpDays,
   rows,
   selectedAdIds,
+  selectedMetaStatuses,
+  selectedStates,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   expandedRows: string[];
   isRefreshing: boolean;
-  onOpenAdReuse: (ad: CampaignHealthAdRow) => void;
+  onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   onToggleExpandedRow: (id: string) => void;
   rampUpDays: number;
   rows: CampaignHealthRow[];
   selectedAdIds: string[];
+  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedStates: string[];
 }) {
   const expandedSet = new Set(expandedRows);
   const selectedAdSet = new Set(selectedAdIds);
+  const selectedMetaStatusSet = new Set(selectedMetaStatuses);
+  const selectedStateSet = new Set(selectedStates);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const columns = useMemo<ColumnDef<CampaignHealthRow>[]>(
+    () => [
+      {
+        enableSorting: false,
+        header: "",
+        id: "expand",
+      },
+      {
+        accessorKey: "brand",
+        header: "Brand",
+      },
+      {
+        accessorKey: "campaignName",
+        header: "Campaign",
+      },
+      {
+        accessorKey: "campaignAgeDays",
+        header: "Avg. Days",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => getRowMetaStatus(row).id,
+        header: "Meta",
+        id: "meta",
+        sortingFn: metaStatusSortingFn,
+      },
+      {
+        accessorKey: "grade",
+        header: "Grade",
+        sortDescFirst: true,
+        sortingFn: gradeSortingFn,
+      },
+      {
+        accessorKey: "confidence",
+        header: "Confidence",
+        sortDescFirst: true,
+        sortingFn: confidenceSortingFn,
+      },
+      {
+        accessorKey: "recommendation",
+        header: "Recommendation",
+        sortDescFirst: true,
+        sortingFn: recommendationSortingFn,
+      },
+      {
+        accessorKey: "spend",
+        header: "Spend",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "leads",
+        header: "Leads",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "signedLeads",
+        header: "SL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => row.metricHealth.cpsl.value,
+        header: "CPSL",
+        id: "cpsl",
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => row.metricHealth.volume.value,
+        header: "Volume",
+        id: "volume",
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorFn: (row) =>
+          toPositiveQualityValue(row.metricHealth.quality.value),
+        header: "Quality",
+        id: "quality",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => row.metricHealth.intake.value,
+        header: "Int. Conv.",
+        id: "intake",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    columns,
+    data: rows,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  });
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-3">
         <h2 className="text-base font-semibold text-slate-950">
-          Campaign health
+          Campaign audit
         </h2>
       </div>
       <div className="overflow-hidden">
         <table className="w-full table-fixed border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[4%]" />
-            <col className="w-[11%]" />
-            <col className="w-[14%]" />
-            <col className="w-[7%]" />
+            <col className="w-[10%]" />
+            <col className="w-[13%]" />
+            <col className="w-[5%]" />
+            <col className="w-[5%]" />
             <col className="w-[5%]" />
             <col className="w-[7%]" />
-            <col className="w-[9%]" />
+            <col className="w-[8%]" />
             <col className="w-[7%]" />
             <col className="w-[5%]" />
             <col className="w-[4%]" />
@@ -739,29 +997,57 @@ function HealthTable({
             <col className="w-[6%]" />
           </colgroup>
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="w-12 px-4 py-3" />
-              <th className="px-4 py-3">Brand</th>
-              <th className="px-4 py-3">Campaign</th>
-              <th className="px-4 py-3">Meta</th>
-              <th className="px-4 py-3">Grade</th>
-              <th className="px-4 py-3">Confidence</th>
-              <th className="px-4 py-3">Recommendation</th>
-              <th className="px-4 py-3 text-right">Spend</th>
-              <th className="px-4 py-3 text-right">Leads</th>
-              <th className="px-4 py-3 text-right">SL</th>
-              <th className="px-4 py-3">CPSL</th>
-              <th className="px-4 py-3">Volume</th>
-              <th className="px-4 py-3">Quality</th>
-              <th className="px-4 py-3">Int. Conv.</th>
-            </tr>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    className={getCampaignHeaderClassName(header.column.id)}
+                    key={header.id}
+                  >
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <button
+                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getCampaignHeaderButtonClassName(
+                          header.column.id,
+                        )}`}
+                        onClick={header.column.getToggleSortingHandler()}
+                        type="button"
+                      >
+                        <span className="min-w-0 truncate">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-[0.65rem] text-slate-400"
+                        >
+                          {formatSortIndicator(header.column.getIsSorted())}
+                        </span>
+                      </button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length > 0 ? (
-              rows.map((row) => {
+              table.getRowModel().rows.map((tableRow) => {
+                const row = tableRow.original;
                 const autoExpanded =
                   selectedAdSet.size > 0 &&
-                  row.ads.some((ad) => selectedAdSet.has(toAdFilterId(row, ad)));
+                  row.ads.some(
+                    (ad) =>
+                      selectedAdSet.has(toAdFilterId(row, ad)) &&
+                      adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet) &&
+                      adMatchesSelectedStates(ad, selectedStateSet),
+                  );
                 const isExpanded = expandedSet.has(row.id) || autoExpanded;
 
                 return (
@@ -774,13 +1060,18 @@ function HealthTable({
                     onToggleExpandedRow={onToggleExpandedRow}
                     rampUpDays={rampUpDays}
                     row={row}
-                    selectedAdIds={selectedAdSet}
+                    selectedAdIds={selectedAdIds}
+                    selectedMetaStatuses={selectedMetaStatuses}
+                    selectedStates={selectedStates}
                   />
                 );
               })
             ) : (
               <tr>
-                <td className="px-4 py-10 text-center text-slate-500" colSpan={14}>
+                <td
+                  className="px-4 py-10 text-center text-slate-500"
+                  colSpan={15}
+                >
                   No campaigns match the selected filters.
                 </td>
               </tr>
@@ -801,15 +1092,19 @@ function HealthTableRow({
   rampUpDays,
   row,
   selectedAdIds,
+  selectedMetaStatuses,
+  selectedStates,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   isExpanded: boolean;
   isRefreshing: boolean;
-  onOpenAdReuse: (ad: CampaignHealthAdRow) => void;
+  onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   onToggleExpandedRow: (id: string) => void;
   rampUpDays: number;
   row: CampaignHealthRow;
-  selectedAdIds: Set<string>;
+  selectedAdIds: string[];
+  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedStates: string[];
 }) {
   return (
     <>
@@ -841,6 +1136,9 @@ function HealthTableRow({
             </div>
           ) : null}
         </td>
+        <td className="px-4 py-3 text-right">
+          {formatNumber(row.campaignAgeDays)}
+        </td>
         <td className="px-4 py-3">
           <MetaStatusChip status={getRowMetaStatus(row)} />
         </td>
@@ -857,7 +1155,9 @@ function HealthTableRow({
           {formatCurrency(row.spend)}
         </td>
         <td className="px-4 py-3 text-right">{formatNumber(row.leads)}</td>
-        <td className="px-4 py-3 text-right">{formatNumber(row.signedLeads)}</td>
+        <td className="px-4 py-3 text-right">
+          {formatNumber(row.signedLeads)}
+        </td>
         <td className="px-4 py-3">
           <MetricChip metric={row.metricHealth.cpsl} variant="currency" />
         </td>
@@ -865,7 +1165,11 @@ function HealthTableRow({
           <MetricChip metric={row.metricHealth.volume} variant="currency" />
         </td>
         <td className="px-4 py-3">
-          <MetricChip metric={row.metricHealth.quality} variant="percentage" />
+          <MetricChip
+            formatValue={formatPositiveQualityValue}
+            metric={row.metricHealth.quality}
+            variant="percentage"
+          />
         </td>
         <td className="px-4 py-3">
           <MetricChip metric={row.metricHealth.intake} variant="percentage" />
@@ -874,7 +1178,7 @@ function HealthTableRow({
       {isExpanded ? (
         <tr className="bg-slate-50/70">
           <td className="px-4 py-3" />
-          <td className="px-4 py-3" colSpan={13}>
+          <td className="px-4 py-3" colSpan={14}>
             <div className="space-y-3">
               <QualitySignalsPanel signals={row.qualitySignals} />
               <AdDetailTable
@@ -883,6 +1187,8 @@ function HealthTableRow({
                 campaign={row}
                 onOpenAdReuse={onOpenAdReuse}
                 selectedAdIds={selectedAdIds}
+                selectedMetaStatuses={selectedMetaStatuses}
+                selectedStates={selectedStates}
               />
             </div>
           </td>
@@ -897,16 +1203,18 @@ function QualitySignalsPanel({
 }: {
   signals: CampaignHealthRow["qualitySignals"];
 }) {
+  const resolvedSignals = normalizeQualitySignals(signals);
   const orderedSignals = [
-    signals.noAccident,
-    signals.callNotAnswered,
-    signals.previousAttorney,
-    signals.oldAccident,
-    signals.speedToLead,
-  ];
+    resolvedSignals.noAccident,
+    resolvedSignals.callNotAnswered,
+    resolvedSignals.commercial,
+    resolvedSignals.previousAttorney,
+    resolvedSignals.oldAccident,
+    resolvedSignals.speedToLead,
+  ].filter((signal): signal is CampaignHealthQualitySignal => Boolean(signal));
 
   return (
-    <div className="grid gap-2 md:grid-cols-5">
+    <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
       {orderedSignals.map((signal) => (
         <div
           className={`rounded-md border px-3 py-2 ${healthStatusClasses[signal.status]}`}
@@ -934,121 +1242,255 @@ function AdDetailTable({
   campaign,
   onOpenAdReuse,
   selectedAdIds,
+  selectedMetaStatuses,
+  selectedStates,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   ads: CampaignHealthAdRow[];
   campaign: CampaignHealthRow;
-  onOpenAdReuse: (ad: CampaignHealthAdRow) => void;
-  selectedAdIds: Set<string>;
+  onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
+  selectedAdIds: string[];
+  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedStates: string[];
 }) {
-  const visibleAds =
-    selectedAdIds.size > 0
-      ? ads.filter((ad) => selectedAdIds.has(toAdFilterId(campaign, ad)))
-      : ads;
+  const visibleAds = useMemo(() => {
+    const selectedAdIdSet = new Set(selectedAdIds);
+    const selectedMetaStatusSet = new Set(selectedMetaStatuses);
+    const selectedStateSet = new Set(selectedStates);
+
+    return ads.filter((ad) => {
+      if (
+        selectedAdIdSet.size > 0 &&
+        !selectedAdIdSet.has(toAdFilterId(campaign, ad))
+      ) {
+        return false;
+      }
+
+      if (!adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet)) {
+        return false;
+      }
+
+      return adMatchesSelectedStates(ad, selectedStateSet);
+    });
+  }, [ads, campaign, selectedAdIds, selectedMetaStatuses, selectedStates]);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const columns = useMemo<ColumnDef<CampaignHealthAdRow>[]>(
+    () => [
+      {
+        accessorKey: "adName",
+        header: "Ad",
+      },
+      {
+        accessorKey: "grade",
+        header: "Grade",
+        sortDescFirst: true,
+        sortingFn: adGradeSortingFn,
+      },
+      {
+        accessorFn: (row) => getAdMetaStatus(row).id,
+        header: "Meta",
+        id: "meta",
+        sortingFn: adMetaStatusSortingFn,
+      },
+      {
+        accessorFn: (row) => row.adId ?? "",
+        header: "Ad ID",
+        id: "adId",
+      },
+      {
+        accessorKey: "spend",
+        header: "Spend",
+        sortDescFirst: true,
+        sortingFn: nullableAdNumberSortingFn,
+      },
+      {
+        accessorKey: "leads",
+        header: "Leads",
+        sortDescFirst: true,
+        sortingFn: nullableAdNumberSortingFn,
+      },
+      {
+        accessorKey: "signedLeads",
+        header: "SL",
+        sortDescFirst: true,
+        sortingFn: nullableAdNumberSortingFn,
+      },
+      {
+        accessorKey: "cpl",
+        header: "CPL",
+        sortingFn: nullableAdNumberSortingFn,
+      },
+      {
+        accessorKey: "cpsl",
+        header: "CPSL",
+        sortingFn: nullableAdNumberSortingFn,
+      },
+      {
+        accessorKey: "metaLeadActions",
+        header: "Meta leads",
+        sortDescFirst: true,
+        sortingFn: nullableAdNumberSortingFn,
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    columns,
+    data: visibleAds,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  });
 
   return (
     <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
       <table className="w-full table-fixed text-sm">
-        <colgroup>
-          <col className="w-[19%]" />
-          <col className="w-[7%]" />
-          <col className="w-[8%]" />
-          <col className="w-[13%]" />
-          <col className="w-[9%]" />
-          <col className="w-[8%]" />
-          <col className="w-[7%]" />
-          <col className="w-[9%]" />
-          <col className="w-[9%]" />
-          <col className="w-[14%]" />
-        </colgroup>
-        <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-3 py-2 text-left">Ad</th>
-            <th className="px-3 py-2 text-left">Grade</th>
-            <th className="px-3 py-2 text-left">Meta</th>
-            <th className="px-3 py-2 text-left">Ad ID</th>
-            <th className="px-3 py-2 text-right">Spend</th>
-            <th className="px-3 py-2 text-right">Leads</th>
-            <th className="px-3 py-2 text-right">SL</th>
-            <th className="px-3 py-2 text-right">CPL</th>
-            <th className="px-3 py-2 text-right">CPSL</th>
-            <th className="px-3 py-2 text-right">Meta leads</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {visibleAds.map((ad) => {
-            const placementCount = getAdNamePlacementCount(
-              adNamePlacements,
-              ad,
-            );
-            const isClickable = Boolean(normalizeAdName(ad.adName));
-
-            return (
-              <tr key={ad.id}>
-                <td className="break-words px-3 py-2 font-medium text-slate-900">
-                  {isClickable ? (
-                    <button
-                      className="text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-                      onClick={() => onOpenAdReuse(ad)}
-                      type="button"
-                    >
-                      {ad.adName}
-                    </button>
-                  ) : (
-                    ad.adName
-                  )}
-                  {placementCount > 1 ? (
-                    <div className="mt-1 text-xs font-medium text-slate-500">
-                      {formatNumber(placementCount)} placements
-                    </div>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
-                  <GradeChip grade={ad.grade} />
-                </td>
-                <td className="px-3 py-2">
-                  <MetaStatusChip status={getAdMetaStatus(ad)} />
-                </td>
-                <td className="break-words px-3 py-2 text-slate-500">
-                  {ad.adId ?? "-"}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatCurrency(ad.spend)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatNumber(ad.leads)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatNumber(ad.signedLeads)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatCurrency(ad.cpl)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatCurrency(ad.cpsl)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {formatNumber(ad.metaLeadActions)}
-                </td>
+          <colgroup>
+            <col className="w-[19%]" />
+            <col className="w-[7%]" />
+            <col className="w-[8%]" />
+            <col className="w-[13%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[7%]" />
+            <col className="w-[9%]" />
+            <col className="w-[9%]" />
+            <col className="w-[14%]" />
+          </colgroup>
+          <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    className={getAdHeaderClassName(header.column.id)}
+                    key={header.id}
+                  >
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <button
+                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
+                          header.column.id,
+                        )}`}
+                        onClick={header.column.getToggleSortingHandler()}
+                        type="button"
+                      >
+                        <span className="min-w-0 truncate">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-[0.65rem] text-slate-400"
+                        >
+                          {formatSortIndicator(header.column.getIsSorted())}
+                        </span>
+                      </button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
+                    )}
+                  </th>
+                ))}
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {table.getRowModel().rows.map((tableRow) => {
+              const ad = tableRow.original;
+              const placementCount = getAdNamePlacementCount(
+                adNamePlacements,
+                ad,
+              );
+              const isClickable = Boolean(normalizeAdName(ad.adName));
+
+              return (
+                <tr key={ad.id}>
+                  <td className="break-words px-3 py-2 font-medium text-slate-900">
+                    {isClickable ? (
+                      <button
+                        className="text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                        onClick={() => onOpenAdReuse(ad, campaign)}
+                        type="button"
+                      >
+                        {ad.adName}
+                      </button>
+                    ) : (
+                      ad.adName
+                    )}
+                    {placementCount > 1 ? (
+                      <div className="mt-1 text-xs font-medium text-slate-500">
+                        {formatNumber(placementCount)} placements
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
+                    <GradeChip grade={ad.grade} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <MetaStatusChip status={getAdMetaStatus(ad)} />
+                  </td>
+                  <td className="break-words px-3 py-2 text-slate-500">
+                    {ad.adId ?? "-"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.spend)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.leads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.signedLeads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.cpl)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.cpsl)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.metaLeadActions)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
     </div>
   );
 }
 
 function AdReuseModal({
+  adMediaApiUrl,
   adName,
   onClose,
   placements,
 }: {
+  adMediaApiUrl?: string;
   adName: string;
   onClose: () => void;
   placements: AdNamePlacement[];
 }) {
-  const totals = placements.reduce(
+  const [selectedMetaStatuses, setSelectedMetaStatuses] = useState<
+    CampaignMetaDeliveryStatus[]
+  >([]);
+  const visiblePlacements = useMemo(
+    () => filterPlacementsByMetaStatus(placements, selectedMetaStatuses),
+    [placements, selectedMetaStatuses],
+  );
+  const mediaTargets = useMemo(
+    () => buildAdMediaTargets(visiblePlacements),
+    [visiblePlacements],
+  );
+  const [mediaByAdId, setMediaByAdId] = useState<Record<string, AdMediaState>>(
+    {},
+  );
+  const totals = visiblePlacements.reduce(
     (sum, placement) => ({
       leads: sum.leads + placement.ad.leads,
       metaLeadActions:
@@ -1064,6 +1506,84 @@ function AdReuseModal({
     },
   );
 
+  useEffect(() => {
+    setSelectedMetaStatuses([]);
+  }, [adName, placements]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!adMediaApiUrl || mediaTargets.length === 0) {
+      setMediaByAdId({});
+      return;
+    }
+
+    let isActive = true;
+
+    setMediaByAdId(
+      Object.fromEntries(
+        mediaTargets.map((target) => [
+          target.adId,
+          { error: null, isLoading: true, media: null },
+        ]),
+      ),
+    );
+
+    async function loadMedia() {
+      const results = await Promise.all(
+        mediaTargets.map(async (target) => {
+          try {
+            const media = await fetchAdMedia(
+              adMediaApiUrl as string,
+              target.adId,
+            );
+
+            return {
+              state: { error: null, isLoading: false, media },
+              target,
+            };
+          } catch (caughtError) {
+            return {
+              state: {
+                error:
+                  caughtError instanceof Error
+                    ? caughtError.message
+                    : "Unable to load ad media.",
+                isLoading: false,
+                media: null,
+              },
+              target,
+            };
+          }
+        }),
+      );
+
+      if (!isActive) {
+        return;
+      }
+
+      setMediaByAdId(
+        Object.fromEntries(
+          results.map((result) => [result.target.adId, result.state]),
+        ),
+      );
+    }
+
+    void loadMedia();
+
+    return () => {
+      isActive = false;
+    };
+  }, [adMediaApiUrl, mediaTargets]);
+
   return (
     <div
       aria-labelledby="ad-reuse-modal-title"
@@ -1072,7 +1592,7 @@ function AdReuseModal({
       role="dialog"
     >
       <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+        <div className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Ad name reuse
@@ -1092,96 +1612,405 @@ function AdReuseModal({
             Close
           </button>
         </div>
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 sm:grid-cols-4">
-          <AdReuseSummaryItem label="Placements" value={formatNumber(placements.length)} />
-          <AdReuseSummaryItem label="Spend" value={formatCurrency(totals.spend)} />
-          <AdReuseSummaryItem label="Leads" value={formatNumber(totals.leads)} />
-          <AdReuseSummaryItem label="SL" value={formatNumber(totals.signedLeads)} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 sm:grid-cols-4">
+            <AdReuseSummaryItem
+              label="Placements"
+              value={
+                selectedMetaStatuses.length > 0
+                  ? `${formatNumber(visiblePlacements.length)} / ${formatNumber(placements.length)}`
+                  : formatNumber(placements.length)
+              }
+            />
+            <AdReuseSummaryItem
+              label="Spend"
+              value={formatCurrency(totals.spend)}
+            />
+            <AdReuseSummaryItem
+              label="Leads"
+              value={formatNumber(totals.leads)}
+            />
+            <AdReuseSummaryItem
+              label="SL"
+              value={formatNumber(totals.signedLeads)}
+            />
+          </div>
+          <AdMediaPreviewPanel
+            isConfigured={Boolean(adMediaApiUrl)}
+            mediaByAdId={mediaByAdId}
+            targets={mediaTargets}
+          />
+          <AdReusePlacementList
+            onClearMetaStatuses={() => setSelectedMetaStatuses([])}
+            onToggleMetaStatus={(status) =>
+              setSelectedMetaStatuses((current) =>
+                current.includes(status)
+                  ? current.filter((currentStatus) => currentStatus !== status)
+                  : [...current, status],
+              )
+            }
+            placements={visiblePlacements}
+            selectedMetaStatuses={selectedMetaStatuses}
+            totalPlacements={placements.length}
+          />
         </div>
-        <div className="overflow-auto">
-          <table className="w-full table-fixed text-left text-sm">
-            <colgroup>
-              <col className="w-[14%]" />
-              <col className="w-[20%]" />
-              <col className="w-[7%]" />
-              <col className="w-[8%]" />
-              <col className="w-[14%]" />
-              <col className="w-[9%]" />
-              <col className="w-[7%]" />
-              <col className="w-[6%]" />
-              <col className="w-[8%]" />
-              <col className="w-[9%]" />
-            </colgroup>
-            <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Brand</th>
-                <th className="px-4 py-3">Campaign</th>
-                <th className="px-4 py-3">Grade</th>
-                <th className="px-4 py-3">Meta</th>
-                <th className="px-4 py-3">Ad ID</th>
-                <th className="px-4 py-3 text-right">Spend</th>
-                <th className="px-4 py-3 text-right">Leads</th>
-                <th className="px-4 py-3 text-right">SL</th>
-                <th className="px-4 py-3 text-right">CPL</th>
-                <th className="px-4 py-3 text-right">CPSL</th>
+      </div>
+    </div>
+  );
+}
+
+function AdMediaPreviewPanel({
+  isConfigured,
+  mediaByAdId,
+  targets,
+}: {
+  isConfigured: boolean;
+  mediaByAdId: Record<string, AdMediaState>;
+  targets: AdMediaTarget[];
+}) {
+  const bestState = getBestAdMediaState(targets, mediaByAdId);
+
+  if (targets.length === 0) {
+    return (
+      <div className="border-b border-slate-200 px-5 py-4 text-sm text-slate-500">
+        No Meta ad ID is available for this ad name, so creative media cannot be
+        loaded.
+      </div>
+    );
+  }
+
+  if (!isConfigured) {
+    return (
+      <div className="border-b border-slate-200 px-5 py-4 text-sm text-slate-500">
+        Creative preview is unavailable because the dashboard media API URL is
+        not configured.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-b border-slate-200 px-5 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-950">
+          Creative preview
+        </h3>
+      </div>
+      <AdMediaPreviewCard state={bestState} targets={targets} />
+    </div>
+  );
+}
+
+function AdMediaPreviewCard({
+  state,
+  targets,
+}: {
+  state: AdMediaState;
+  targets: AdMediaTarget[];
+}) {
+  const media = state.media;
+  const primaryTarget = targets[0];
+  const watchUrl = getAdMediaWatchUrl(media);
+
+  return (
+    <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-md bg-slate-100 ring-1 ring-slate-200">
+        {state.isLoading ? (
+          <div className="flex h-full items-center justify-center text-slate-500">
+            <LoadingSpinner
+              className="h-4 w-4 text-teal-600"
+              label="Loading creative"
+            />
+          </div>
+        ) : state.error ? (
+          <div className="flex h-full items-center justify-center px-2 text-center text-[0.65rem] font-medium text-rose-700">
+            Error
+          </div>
+        ) : media?.thumbnailUrl ? (
+          watchUrl ? (
+            <a
+              className="group relative block h-full w-full"
+              href={watchUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <img
+                alt={media.adName ?? "Ad creative thumbnail"}
+                className="h-full w-full object-cover transition group-hover:brightness-90"
+                src={media.thumbnailUrl}
+              />
+            </a>
+          ) : (
+            <img
+              alt={media.adName ?? "Ad creative thumbnail"}
+              className="h-full w-full object-cover"
+              src={media.thumbnailUrl}
+            />
+          )
+        ) : watchUrl ? (
+          <div className="flex h-full items-center justify-center px-2 text-center">
+            <a
+              className="text-[0.65rem] font-semibold text-teal-700 transition hover:text-teal-900"
+              href={watchUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open
+            </a>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center px-2 text-center text-[0.65rem] font-medium text-slate-500">
+            No image
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div>
+          <div className="truncate text-sm font-semibold text-slate-950">
+            {media?.adName ?? primaryTarget.campaignLabel}
+          </div>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          <span>{media?.mediaType ?? "unknown"}</span>
+          <span>
+            {formatNumber(targets.length)} Meta ad
+            {targets.length === 1 ? "" : "s"} matched
+          </span>
+          <span className="truncate">Ad ID: {primaryTarget.adId}</span>
+        </div>
+      </div>
+      {watchUrl ? (
+        <a
+          className="shrink-0 rounded-md border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900"
+          href={watchUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Watch on Meta
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function AdReusePlacementList({
+  onClearMetaStatuses,
+  onToggleMetaStatus,
+  placements,
+  selectedMetaStatuses,
+  totalPlacements,
+}: {
+  onClearMetaStatuses: () => void;
+  onToggleMetaStatus: (status: CampaignMetaDeliveryStatus) => void;
+  placements: AdNamePlacement[];
+  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
+  totalPlacements: number;
+}) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const columns = useMemo<ColumnDef<AdNamePlacement>[]>(
+    () => [
+      {
+        accessorFn: (row) =>
+          `${row.campaign.brand} / ${row.campaign.campaignName}`,
+        header: "Campaign",
+        id: "campaign",
+      },
+      {
+        accessorFn: (row) => row.ad.adId ?? "",
+        header: "Ad ID",
+        id: "adId",
+      },
+      {
+        accessorFn: (row) => row.ad.grade,
+        header: "Grade",
+        id: "grade",
+        sortDescFirst: true,
+        sortingFn: placementGradeSortingFn,
+      },
+      {
+        accessorFn: (row) => getAdMetaStatus(row.ad).id,
+        header: "Meta",
+        id: "meta",
+        sortingFn: placementMetaStatusSortingFn,
+      },
+      {
+        accessorFn: (row) => row.ad.spend,
+        header: "Spend",
+        id: "spend",
+        sortDescFirst: true,
+        sortingFn: placementNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => row.ad.leads,
+        header: "Leads",
+        id: "leads",
+        sortDescFirst: true,
+        sortingFn: placementNumberSortingFn,
+      },
+      {
+        accessorFn: (row) => row.ad.signedLeads,
+        header: "SL",
+        id: "signedLeads",
+        sortDescFirst: true,
+        sortingFn: placementNumberSortingFn,
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    columns,
+    data: placements,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  });
+
+  return (
+    <div className="min-h-0 overflow-auto px-5 py-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-950">Placements</h3>
+        <span className="text-xs font-medium text-slate-500">
+          {formatNumber(placements.length)} of{" "}
+          {formatNumber(totalPlacements)} placement
+          {totalPlacements === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Meta status
+        </span>
+        {ALL_META_STATUSES.map(({ id, label }) => {
+          const isActive = selectedMetaStatuses.includes(id);
+
+          return (
+            <button
+              aria-pressed={isActive}
+              className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
+                isActive
+                  ? metaStatusClasses[id]
+                  : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-slate-900"
+              }`}
+              key={id}
+              onClick={() => onToggleMetaStatus(id)}
+              type="button"
+            >
+              {label}
+            </button>
+          );
+        })}
+        {selectedMetaStatuses.length > 0 ? (
+          <button
+            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            onClick={onClearMetaStatuses}
+            type="button"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[16%]" />
+            <col className="w-[8%]" />
+            <col className="w-[10%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+          </colgroup>
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    className={getPlacementHeaderClassName(header.column.id)}
+                    key={header.id}
+                  >
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <button
+                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getPlacementHeaderButtonClassName(
+                          header.column.id,
+                        )}`}
+                        onClick={header.column.getToggleSortingHandler()}
+                        type="button"
+                      >
+                        <span className="min-w-0 truncate">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-[0.65rem] text-slate-400"
+                        >
+                          {formatSortIndicator(header.column.getIsSorted())}
+                        </span>
+                      </button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
+                    )}
+                  </th>
+                ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {placements.map((placement) => (
-                <tr key={`${placement.campaign.id}::${placement.ad.id}`}>
-                  <td className="break-words px-4 py-3 font-medium text-slate-900">
-                    {placement.campaign.brand}
-                  </td>
-                  <td className="break-words px-4 py-3">
-                    <div className="font-semibold text-slate-950">
-                      {placement.campaign.campaignName}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {placement.campaign.campaignId ?? "CRM-only campaign"}
-                    </div>
-                  </td>
-                  <td
-                    className="px-4 py-3"
-                    title={formatAdGradeTitle(placement.ad)}
+            ))}
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {table.getRowModel().rows.length > 0 ? (
+              table.getRowModel().rows.map((tableRow) => {
+                const placement = tableRow.original;
+
+                return (
+                  <tr
+                    key={`${placement.campaign.id}::${placement.ad.id}`}
                   >
-                    <GradeChip grade={placement.ad.grade} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <MetaStatusChip status={getAdMetaStatus(placement.ad)} />
-                  </td>
-                  <td className="break-words px-4 py-3 text-slate-500">
-                    {placement.ad.adId ?? "No ad ID"}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {formatCurrency(placement.ad.spend)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {formatNumber(placement.ad.leads)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {formatNumber(placement.ad.signedLeads)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {formatCurrency(placement.ad.cpl)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {formatCurrency(placement.ad.cpsl)}
-                  </td>
-                </tr>
-              ))}
-              {placements.length === 0 ? (
-                <tr>
-                  <td
-                    className="px-4 py-10 text-center text-slate-500"
-                    colSpan={10}
-                  >
-                    No matching ad names in the current health data.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                    <td className="break-words px-3 py-2 font-medium text-slate-950">
+                      <div className="truncate">
+                        {placement.campaign.brand} /{" "}
+                        {placement.campaign.campaignName}
+                      </div>
+                    </td>
+                    <td className="break-words px-3 py-2 text-slate-500">
+                      {placement.ad.adId ?? "No Meta ad ID"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <GradeChip grade={placement.ad.grade} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <MetaStatusChip status={getAdMetaStatus(placement.ad)} />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(placement.ad.spend)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatNumber(placement.ad.leads)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatNumber(placement.ad.signedLeads)}
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  className="px-4 py-10 text-center text-sm text-slate-500"
+                  colSpan={7}
+                >
+                  {totalPlacements === 0
+                    ? "No matching ad names in the current audit data."
+                    : "No placements match the selected Meta status filters."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1205,14 +2034,17 @@ function AdReuseSummaryItem({
 }
 
 function MetricChip({
+  formatValue,
   metric,
   variant,
 }: {
+  formatValue?: (value: number | null) => string;
   metric: CampaignHealthMetric;
   variant: "currency" | "percentage";
 }) {
-  const value =
-    variant === "currency"
+  const value = formatValue
+    ? formatValue(metric.value)
+    : variant === "currency"
       ? formatCurrency(metric.value)
       : formatPercentage(metric.value);
 
@@ -1237,6 +2069,18 @@ function formatQualitySignalValue(signal: CampaignHealthQualitySignal): string {
   return formatPercentage(signal.value);
 }
 
+function formatPositiveQualityValue(value: number | null): string {
+  return formatPercentage(toPositiveQualityValue(value));
+}
+
+function toPositiveQualityValue(value: number | null): number | null {
+  if (value == null) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(1, 1 - value));
+}
+
 function formatQualitySignalCount(signal: CampaignHealthQualitySignal): string {
   if (signal.count == null || signal.denominator == null) {
     return healthStatusLabels[signal.status];
@@ -1245,6 +2089,38 @@ function formatQualitySignalCount(signal: CampaignHealthQualitySignal): string {
   return `${formatNumber(signal.count)} of ${formatNumber(
     signal.denominator,
   )} leads`;
+}
+
+function normalizeQualitySignals(
+  signals: CampaignHealthRow["qualitySignals"],
+): CampaignHealthRow["qualitySignals"] {
+  return {
+    callNotAnswered: signals.callNotAnswered,
+    commercial:
+      signals.commercial ??
+      unavailableQualitySignal(
+        "Commercial",
+        'Source: CRM intake "Commercial? (Uber, Lyft, Utility Truck)" or Is Commercial flag.',
+      ),
+    noAccident: signals.noAccident,
+    oldAccident: signals.oldAccident,
+    previousAttorney: signals.previousAttorney,
+    speedToLead: signals.speedToLead,
+  };
+}
+
+function unavailableQualitySignal(
+  label: string,
+  reason: string,
+): CampaignHealthQualitySignal {
+  return {
+    count: null,
+    denominator: null,
+    label,
+    reason,
+    status: "neutral",
+    value: null,
+  };
 }
 
 function formatAdGradeTitle(ad: CampaignHealthAdRow): string {
@@ -1290,7 +2166,11 @@ function GradeChip({ grade }: { grade: CampaignHealthGrade }) {
   );
 }
 
-function ConfidenceChip({ confidence }: { confidence: CampaignHealthConfidence }) {
+function ConfidenceChip({
+  confidence,
+}: {
+  confidence: CampaignHealthConfidence;
+}) {
   return (
     <span
       className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${confidenceClasses[confidence]}`}
@@ -1307,7 +2187,7 @@ function RecommendationChip({
 }) {
   return (
     <span
-      className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${recommendationClasses[recommendation]}`}
+      className={`inline-flex max-w-full rounded-md border px-2.5 py-1 text-left text-xs font-semibold leading-tight ${recommendationClasses[recommendation]}`}
     >
       {recommendation}
     </span>
@@ -1323,9 +2203,11 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
         Health formulas
       </h2>
       <p className="mt-2 text-sm text-slate-600">
-        Campaign grades use CPSL, volume, quality, and Int. Conv. Ad grades use
-        CPSL, volume, Int. Conv., and attribution quality; source-backed
-        quality stays at campaign level until it can be reliably tied to ad IDs.
+        Campaign grades use CPSL, volume, quality, and Int. Conv. CPSL is the
+        gating metric: if CPSL is not Good, the campaign grade is F. Ad grades
+        use CPSL, volume, Int. Conv., and attribution quality with the same
+        CPSL rule; source-backed quality stays at campaign level until it can be
+        reliably tied to ad IDs.
       </p>
       <div className="mt-3 overflow-hidden">
         <table className="w-full table-fixed text-left text-sm">
@@ -1341,9 +2223,9 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
             <tr>
               <th className="px-3 py-2">Metric</th>
               <th className="px-3 py-2">Formula</th>
-              <th className="px-3 py-2">Green</th>
-              <th className="px-3 py-2">Yellow</th>
-              <th className="px-3 py-2">Red</th>
+              <th className="px-3 py-2">Good</th>
+              <th className="px-3 py-2">Watch</th>
+              <th className="px-3 py-2">Review</th>
               <th className="px-3 py-2">Not scored</th>
             </tr>
           </thead>
@@ -1385,9 +2267,9 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
               )}`}
             />
             <ThresholdRow
-              formula="No-accident signals / leads; CNA can downgrade quality"
-              green={`< ${formatPercentage(
-                thresholds.quality.greenMax,
+              formula="1 - (no-accident leads / total leads); higher is better. CNA can downgrade the status."
+              green={`> ${formatPercentage(
+                1 - thresholds.quality.greenMax,
               )}; CNA <= ${formatPercentage(
                 thresholds.quality.callNotAnsweredGreenMax,
               )}`}
@@ -1395,16 +2277,22 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
               neutral={`Fewer than ${formatNumber(
                 thresholds.quality.minimumLeads,
               )} leads`}
-              red={`> ${formatPercentage(
-                thresholds.quality.yellowMax,
-              )}; or 20-25% plus CNA > ${formatPercentage(
+              red={`< ${formatPercentage(
+                1 - thresholds.quality.yellowMax,
+              )}; or ${formatPercentage(
+                1 - thresholds.quality.yellowMax,
+              )} - ${formatPercentage(
+                1 - thresholds.quality.greenMax,
+              )} plus CNA > ${formatPercentage(
                 thresholds.quality.callNotAnsweredGreenMax,
               )}`}
               yellow={`${formatPercentage(
-                thresholds.quality.greenMax,
+                1 - thresholds.quality.yellowMax,
               )} - ${formatPercentage(
-                thresholds.quality.yellowMax,
-              )}; or healthy primary with CNA > ${formatPercentage(
+                1 - thresholds.quality.greenMax,
+              )}; or > ${formatPercentage(
+                1 - thresholds.quality.greenMax,
+              )} with CNA > ${formatPercentage(
                 thresholds.quality.callNotAnsweredGreenMax,
               )}`}
             />
@@ -1426,9 +2314,9 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
       <p className="mt-3 text-xs font-medium text-slate-500">
         Campaigns inside the first{" "}
         {formatNumber(thresholds.rampUp.minimumCampaignAgeDays)} days are in
-        ramp-up: no-lead and no-signed-lead failures are not scored yet.
-        Quality sources are exact CRM substatus/stage values, Turndown Reason,
-        Date of Accident, and structured attorney answers. Previous attorney and
+        ramp-up: no-lead and no-signed-lead failures are not scored yet. Quality
+        sources are exact CRM substatus/stage values, Turndown Reason, Date of
+        Accident, and structured attorney answers. Previous attorney and
         old-accident signals are shown as quality context. Speed-to-lead needs
         call-log data before it can be scored.
       </p>
@@ -1502,10 +2390,10 @@ const healthStatusClasses: Record<CampaignHealthStatus, string> = {
 };
 
 const healthStatusLabels: Record<CampaignHealthStatus, string> = {
-  green: "Green",
+  green: "Good",
   neutral: "Not scored",
-  red: "Red",
-  yellow: "Yellow",
+  red: "Review",
+  yellow: "Watch",
 };
 
 const gradeClasses: Record<CampaignHealthGrade, string> = {
@@ -1524,12 +2412,12 @@ const confidenceClasses: Record<CampaignHealthConfidence, string> = {
 };
 
 const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
-  "Fix tracking": "border-violet-200 bg-violet-50 text-violet-800",
-  Investigate: "border-orange-200 bg-orange-50 text-orange-800",
-  Learning: "border-slate-200 bg-slate-50 text-slate-600",
-  Monitor: "border-amber-200 bg-amber-50 text-amber-800",
-  "Pause candidate": "border-rose-200 bg-rose-50 text-rose-800",
-  Working: "border-teal-200 bg-teal-50 text-teal-800",
+  "KEEP / WATCH": "border-sky-200 bg-sky-50 text-sky-800",
+  "PAUSE / SHUTDOWN REVIEW": "border-rose-200 bg-rose-50 text-rose-800",
+  "REDUCE / REBUILD REVIEW": "border-orange-200 bg-orange-50 text-orange-800",
+  "WATCH / DIAGNOSE": "border-amber-200 bg-amber-50 text-amber-800",
+  "WINNER / REPLICATE / SCALE REVIEW":
+    "border-teal-200 bg-teal-50 text-teal-800",
 };
 
 const metaStatusClasses: Record<CampaignMetaDeliveryStatus, string> = {
@@ -1538,6 +2426,278 @@ const metaStatusClasses: Record<CampaignMetaDeliveryStatus, string> = {
   unknown: "border-amber-200 bg-amber-50 text-amber-800",
 };
 
+const gradeSortRanks: Record<CampaignHealthGrade, number> = {
+  A: 5,
+  B: 4,
+  C: 3,
+  D: 2,
+  F: 1,
+};
+
+const confidenceSortRanks: Record<CampaignHealthConfidence, number> = {
+  High: 4,
+  Medium: 3,
+  Limited: 2,
+  Learning: 1,
+};
+
+const recommendationSortRanks: Record<CampaignHealthRecommendation, number> = {
+  "PAUSE / SHUTDOWN REVIEW": 5,
+  "REDUCE / REBUILD REVIEW": 4,
+  "WATCH / DIAGNOSE": 3,
+  "KEEP / WATCH": 2,
+  "WINNER / REPLICATE / SCALE REVIEW": 1,
+};
+
+const metaStatusSortRanks: Record<CampaignMetaDeliveryStatus, number> = {
+  on: 3,
+  off: 2,
+  unknown: 1,
+};
+
+const gradeSortingFn: SortingFn<CampaignHealthRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthGrade>(columnId),
+    second.getValue<CampaignHealthGrade>(columnId),
+    gradeSortRanks,
+  );
+
+const confidenceSortingFn: SortingFn<CampaignHealthRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthConfidence>(columnId),
+    second.getValue<CampaignHealthConfidence>(columnId),
+    confidenceSortRanks,
+  );
+
+const recommendationSortingFn: SortingFn<CampaignHealthRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthRecommendation>(columnId),
+    second.getValue<CampaignHealthRecommendation>(columnId),
+    recommendationSortRanks,
+  );
+
+const metaStatusSortingFn: SortingFn<CampaignHealthRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignMetaDeliveryStatus>(columnId),
+    second.getValue<CampaignMetaDeliveryStatus>(columnId),
+    metaStatusSortRanks,
+  );
+
+const nullableNumberSortingFn: SortingFn<CampaignHealthRow> = (
+  first,
+  second,
+  columnId,
+) => {
+  const firstValue = first.getValue<number | null>(columnId);
+  const secondValue = second.getValue<number | null>(columnId);
+
+  return (
+    normalizeSortableNumber(firstValue) - normalizeSortableNumber(secondValue)
+  );
+};
+
+const adGradeSortingFn: SortingFn<CampaignHealthAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthGrade>(columnId),
+    second.getValue<CampaignHealthGrade>(columnId),
+    gradeSortRanks,
+  );
+
+const adMetaStatusSortingFn: SortingFn<CampaignHealthAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignMetaDeliveryStatus>(columnId),
+    second.getValue<CampaignMetaDeliveryStatus>(columnId),
+    metaStatusSortRanks,
+  );
+
+const nullableAdNumberSortingFn: SortingFn<CampaignHealthAdRow> = (
+  first,
+  second,
+  columnId,
+) => {
+  const firstValue = first.getValue<number | null>(columnId);
+  const secondValue = second.getValue<number | null>(columnId);
+
+  return (
+    normalizeSortableNumber(firstValue) - normalizeSortableNumber(secondValue)
+  );
+};
+
+const placementGradeSortingFn: SortingFn<AdNamePlacement> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthGrade>(columnId),
+    second.getValue<CampaignHealthGrade>(columnId),
+    gradeSortRanks,
+  );
+
+const placementMetaStatusSortingFn: SortingFn<AdNamePlacement> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignMetaDeliveryStatus>(columnId),
+    second.getValue<CampaignMetaDeliveryStatus>(columnId),
+    metaStatusSortRanks,
+  );
+
+const placementNumberSortingFn: SortingFn<AdNamePlacement> = (
+  first,
+  second,
+  columnId,
+) => {
+  const firstValue = first.getValue<number | null>(columnId);
+  const secondValue = second.getValue<number | null>(columnId);
+
+  return (
+    normalizeSortableNumber(firstValue) - normalizeSortableNumber(secondValue)
+  );
+};
+
+function getPlacementHeaderClassName(columnId: string): string {
+  const rightAligned = new Set(["spend", "leads", "signedLeads"]);
+
+  return rightAligned.has(columnId)
+    ? "px-3 py-2 text-right"
+    : "px-3 py-2 text-left";
+}
+
+function getPlacementHeaderButtonClassName(columnId: string): string {
+  return ["spend", "leads", "signedLeads"].includes(columnId)
+    ? "justify-end"
+    : "";
+}
+
+function compareRankedValues<T extends string>(
+  first: T,
+  second: T,
+  ranks: Record<T, number>,
+): number {
+  return (ranks[first] ?? 0) - (ranks[second] ?? 0);
+}
+
+function normalizeSortableNumber(value: number | null | undefined): number {
+  return value == null || Number.isNaN(value)
+    ? Number.NEGATIVE_INFINITY
+    : value;
+}
+
+function getCampaignHeaderClassName(columnId: string): string {
+  const rightAligned = new Set([
+    "campaignAgeDays",
+    "spend",
+    "leads",
+    "signedLeads",
+  ]);
+  const base = columnId === "expand" ? "w-12 px-4 py-3" : "px-4 py-3";
+
+  return rightAligned.has(columnId) ? `${base} text-right` : base;
+}
+
+function getCampaignHeaderButtonClassName(columnId: string): string {
+  return ["campaignAgeDays", "spend", "leads", "signedLeads"].includes(columnId)
+    ? "justify-end"
+    : "";
+}
+
+function getAdHeaderClassName(columnId: string): string {
+  const rightAligned = new Set([
+    "spend",
+    "leads",
+    "signedLeads",
+    "cpl",
+    "cpsl",
+    "metaLeadActions",
+  ]);
+
+  return rightAligned.has(columnId)
+    ? "px-3 py-2 text-right"
+    : "px-3 py-2 text-left";
+}
+
+function getAdHeaderButtonClassName(columnId: string): string {
+  return [
+    "spend",
+    "leads",
+    "signedLeads",
+    "cpl",
+    "cpsl",
+    "metaLeadActions",
+  ].includes(columnId)
+    ? "justify-end"
+    : "";
+}
+
+function formatSortIndicator(value: false | "asc" | "desc"): string {
+  if (value === "asc") {
+    return "↑";
+  }
+
+  if (value === "desc") {
+    return "↓";
+  }
+
+  return "↕";
+}
+
+function adMatchesSelectedMetaStatus(
+  ad: CampaignHealthAdRow,
+  selectedMetaStatuses: Set<CampaignMetaDeliveryStatus>,
+): boolean {
+  return (
+    selectedMetaStatuses.size === 0 ||
+    selectedMetaStatuses.has(getAdMetaStatus(ad).id)
+  );
+}
+
+function adMatchesSelectedStates(
+  ad: CampaignHealthAdRow,
+  selectedStates: Set<string>,
+): boolean {
+  return (
+    selectedStates.size === 0 ||
+    ad.states.some((state) => selectedStates.has(state))
+  );
+}
+
+function rowMatchesSelectedStates(
+  row: CampaignHealthRow,
+  selectedStates: Set<string>,
+): boolean {
+  return (
+    selectedStates.size === 0 ||
+    row.states.some((state) => selectedStates.has(state))
+  );
+}
+
 function filterHealthRows(
   rows: CampaignHealthRow[],
   filters: {
@@ -1545,23 +2705,53 @@ function filterHealthRows(
     selectedCampaignIds: string[];
     selectedGrades: CampaignHealthGrade[];
     selectedMetaStatuses: CampaignMetaDeliveryStatus[];
+    selectedRecommendations: CampaignHealthRecommendation[];
+    selectedStates: string[];
   },
 ): CampaignHealthRow[] {
   const selectedCampaignIds = new Set(filters.selectedCampaignIds);
   const selectedAdIds = new Set(filters.selectedAdIds);
   const selectedGrades = new Set(filters.selectedGrades);
   const selectedMetaStatuses = new Set(filters.selectedMetaStatuses);
+  const selectedRecommendations = new Set(filters.selectedRecommendations);
+  const selectedStates = new Set(filters.selectedStates);
 
   return rows.filter((row) => {
     if (selectedCampaignIds.size > 0 && !selectedCampaignIds.has(row.id)) {
       return false;
     }
 
-    if (
-      selectedMetaStatuses.size > 0 &&
-      !selectedMetaStatuses.has(getRowMetaStatus(row).id)
-    ) {
+    const selectedRowAds =
+      selectedAdIds.size > 0
+        ? row.ads.filter((ad) => selectedAdIds.has(toAdFilterId(row, ad)))
+        : [];
+
+    if (selectedAdIds.size > 0 && selectedRowAds.length === 0) {
       return false;
+    }
+
+    if (selectedMetaStatuses.size > 0) {
+      const hasMatchingMetaStatus =
+        selectedAdIds.size > 0
+          ? selectedRowAds.some((ad) =>
+              adMatchesSelectedMetaStatus(ad, selectedMetaStatuses),
+            )
+          : selectedMetaStatuses.has(getRowMetaStatus(row).id);
+
+      if (!hasMatchingMetaStatus) {
+        return false;
+      }
+    }
+
+    if (selectedStates.size > 0) {
+      const hasMatchingState =
+        selectedAdIds.size > 0
+          ? selectedRowAds.some((ad) => adMatchesSelectedStates(ad, selectedStates))
+          : rowMatchesSelectedStates(row, selectedStates);
+
+      if (!hasMatchingState) {
+        return false;
+      }
     }
 
     if (selectedGrades.size > 0 && !selectedGrades.has(row.grade)) {
@@ -1569,8 +2759,8 @@ function filterHealthRows(
     }
 
     if (
-      selectedAdIds.size > 0 &&
-      !row.ads.some((ad) => selectedAdIds.has(toAdFilterId(row, ad)))
+      selectedRecommendations.size > 0 &&
+      !selectedRecommendations.has(row.recommendation)
     ) {
       return false;
     }
@@ -1610,7 +2800,7 @@ function buildAdNamePlacementMap(
         first.campaign.campaignName.localeCompare(
           second.campaign.campaignName,
         ) ||
-        (second.ad.spend - first.ad.spend) ||
+        second.ad.spend - first.ad.spend ||
         first.ad.id.localeCompare(second.ad.id),
     );
   }
@@ -1623,6 +2813,141 @@ function getAdNamePlacementCount(
   ad: CampaignHealthAdRow,
 ): number {
   return placements.get(normalizeAdName(ad.adName))?.length ?? 0;
+}
+
+function buildAdMediaTargets(placements: AdNamePlacement[]): AdMediaTarget[] {
+  const targets = new Map<string, AdMediaTarget>();
+
+  for (const placement of placements) {
+    const adId = placement.ad.adId?.trim();
+
+    if (!adId || targets.has(adId)) {
+      continue;
+    }
+
+    targets.set(adId, {
+      adId,
+      campaignLabel: `${placement.campaign.brand} / ${placement.campaign.campaignName}`,
+    });
+  }
+
+  return Array.from(targets.values());
+}
+
+function getBestAdMediaState(
+  targets: AdMediaTarget[],
+  mediaByAdId: Record<string, AdMediaState>,
+): AdMediaState {
+  let bestState: AdMediaState | null = null;
+
+  for (const target of targets) {
+    const state = mediaByAdId[target.adId] ?? {
+      error: null,
+      isLoading: true,
+      media: null,
+    };
+
+    if (!bestState || isBetterAdMediaState(state, bestState)) {
+      bestState = state;
+      continue;
+    }
+  }
+
+  return (
+    bestState ?? {
+      error: null,
+      isLoading: false,
+      media: null,
+    }
+  );
+}
+
+function isBetterAdMediaState(
+  candidate: AdMediaState,
+  current: AdMediaState,
+): boolean {
+  return (
+    getAdMediaAvailabilityRank(candidate) > getAdMediaAvailabilityRank(current)
+  );
+}
+
+function getAdMediaAvailabilityRank(state: AdMediaState): number {
+  const media = state.media;
+  const watchUrl = getAdMediaWatchUrl(media);
+
+  if (media?.thumbnailUrl && watchUrl) {
+    return 5;
+  }
+
+  if (media?.thumbnailUrl) {
+    return 4;
+  }
+
+  if (watchUrl) {
+    return 3;
+  }
+
+  if (state.isLoading) {
+    return 2;
+  }
+
+  if (media) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function getAdMediaWatchUrl(
+  media: CampaignHealthAdMedia | null | undefined,
+): string | null {
+  if (!media) {
+    return null;
+  }
+
+  if (media.permalinkUrl) {
+    return media.permalinkUrl;
+  }
+
+  if (media.videoId) {
+    return `https://www.facebook.com/watch/?v=${encodeURIComponent(
+      media.videoId,
+    )}`;
+  }
+
+  if (media.objectStoryId) {
+    return `https://www.facebook.com/${encodeURIComponent(media.objectStoryId)}`;
+  }
+
+  if (media.embedUrl) {
+    try {
+      return new URL(media.embedUrl).searchParams.get("href");
+    } catch {
+      return null;
+    }
+  }
+
+  return media.videoUrl;
+}
+
+async function fetchAdMedia(
+  adMediaApiUrl: string,
+  adId: string,
+): Promise<CampaignHealthAdMedia> {
+  const separator = adMediaApiUrl.includes("?") ? "&" : "?";
+  const response = await fetch(
+    `${adMediaApiUrl}${separator}adId=${encodeURIComponent(adId)}`,
+    {
+      cache: "no-store",
+      credentials: "include",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Unable to load ad creative media.");
+  }
+
+  return (await response.json()) as CampaignHealthAdMedia;
 }
 
 function normalizeAdName(value: string | null | undefined): string {
@@ -1639,6 +2964,21 @@ function getRowMetaStatus(row: CampaignHealthRow): CampaignMetaStatus {
       id: "unknown",
       label: "Unknown",
     }
+  );
+}
+
+function filterPlacementsByMetaStatus(
+  placements: AdNamePlacement[],
+  selectedMetaStatuses: CampaignMetaDeliveryStatus[],
+): AdNamePlacement[] {
+  if (selectedMetaStatuses.length === 0) {
+    return placements;
+  }
+
+  const selectedMetaStatusSet = new Set(selectedMetaStatuses);
+
+  return placements.filter((placement) =>
+    selectedMetaStatusSet.has(getAdMetaStatus(placement.ad).id),
   );
 }
 

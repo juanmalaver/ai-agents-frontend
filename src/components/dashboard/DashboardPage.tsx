@@ -12,6 +12,7 @@ import type {
   MonthlyCampaignPerformance,
 } from "@/src/types/dashboard";
 import {
+  formatCurrency,
   formatDashboardTimestamp,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
@@ -149,7 +150,11 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           onRetry={stateCampaignsSection.retry}
         />
         {stateCampaignsSection.data ? (
-          <CampaignStateTable rows={stateCampaignsSection.data} />
+          <CampaignStateTable
+            apiUrl={apiUrl}
+            query={dashboardQuery}
+            rows={stateCampaignsSection.data}
+          />
         ) : stateCampaignsSection.isLoading ? (
           <TableSkeleton />
         ) : (
@@ -193,11 +198,13 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
 
 function normalizeAggregatedKpis(kpis: AggregatedKpis): AggregatedKpis {
   return {
+    budget: numberOrNull(kpis.budget),
     budgetSpentCompletionPct: numberOrNull(kpis.budgetSpentCompletionPct),
     cpsl: numberOrNull(kpis.cpsl),
     cpql: numberOrNull(kpis.cpql),
     finalCpl: numberOrNull(kpis.finalCpl),
     leadGoalCompletionPct: numberOrNull(kpis.leadGoalCompletionPct),
+    mtdSpent: numberOrNull(kpis.mtdSpent),
     mtdSpentPct: numberOrNull(kpis.mtdSpentPct),
     slGoalCompletionPct: numberOrNull(kpis.slGoalCompletionPct),
   };
@@ -258,13 +265,6 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
   return [
     {
       format: "currency",
-      id: "final-cpl",
-      label: "Final CPL",
-      status: getCostStatus(kpis.finalCpl),
-      value: kpis.finalCpl,
-    },
-    {
-      format: "currency",
       id: "cpsl",
       label: "CPSL",
       status: getCostStatus(kpis.cpsl),
@@ -272,10 +272,18 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
     },
     {
       format: "currency",
-      id: "cpql",
-      label: "CPQL",
-      status: getCostStatus(kpis.cpql),
-      value: kpis.cpql,
+      id: "cpl",
+      label: "CPL",
+      status: getCostStatus(kpis.finalCpl),
+      value: kpis.finalCpl,
+    },
+    {
+      format: "currency",
+      helperText: formatMonthlySpendHelper(kpis.mtdSpent),
+      id: "monthly-budget",
+      label: "Monthly Budget",
+      status: getCompletionStatus(kpis.budgetSpentCompletionPct),
+      value: kpis.budget,
     },
     {
       format: "percentage",
@@ -294,7 +302,7 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
     {
       format: "percentage",
       id: "lead-goal-completion",
-      label: "% Q. Leads Goal Completion",
+      label: "% Leads Goal Completion",
       status: getCompletionStatus(kpis.leadGoalCompletionPct),
       value: kpis.leadGoalCompletionPct,
     },
@@ -338,6 +346,14 @@ function getCostStatus(value: number | null): MetricStatus {
   }
 
   return "on-track";
+}
+
+function formatMonthlySpendHelper(mtdSpent: number | null): string | undefined {
+  if (mtdSpent == null) {
+    return undefined;
+  }
+
+  return `${formatCurrency(mtdSpent)} spent this month`;
 }
 
 function numberOrNull(value: unknown): number | null {

@@ -44,7 +44,30 @@ export interface CampaignPerformanceChartProps {
 }
 
 export interface CampaignStateTableProps {
+  apiUrl?: string;
+  query: DashboardQueryParams;
   rows: CampaignStateRow[];
+}
+
+export interface StateLawFirmCampaignRow {
+  campaignName: string;
+  id: string;
+  leads: number;
+  signedLeads: number;
+}
+
+export interface StateLawFirmRow {
+  campaigns: StateLawFirmCampaignRow[];
+  conversionRate: number | null;
+  cpl: number | null;
+  cpsl: number | null;
+  goalPct: number | null;
+  id: string;
+  lawFirm: string;
+  leads: number;
+  leadsGoal: number;
+  mtdSl: number;
+  slGoal: number;
 }
 
 export interface RecommendationPanelProps {
@@ -77,6 +100,8 @@ export interface AggregatedKpis {
   finalCpl: number | null;
   cpsl: number | null;
   cpql: number | null;
+  budget: number | null;
+  mtdSpent: number | null;
   budgetSpentCompletionPct: number | null;
   slGoalCompletionPct: number | null;
   leadGoalCompletionPct: number | null;
@@ -172,9 +197,11 @@ export type NullableNumber = number | null | undefined;
 
 export interface A1AgentLatestResponse {
   agent_id: string;
+  brand?: string | null;
   run_id: string | null;
   run_date: string | null;
   generated_at: string | null;
+  scope?: "all_brands" | "brand";
   status: "empty" | "success";
   payload: A1DashboardAgentPayload | null;
 }

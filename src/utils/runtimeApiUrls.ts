@@ -96,13 +96,64 @@ export function resolveHealthDashboardApiUrl(
     : `${trimmed}/marketing-dashboard/health`;
 }
 
+export function resolveDashboardAdMediaApiUrl(
+  explicitDashboardApiUrl?: string | null,
+): string | undefined {
+  const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
+
+  if (!dashboardUrl) {
+    return undefined;
+  }
+
+  const trimmed = dashboardUrl.replace(/\/+$/, "");
+
+  if (trimmed.endsWith("/marketing-dashboard/campaigns")) {
+    return `${trimmed.slice(0, -"/campaigns".length)}/ad-media`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/health")) {
+    return `${trimmed.slice(0, -"/health".length)}/ad-media`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/ad-media")) {
+    return trimmed;
+  }
+
+  return trimmed.endsWith("/marketing-dashboard")
+    ? `${trimmed}/ad-media`
+    : `${trimmed}/marketing-dashboard/ad-media`;
+}
+
 export function resolveDashboardSectionApiUrl(
-  section: "kpis" | "monthly-performance" | "state-campaigns",
+  section: "kpis" | "monthly-performance" | "state-campaigns" | "state-law-firms",
   explicitDashboardApiUrl?: string | null,
 ): string | undefined {
   const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
 
   return appendSectionPath(dashboardUrl, `sections/${section}`);
+}
+
+export function appendStateLawFirmsQueryParams(
+  url: string | undefined,
+  query: Partial<DashboardQueryParams> & { state: string },
+): string | undefined {
+  const baseUrl = appendDashboardQueryParams(url, query);
+
+  if (!baseUrl) {
+    return undefined;
+  }
+
+  const state = query.state.trim();
+
+  if (!state) {
+    return baseUrl;
+  }
+
+  const params = new URLSearchParams();
+  params.set("state", state);
+  const separator = baseUrl.includes("?") ? "&" : "?";
+
+  return `${baseUrl}${separator}${params.toString()}`;
 }
 
 export function resolveDashboardBrandsApiUrl(
@@ -156,6 +207,38 @@ export function appendDashboardQueryParams(
   const separator = url.includes("?") ? "&" : "?";
 
   return `${url}${separator}${queryString}`;
+}
+
+export function buildHealthPageUrl(
+  query?: Partial<DashboardQueryParams> & { states?: string[] | null },
+): string {
+  const params = new URLSearchParams();
+  const normalizedBrand = normalizeBrandParam(query?.brand);
+  const normalizedFrom = normalizeDateParam(query?.from);
+  const normalizedTo = normalizeDateParam(query?.to);
+
+  if (normalizedBrand) {
+    params.set("brand", normalizedBrand);
+  }
+
+  if (normalizedFrom && normalizedTo && normalizedFrom <= normalizedTo) {
+    params.set("from", normalizedFrom);
+    params.set("to", normalizedTo);
+  }
+
+  for (const state of query?.states ?? []) {
+    const normalizedState = state.trim();
+
+    if (normalizedState) {
+      params.append("states", normalizedState);
+    }
+  }
+
+  const queryString = params.toString();
+
+  return queryString
+    ? `/marketing-dashboard/health?${queryString}`
+    : "/marketing-dashboard/health";
 }
 
 export function appendHealthDashboardQueryParams(
