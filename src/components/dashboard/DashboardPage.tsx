@@ -20,13 +20,13 @@ import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
 import { DashboardHeader } from "./DashboardHeader";
+import { DashboardShell } from "./DashboardShell";
 import { DashboardTabs } from "./DashboardTabs";
 import { KpiCardsGrid } from "./KpiCardsGrid";
 
 const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
 
 export function DashboardPage({
-  activeTab,
   apiUrl,
 }: DashboardPageProps) {
   const kpisUrl = useMemo(
@@ -96,14 +96,13 @@ export function DashboardPage({
   );
 
   return (
-    <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+    <DashboardShell activeItem="dashboard">
         <DashboardHeader
           lastUpdated={lastUpdated}
           subtitle={dashboardSubtitle}
           title="Marketing Campaign Performance"
         />
-        {activeTab ? <DashboardTabs activeTab={activeTab} /> : null}
+        <DashboardTabs activeTab="overview" />
         <BrandFilter />
         <SectionStatus
           error={kpisSection.data ? kpisSection.error : null}
@@ -163,8 +162,7 @@ export function DashboardPage({
             onRetry={stateCampaignsSection.retry}
           />
         )}
-      </div>
-    </main>
+    </DashboardShell>
   );
 }
 

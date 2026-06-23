@@ -43,6 +43,7 @@ import {
 } from "@/src/utils/runtimeApiUrls";
 import { AgentBriefPanel } from "./AgentBriefPanel";
 import { DashboardHeader } from "./DashboardHeader";
+import { DashboardShell } from "./DashboardShell";
 import { DashboardTabs } from "./DashboardTabs";
 
 const scorecardClasses: Record<CampaignScorecard["status"], string> = {
@@ -340,8 +341,7 @@ export function CampaignsPage({
 
   return (
     <>
-      <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5">
+      <DashboardShell activeItem="dashboard">
           <DashboardHeader
             lastUpdated={lastUpdated}
             subtitle="Campaign-level pacing, CPL risk, and lead behavior."
@@ -506,8 +506,7 @@ export function CampaignsPage({
               title="Lower detail could not be loaded"
             />
           )}
-        </div>
-      </main>
+      </DashboardShell>
       <CampaignDetailModal
         chartsReady={chartsReady}
         leadRows={leadBehaviorSection.data ?? []}
