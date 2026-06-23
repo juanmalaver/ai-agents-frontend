@@ -1,6 +1,13 @@
 "use client";
 
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import {
   AuthUser,
   getCurrentUser,
@@ -14,6 +21,12 @@ type AuthState = "checking" | "authenticated" | "login";
 
 interface AuthGateProps {
   children: ReactNode;
+}
+
+const AuthUserContext = createContext<AuthUser | null>(null);
+
+export function useAuthUser(): AuthUser | null {
+  return useContext(AuthUserContext);
 }
 
 export function AuthGate({ children }: AuthGateProps) {
@@ -69,7 +82,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (authState === "authenticated") {
     return (
-      <>
+      <AuthUserContext.Provider value={user}>
         <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 pb-2.5 pt-3.5 text-slate-700 shadow-sm backdrop-blur md:px-6 lg:px-8">
           <div aria-hidden="true" className="absolute inset-x-0 top-0 flex h-1">
             <span className="flex-1 bg-teal-500" />
@@ -94,7 +107,7 @@ export function AuthGate({ children }: AuthGateProps) {
           </div>
         </div>
         {children}
-      </>
+      </AuthUserContext.Provider>
     );
   }
 

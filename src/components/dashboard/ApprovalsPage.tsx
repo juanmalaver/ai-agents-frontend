@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   AssetReviewDecisionResponse,
   ReviewAssetDetailResponse,
@@ -10,19 +10,36 @@ import type {
   ReviewAssetsResponse,
   ReviewDecision,
 } from "@/src/types/videoApprovals";
+import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardShell } from "./DashboardShell";
 
-const REVIEWER_STORAGE_KEY = "video-approvals-reviewer";
-
 type ApprovalTab = "briefs" | "videos";
 type LoadState = "loading" | "ready" | "error";
 type StatusTone = "amber" | "rose" | "slate" | "teal";
+type VideoReviewFilter = "all" | "approved" | "rejected" | "waiting";
+
+const videoReviewFilters: Array<{
+  id: VideoReviewFilter;
+  label: string;
+}> = [
+  { id: "waiting", label: "Waiting Approval" },
+  { id: "approved", label: "Approved" },
+  { id: "rejected", label: "Rejected" },
+  { id: "all", label: "All" },
+];
 
 export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const authUser = useAuthUser();
+  const searchParamString = searchParams.toString();
   const deepLinkedAssetId = searchParams.get("asset_id");
+  const deepLinkedBriefId = searchParams.get("brief_id");
+  const reviewerEmail = authUser?.email.trim() ?? "";
+  const handledDeepLinkRef = useRef<string | null>(null);
   const [items, setItems] = useState<ReviewAssetListItem[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [listError, setListError] = useState<string | null>(null);
@@ -32,7 +49,6 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [decisionStatus, setDecisionStatus] = useState<string | null>(null);
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
-  const [reviewer, setReviewer] = useState("");
 
   const pendingCount = useMemo(
     () =>
@@ -52,7 +68,7 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   );
   const lastUpdated = useMemo(() => latestTimestamp(items), [items]);
 
-  const loadPending = useCallback(async () => {
+  const loadReviews = useCallback(async () => {
     setLoadState("loading");
     setListError(null);
 
@@ -89,12 +105,72 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
     }
   }, []);
 
+  const setReviewUrl = useCallback(
+    (
+      {
+        assetId,
+        briefId,
+      }: {
+        assetId: string;
+        briefId: string;
+      },
+      mode: "push" | "replace" = "push",
+    ) => {
+      const nextSearchParams = new URLSearchParams(searchParamString);
+      nextSearchParams.set("brief_id", briefId);
+      nextSearchParams.set("asset_id", assetId);
+
+      const nextUrl = `${pathname}?${nextSearchParams.toString()}`;
+
+      if (mode === "replace") {
+        router.replace(nextUrl, { scroll: false });
+        return;
+      }
+
+      router.push(nextUrl, { scroll: false });
+    },
+    [pathname, router, searchParamString],
+  );
+
+  const openAssetFromList = useCallback(
+    (item: ReviewAssetListItem) => {
+      handledDeepLinkRef.current = `${item.brief_id}:${item.asset_id}`;
+      setReviewUrl({
+        assetId: item.asset_id,
+        briefId: item.brief_id,
+      });
+      void openAsset(item.asset_id);
+    },
+    [openAsset, setReviewUrl],
+  );
+
   const closeDetail = useCallback(() => {
     setDetail(null);
     setSelectedAssetId(null);
     setDetailError(null);
     setDecisionStatus(null);
-  }, []);
+    handledDeepLinkRef.current = null;
+
+    const nextSearchParams = new URLSearchParams(searchParamString);
+    const hadReviewParams =
+      nextSearchParams.has("asset_id") || nextSearchParams.has("brief_id");
+    nextSearchParams.delete("asset_id");
+    nextSearchParams.delete("brief_id");
+
+    if (!hadReviewParams && !selectedAssetId) {
+      return;
+    }
+
+    const nextQuery = nextSearchParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
+      scroll: false,
+    });
+  }, [
+    pathname,
+    router,
+    searchParamString,
+    selectedAssetId,
+  ]);
 
   const submitDecision = useCallback(
     async (decision: ReviewDecision) => {
@@ -102,9 +178,8 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
         return;
       }
 
-      const normalizedReviewer = reviewer.trim();
-      if (!normalizedReviewer) {
-        setDecisionStatus("Reviewer is required.");
+      if (!reviewerEmail) {
+        setDecisionStatus("Authenticated reviewer email is required.");
         return;
       }
 
@@ -119,7 +194,6 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
           {
             body: JSON.stringify({
               decision,
-              reviewer: normalizedReviewer,
             }),
             headers: {
               "Content-Type": "application/json",
@@ -128,7 +202,6 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
           },
         );
 
-        window.localStorage.setItem(REVIEWER_STORAGE_KEY, normalizedReviewer);
         setDecisionStatus(
           response.decision === "approved" ? "Approved" : "Rejected",
         );
@@ -167,7 +240,7 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
         setIsSubmittingDecision(false);
       }
     },
-    [detail, reviewer, selectedAssetId],
+    [detail, reviewerEmail, selectedAssetId],
   );
 
   useEffect(() => {
@@ -175,24 +248,66 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
       return;
     }
 
-    void loadPending();
-  }, [activeTab, loadPending]);
+    void loadReviews();
+  }, [activeTab, loadReviews]);
 
   useEffect(() => {
-    const storedReviewer = window.localStorage.getItem(REVIEWER_STORAGE_KEY);
-
-    if (storedReviewer) {
-      setReviewer(storedReviewer);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!deepLinkedAssetId) {
+    if (activeTab !== "videos") {
       return;
     }
 
-    void openAsset(deepLinkedAssetId);
-  }, [deepLinkedAssetId, openAsset]);
+    if (!deepLinkedAssetId && !deepLinkedBriefId) {
+      handledDeepLinkRef.current = null;
+      setDetail(null);
+      setSelectedAssetId(null);
+      setDetailError(null);
+      setDecisionStatus(null);
+      return;
+    }
+
+    const deepLinkKey = `${deepLinkedBriefId ?? ""}:${deepLinkedAssetId ?? ""}`;
+
+    if (handledDeepLinkRef.current === deepLinkKey) {
+      return;
+    }
+
+    if (deepLinkedAssetId) {
+      handledDeepLinkRef.current = deepLinkKey;
+      void openAsset(deepLinkedAssetId);
+      return;
+    }
+
+    if (loadState !== "ready") {
+      return;
+    }
+
+    const matchingAsset = items.find(
+      (item) => item.brief_id === deepLinkedBriefId,
+    );
+
+    if (!matchingAsset) {
+      return;
+    }
+
+    const resolvedDeepLinkKey = `${matchingAsset.brief_id}:${matchingAsset.asset_id}`;
+    handledDeepLinkRef.current = resolvedDeepLinkKey;
+    setReviewUrl(
+      {
+        assetId: matchingAsset.asset_id,
+        briefId: matchingAsset.brief_id,
+      },
+      "replace",
+    );
+    void openAsset(matchingAsset.asset_id);
+  }, [
+    activeTab,
+    deepLinkedAssetId,
+    deepLinkedBriefId,
+    items,
+    loadState,
+    openAsset,
+    setReviewUrl,
+  ]);
 
   return (
     <>
@@ -215,9 +330,9 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
           <VideoApprovalsPanel
             items={items}
             listError={listError}
-            loadPending={loadPending}
+            loadReviews={loadReviews}
             loadState={loadState}
-            openAsset={openAsset}
+            openAsset={openAssetFromList}
             pendingCount={pendingCount}
             reviewedCount={reviewedCount}
             selectedAssetId={selectedAssetId}
@@ -234,9 +349,8 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
           isSubmittingDecision={isSubmittingDecision}
           onClose={closeDetail}
           onDecision={(decision) => void submitDecision(decision)}
-          reviewer={reviewer}
+          reviewerEmail={reviewerEmail}
           selectedAssetId={selectedAssetId}
-          setReviewer={setReviewer}
         />
       ) : null}
     </>
@@ -331,7 +445,7 @@ function BriefApprovalsPanel() {
 function VideoApprovalsPanel({
   items,
   listError,
-  loadPending,
+  loadReviews,
   loadState,
   openAsset,
   pendingCount,
@@ -340,13 +454,56 @@ function VideoApprovalsPanel({
 }: {
   items: ReviewAssetListItem[];
   listError: string | null;
-  loadPending: () => Promise<void>;
+  loadReviews: () => Promise<void>;
   loadState: LoadState;
-  openAsset: (assetId: string) => Promise<void>;
+  openAsset: (item: ReviewAssetListItem) => void;
   pendingCount: number;
   reviewedCount: number;
   selectedAssetId: string | null;
 }) {
+  const [activeFilter, setActiveFilter] =
+    useState<VideoReviewFilter>("waiting");
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const normalizedSearch = normalizeSearchToken(searchQuery);
+  const filterCounts = useMemo(() => buildFilterCounts(items), [items]);
+  const filteredItems = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          matchesVideoReviewFilter(item, activeFilter) &&
+          matchesVideoSearch(item, normalizedSearch),
+      ),
+    [activeFilter, items, normalizedSearch],
+  );
+  const hasNoFilteredResults =
+    loadState === "ready" && items.length > 0 && filteredItems.length === 0;
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT");
+      const shouldFocusSearch =
+        event.key === "/" ||
+        ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k");
+
+      if (!shouldFocusSearch || isEditableTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    }
+
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
@@ -363,17 +520,88 @@ function VideoApprovalsPanel({
             </h2>
             <p className="text-sm text-slate-500">
               {loadState === "ready"
-                ? `${items.length} video${items.length === 1 ? "" : "s"}`
+                ? `${filteredItems.length} of ${items.length} video${
+                    items.length === 1 ? "" : "s"
+                  }`
                 : "Loading"}
             </p>
           </div>
           <button
             className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-            onClick={() => void loadPending()}
+            onClick={() => void loadReviews()}
             type="button"
           >
             Refresh
           </button>
+        </div>
+
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div
+            aria-label="Video review status filter"
+            className="flex gap-2 overflow-x-auto"
+            role="group"
+          >
+            {videoReviewFilters.map((filter) => {
+              const isActive = filter.id === activeFilter;
+              const count = filterCounts[filter.id];
+
+              return (
+                <button
+                  aria-pressed={isActive}
+                  className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 ${
+                    isActive
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                  }`}
+                  key={filter.id}
+                  onClick={() => setActiveFilter(filter.id)}
+                  type="button"
+                >
+                  <span>{filter.label}</span>
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-xs ${
+                      isActive
+                        ? "bg-white/15 text-white"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col gap-1 lg:max-w-md">
+            <label className="sr-only" htmlFor="video-approval-search">
+              Search videos
+            </label>
+            <input
+              aria-controls="video-approvals-results"
+              aria-describedby="video-approvals-result-count"
+              aria-keyshortcuts="/ Control+K Meta+K"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              id="video-approval-search"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && searchQuery) {
+                  event.stopPropagation();
+                  setSearchQuery("");
+                }
+              }}
+              placeholder="Search brand, brief, asset, variant, market"
+              ref={searchInputRef}
+              type="search"
+              value={searchQuery}
+            />
+            <p
+              aria-live="polite"
+              className="sr-only"
+              id="video-approvals-result-count"
+            >
+              {filteredItems.length} videos visible out of {items.length}.
+            </p>
+          </div>
         </div>
 
         {loadState === "error" ? (
@@ -397,9 +625,18 @@ function VideoApprovalsPanel({
           </div>
         ) : null}
 
-        {items.length > 0 ? (
+        {hasNoFilteredResults ? (
+          <div className="px-4 py-12 text-center text-sm text-slate-500">
+            No videos match this view.
+          </div>
+        ) : null}
+
+        {filteredItems.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+            <table
+              className="min-w-full divide-y divide-slate-200 text-left text-sm"
+              id="video-approvals-results"
+            >
               <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
                 <tr>
                   <TableHead>Brand</TableHead>
@@ -414,7 +651,7 @@ function VideoApprovalsPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {items.map((item) => (
+                {filteredItems.map((item) => (
                   <tr
                     className={
                       selectedAssetId === item.asset_id
@@ -475,8 +712,9 @@ function VideoApprovalsPanel({
                     <TableCell>{formatTimestamp(item.created_at)}</TableCell>
                     <TableCell>
                       <button
+                        aria-label={`Open asset ${item.asset_id}`}
                         className="inline-flex h-9 items-center justify-center rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-                        onClick={() => void openAsset(item.asset_id)}
+                        onClick={() => openAsset(item)}
                         type="button"
                       >
                         Open
@@ -501,9 +739,8 @@ function ReviewDetailModal({
   isSubmittingDecision,
   onClose,
   onDecision,
-  reviewer,
+  reviewerEmail,
   selectedAssetId,
-  setReviewer,
 }: {
   decisionStatus: string | null;
   detail: ReviewAssetDetailResponse | null;
@@ -512,12 +749,27 @@ function ReviewDetailModal({
   isSubmittingDecision: boolean;
   onClose: () => void;
   onDecision: (decision: ReviewDecision) => void;
-  reviewer: string;
+  reviewerEmail: string;
   selectedAssetId: string;
-  setReviewer: (value: string) => void;
 }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-40">
+    <div
+      aria-labelledby="video-review-dialog-title"
+      aria-modal="true"
+      className="fixed inset-0 z-40"
+      role="dialog"
+    >
       <button
         aria-label="Close"
         className="absolute inset-0 h-full w-full bg-slate-950/45"
@@ -530,7 +782,10 @@ function ReviewDetailModal({
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
               Asset Review
             </p>
-            <h2 className="truncate text-lg font-semibold text-slate-950">
+            <h2
+              className="truncate text-lg font-semibold text-slate-950"
+              id="video-review-dialog-title"
+            >
               {selectedAssetId}
             </h2>
           </div>
@@ -631,33 +886,31 @@ function ReviewDetailModal({
 
                 <DetailSection title="Approval">
                   <div className="flex flex-col gap-3">
-                    <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
-                      Reviewer
-                      <input
-                        className="h-10 rounded-lg border border-slate-300 px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                        onChange={(event) => setReviewer(event.target.value)}
-                        placeholder="reviewer@example.com"
-                        value={reviewer}
-                      />
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={isSubmittingDecision}
-                        onClick={() => onDecision("approved")}
-                        type="button"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        className="inline-flex h-10 items-center justify-center rounded-lg bg-rose-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={isSubmittingDecision}
-                        onClick={() => onDecision("rejected")}
-                        type="button"
-                      >
-                        Reject
-                      </button>
-                    </div>
+                    {canReviewAsset(detail.asset) ? (
+                      <>
+                        <DescriptionGrid
+                          rows={[["Reviewing as", reviewerEmail || "-"]]}
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={isSubmittingDecision || !reviewerEmail}
+                            onClick={() => onDecision("approved")}
+                            type="button"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="inline-flex h-10 items-center justify-center rounded-lg bg-rose-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={isSubmittingDecision || !reviewerEmail}
+                            onClick={() => onDecision("rejected")}
+                            type="button"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
                     {decisionStatus ? (
                       <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                         {decisionStatus}
@@ -820,6 +1073,69 @@ function formatQcScore(value?: number | null): string {
   return typeof value === "number" ? value.toFixed(3) : "n/a";
 }
 
+function buildFilterCounts(
+  items: ReviewAssetListItem[],
+): Record<VideoReviewFilter, number> {
+  return {
+    all: items.length,
+    approved: items.filter((item) =>
+      matchesVideoReviewFilter(item, "approved"),
+    ).length,
+    rejected: items.filter((item) =>
+      matchesVideoReviewFilter(item, "rejected"),
+    ).length,
+    waiting: items.filter((item) => matchesVideoReviewFilter(item, "waiting"))
+      .length,
+  };
+}
+
+function matchesVideoReviewFilter(
+  item: ReviewAssetListItem,
+  filter: VideoReviewFilter,
+): boolean {
+  if (filter === "all") {
+    return true;
+  }
+
+  if (filter === "approved") {
+    return item.review_decision === "approved" || item.approved;
+  }
+
+  if (filter === "rejected") {
+    return item.review_decision === "rejected";
+  }
+
+  return (
+    item.human_review_required && !item.approved && !item.review_decision
+  );
+}
+
+function matchesVideoSearch(
+  item: ReviewAssetListItem,
+  normalizedSearch: string,
+): boolean {
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  return [
+    item.asset_id,
+    item.brand,
+    item.brief_id,
+    item.client_type,
+    item.hook_angle,
+    item.state,
+    item.variant_id,
+    item.video_style,
+  ]
+    .map(normalizeSearchToken)
+    .some((value) => value.includes(normalizedSearch));
+}
+
+function normalizeSearchToken(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 function reviewStatusLabel(item: {
   approved: boolean;
   human_review_required: boolean;
@@ -842,6 +1158,33 @@ function reviewStatusLabel(item: {
   }
 
   return "Pending";
+}
+
+function reviewerAuditLabel(item: {
+  approved: boolean;
+  review_decision: ReviewDecision | null;
+}): string {
+  if (item.review_decision === "rejected") {
+    return "Rejected by";
+  }
+
+  if (item.review_decision === "approved" || item.approved) {
+    return "Approved by";
+  }
+
+  return "Reviewed by";
+}
+
+function canReviewAsset(item: {
+  approved: boolean;
+  human_review_required: boolean;
+  review_decision: ReviewDecision | null;
+}): boolean {
+  return (
+    item.human_review_required &&
+    !item.approved &&
+    item.review_decision === null
+  );
 }
 
 function reviewStatusTone(item: ReviewAssetListItem): StatusTone {
