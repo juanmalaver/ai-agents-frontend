@@ -146,6 +146,19 @@ export interface BriefDraftContinueResponse {
   submitted_jobs: Array<Record<string, unknown>>;
 }
 
+export interface VideoProductionBrandOption {
+  brand_code: string;
+  brand_name: string;
+  brand_aliases: string[];
+  slack_channel: string | null;
+  meta_ad_account_id: string | null;
+  is_active: boolean;
+}
+
+export interface VideoProductionBrandsResponse {
+  items: VideoProductionBrandOption[];
+}
+
 export type VideoReviewBrief = {
   brand?: {
     name?: string;

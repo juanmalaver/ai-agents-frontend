@@ -12,6 +12,8 @@ import type {
   ReviewAssetListItem,
   ReviewAssetsResponse,
   ReviewDecision,
+  VideoProductionBrandOption,
+  VideoProductionBrandsResponse,
 } from "@/src/types/videoApprovals";
 import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
@@ -398,17 +400,39 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
 }
 
 function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
-  const [directorPrompt, setDirectorPrompt] = useState("");
+  const [briefText, setBriefText] = useState("");
+  const [brands, setBrands] = useState<VideoProductionBrandOption[]>([]);
+  const [brandsLoadState, setBrandsLoadState] = useState<LoadState>("loading");
+  const [brandsError, setBrandsError] = useState<string | null>(null);
+  const [selectedBrandCode, setSelectedBrandCode] = useState("");
+  const [marketState, setMarketState] = useState("Florida");
+  const [clientType, setClientType] = useState("personal injury");
+  const [videoStyle, setVideoStyle] = useState("UGC testimonial");
+  const [hookAngle, setHookAngle] = useState("free consultation");
+  const [cta, setCta] = useState("Book a free consultation");
+  const [durationSeconds, setDurationSeconds] = useState(30);
+  const [maxVariants, setMaxVariants] = useState(3);
   const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
   const [briefError, setBriefError] = useState<string | null>(null);
   const [continueStatus, setContinueStatus] = useState<string | null>(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
-  const trimmedPrompt = directorPrompt.trim();
+  const trimmedBriefText = briefText.trim();
+  const activeBrands = useMemo(
+    () => brands.filter((brand) => brand.is_active),
+    [brands],
+  );
+  const selectedBrand = useMemo(
+    () =>
+      activeBrands.find((brand) => brand.brand_code === selectedBrandCode) ??
+      null,
+    [activeBrands, selectedBrandCode],
+  );
   const canGenerate =
     Boolean(reviewerEmail) &&
-    trimmedPrompt.length >= 10 &&
+    Boolean(selectedBrand) &&
+    trimmedBriefText.length >= 10 &&
     !isGeneratingStoryboard;
   const canContinue =
     draft !== null &&
@@ -423,8 +447,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       return;
     }
 
-    if (trimmedPrompt.length < 10) {
-      setBriefError("Prompt director must be at least 10 characters.");
+    if (!selectedBrand) {
+      setBriefError("Brand is required.");
+      return;
+    }
+
+    if (trimmedBriefText.length < 10) {
+      setBriefError("Brief must be at least 10 characters.");
       return;
     }
 
@@ -437,7 +466,17 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
         "/api/video-production/brief-drafts",
         {
           body: JSON.stringify({
-            source_prompt: trimmedPrompt,
+            metadata: buildBriefDraftMetadata({
+              brand: selectedBrand,
+              clientType,
+              cta,
+              durationSeconds,
+              hookAngle,
+              marketState,
+              maxVariants,
+              videoStyle,
+            }),
+            source_prompt: trimmedBriefText,
           }),
           headers: {
             "Content-Type": "application/json",
@@ -453,7 +492,18 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     } finally {
       setIsGeneratingStoryboard(false);
     }
-  }, [reviewerEmail, trimmedPrompt]);
+  }, [
+    clientType,
+    cta,
+    durationSeconds,
+    hookAngle,
+    marketState,
+    maxVariants,
+    reviewerEmail,
+    selectedBrand,
+    trimmedBriefText,
+    videoStyle,
+  ]);
 
   const continueToVideo = useCallback(async () => {
     if (!draft) {
@@ -513,6 +563,47 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     }
   }, [draft?.draft_id]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadBrands() {
+      setBrandsLoadState("loading");
+      setBrandsError(null);
+
+      try {
+        const response = await fetchJson<VideoProductionBrandsResponse>(
+          "/api/video-production/brands",
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setBrands(response.items);
+        setBrandsLoadState("ready");
+      } catch (caughtError) {
+        if (!isMounted) {
+          return;
+        }
+
+        setBrandsError(errorMessage(caughtError, "Unable to load brands."));
+        setBrandsLoadState("error");
+      }
+    }
+
+    void loadBrands();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedBrandCode && activeBrands[0]) {
+      setSelectedBrandCode(activeBrands[0].brand_code);
+    }
+  }, [activeBrands, selectedBrandCode]);
+
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
@@ -542,9 +633,9 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           </div>
           <button
             className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
-            disabled={!directorPrompt && !draft}
+            disabled={!briefText && !draft}
             onClick={() => {
-              setDirectorPrompt("");
+              setBriefText("");
               setDraft(null);
               setBriefError(null);
               setContinueStatus(null);
@@ -555,6 +646,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           </button>
         </div>
 
+        {brandsError ? <InlineError message={brandsError} /> : null}
+
         <form
           className="grid gap-4 p-4"
           onSubmit={(event) => {
@@ -562,19 +655,114 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
             void generateStoryboard();
           }}
         >
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <FormField label="Brand" htmlFor="brief-brand-select">
+              <select
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+                disabled={brandsLoadState === "loading"}
+                id="brief-brand-select"
+                onChange={(event) => setSelectedBrandCode(event.target.value)}
+                value={selectedBrandCode}
+              >
+                {brandsLoadState === "loading" ? (
+                  <option value="">Loading brands</option>
+                ) : null}
+                {brandsLoadState !== "loading" && activeBrands.length === 0 ? (
+                  <option value="">No brands available</option>
+                ) : null}
+                {activeBrands.map((brand) => (
+                  <option key={brand.brand_code} value={brand.brand_code}>
+                    {brand.brand_name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            <FormField label="Market" htmlFor="brief-market-state">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-market-state"
+                onChange={(event) => setMarketState(event.target.value)}
+                value={marketState}
+              />
+            </FormField>
+
+            <FormField label="Client type" htmlFor="brief-client-type">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-client-type"
+                onChange={(event) => setClientType(event.target.value)}
+                value={clientType}
+              />
+            </FormField>
+
+            <FormField label="Video style" htmlFor="brief-video-style">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-video-style"
+                onChange={(event) => setVideoStyle(event.target.value)}
+                value={videoStyle}
+              />
+            </FormField>
+
+            <FormField label="Hook" htmlFor="brief-hook-angle">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-hook-angle"
+                onChange={(event) => setHookAngle(event.target.value)}
+                value={hookAngle}
+              />
+            </FormField>
+
+            <FormField label="CTA" htmlFor="brief-cta">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-cta"
+                onChange={(event) => setCta(event.target.value)}
+                value={cta}
+              />
+            </FormField>
+
+            <FormField label="Duration" htmlFor="brief-duration">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-duration"
+                max={180}
+                min={5}
+                onChange={(event) =>
+                  setDurationSeconds(Number(event.target.value))
+                }
+                type="number"
+                value={durationSeconds}
+              />
+            </FormField>
+
+            <FormField label="Variants" htmlFor="brief-max-variants">
+              <input
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                id="brief-max-variants"
+                max={3}
+                min={1}
+                onChange={(event) => setMaxVariants(Number(event.target.value))}
+                type="number"
+                value={maxVariants}
+              />
+            </FormField>
+          </div>
+
           <div className="grid gap-2">
             <label
               className="text-sm font-semibold text-slate-950"
               htmlFor="brief-director-prompt"
             >
-              Prompt director
+              Brief
             </label>
             <textarea
               aria-describedby="brief-director-status"
               aria-keyshortcuts="Control+Enter Meta+Enter"
               className="min-h-36 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               id="brief-director-prompt"
-              onChange={(event) => setDirectorPrompt(event.target.value)}
+              onChange={(event) => setBriefText(event.target.value)}
               onKeyDown={(event) => {
                 if (
                   (event.ctrlKey || event.metaKey) &&
@@ -585,8 +773,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   void generateStoryboard();
                 }
               }}
-              placeholder="Brand, market, target client, hook, CTA, compliance notes..."
-              value={directorPrompt}
+              placeholder="Audience, offer, compliance notes, references, storyboard direction..."
+              value={briefText}
             />
           </div>
 
@@ -1235,6 +1423,25 @@ function MetricTile({ label, value }: { label: string; value: string }) {
   );
 }
 
+function FormField({
+  children,
+  htmlFor,
+  label,
+}: {
+  children: React.ReactNode;
+  htmlFor: string;
+  label: string;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <label className="text-xs font-semibold text-slate-700" htmlFor={htmlFor}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 function DetailSection({
   children,
   title,
@@ -1401,6 +1608,67 @@ function briefDraftValue(
   }
 
   return String(asRecord(draft.brief.creative)?.[key] ?? "-");
+}
+
+function buildBriefDraftMetadata({
+  brand,
+  clientType,
+  cta,
+  durationSeconds,
+  hookAngle,
+  marketState,
+  maxVariants,
+  videoStyle,
+}: {
+  brand: VideoProductionBrandOption;
+  clientType: string;
+  cta: string;
+  durationSeconds: number;
+  hookAngle: string;
+  marketState: string;
+  maxVariants: number;
+  videoStyle: string;
+}): Record<string, unknown> {
+  return {
+    brand: {
+      brand_aliases: brand.brand_aliases,
+      brand_code: brand.brand_code,
+      brand_name: brand.brand_name,
+      meta_ad_account_id: brand.meta_ad_account_id,
+      slack_channel: brand.slack_channel,
+    },
+    constraints: {
+      compliance_level: "regulated",
+      max_variants: clampNumber(maxVariants, 1, 3, 3),
+      requires_human_approval: true,
+    },
+    creative: {
+      aspect_ratio: "9:16",
+      awareness_level: "problem-aware",
+      cta: cta.trim() || "Book a free consultation",
+      duration_seconds: clampNumber(durationSeconds, 5, 180, 30),
+      hook_angle: hookAngle.trim() || "free consultation",
+      platform: "TikTok/Reels/Shorts",
+      video_style: videoStyle.trim() || "UGC testimonial",
+    },
+    market: {
+      client_type: clientType.trim() || "personal injury",
+      state: marketState.trim() || "Florida",
+    },
+  };
+}
+
+function clampNumber(
+  value: number,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function buildFilterCounts(
