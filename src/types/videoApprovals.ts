@@ -81,6 +81,71 @@ export interface AssetReviewDecisionResponse {
   reviewed_at: string | null;
 }
 
+export type BriefDraftStatus =
+  | "generation_failed"
+  | "generation_submitted"
+  | "storyboard_ready";
+
+export interface BriefDraftScene {
+  scene_number: number;
+  duration_seconds: number;
+  visual_direction: string;
+  on_screen_text: string;
+  voiceover: string;
+  camera_style: string;
+  transition?: string | null;
+  notes?: string | null;
+}
+
+export interface BriefDraftResponse {
+  draft_id: string;
+  status: BriefDraftStatus;
+  source_prompt: string;
+  created_by: string | null;
+  continued_by: string | null;
+  run_id: string | null;
+  brief_id: string;
+  matrix_cell_id: string;
+  brief: VideoReviewBrief & {
+    priority?: {
+      score?: number;
+      tier?: string;
+      reason?: string;
+    };
+    constraints?: {
+      max_variants?: number;
+      requires_human_approval?: boolean;
+      compliance_level?: string;
+    };
+  };
+  normalized_brief: Record<string, unknown>;
+  script: {
+    hook: string;
+    body: string;
+    cta: string;
+    total_duration_seconds: number;
+    scenes: BriefDraftScene[];
+  };
+  storyboard: {
+    brief_id: string;
+    scenes: BriefDraftScene[];
+    visual_style: string;
+    total_duration_seconds: number;
+  };
+  prompt_count: number;
+  metadata: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BriefDraftContinueResponse {
+  run_id: string;
+  status: string;
+  brief_id: string | null;
+  submitted_jobs: Array<Record<string, unknown>>;
+}
+
 export type VideoReviewBrief = {
   brand?: {
     name?: string;

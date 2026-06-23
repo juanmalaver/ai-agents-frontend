@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   AssetReviewDecisionResponse,
+  BriefDraftContinueResponse,
+  BriefDraftResponse,
+  BriefDraftScene,
   ReviewAssetDetailResponse,
   ReviewAssetListItem,
   ReviewAssetsResponse,
@@ -325,7 +328,7 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
         <ApprovalsTabs activeTab={activeTab} />
 
         {activeTab === "briefs" ? (
-          <BriefApprovalsPanel />
+          <BriefApprovalsPanel reviewerEmail={reviewerEmail} />
         ) : (
           <VideoApprovalsPanel
             items={items}
@@ -394,51 +397,335 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
   );
 }
 
-function BriefApprovalsPanel() {
+function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
+  const [directorPrompt, setDirectorPrompt] = useState("");
+  const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  const [continueStatus, setContinueStatus] = useState<string | null>(null);
+  const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const trimmedPrompt = directorPrompt.trim();
+  const canGenerate =
+    Boolean(reviewerEmail) &&
+    trimmedPrompt.length >= 10 &&
+    !isGeneratingStoryboard;
+  const canContinue =
+    draft !== null &&
+    draft.status === "storyboard_ready" &&
+    !draft.run_id &&
+    Boolean(reviewerEmail) &&
+    !isContinuing;
+
+  const generateStoryboard = useCallback(async () => {
+    if (!reviewerEmail) {
+      setBriefError("Authenticated creator email is required.");
+      return;
+    }
+
+    if (trimmedPrompt.length < 10) {
+      setBriefError("Prompt director must be at least 10 characters.");
+      return;
+    }
+
+    setIsGeneratingStoryboard(true);
+    setBriefError(null);
+    setContinueStatus(null);
+
+    try {
+      const response = await fetchJson<BriefDraftResponse>(
+        "/api/video-production/brief-drafts",
+        {
+          body: JSON.stringify({
+            source_prompt: trimmedPrompt,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+
+      setDraft(response);
+    } catch (caughtError) {
+      setDraft(null);
+      setBriefError(errorMessage(caughtError, "Unable to generate storyboard."));
+    } finally {
+      setIsGeneratingStoryboard(false);
+    }
+  }, [reviewerEmail, trimmedPrompt]);
+
+  const continueToVideo = useCallback(async () => {
+    if (!draft) {
+      return;
+    }
+
+    if (!reviewerEmail) {
+      setContinueStatus("Authenticated reviewer email is required.");
+      return;
+    }
+
+    setIsContinuing(true);
+    setBriefError(null);
+    setContinueStatus(null);
+
+    try {
+      const response = await fetchJson<BriefDraftContinueResponse>(
+        `/api/video-production/brief-drafts/${encodeURIComponent(
+          draft.draft_id,
+        )}/continue`,
+        {
+          body: JSON.stringify({}),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        },
+      );
+
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              continued_by: reviewerEmail,
+              run_id: response.run_id,
+              status: "generation_submitted",
+            }
+          : current,
+      );
+      setContinueStatus(
+        `Video generation started with ${response.submitted_jobs.length} job${
+          response.submitted_jobs.length === 1 ? "" : "s"
+        }.`,
+      );
+    } catch (caughtError) {
+      setContinueStatus(
+        errorMessage(caughtError, "Unable to continue to video generation."),
+      );
+    } finally {
+      setIsContinuing(false);
+    }
+  }, [draft, reviewerEmail]);
+
+  useEffect(() => {
+    if (draft) {
+      previewRef.current?.focus();
+    }
+  }, [draft?.draft_id]);
+
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
-        <MetricTile label="Pending" value="0" />
-        <MetricTile label="Reviewed in view" value="0" />
-        <MetricTile label="Total loaded" value="0" />
+        <MetricTile
+          label="Draft status"
+          value={draft ? briefDraftStatusLabel(draft.status) : "-"}
+        />
+        <MetricTile
+          label="Storyboard scenes"
+          value={draft ? String(draft.storyboard.scenes.length) : "0"}
+        />
+        <MetricTile
+          label="Video run"
+          value={draft?.run_id ? "Started" : "Not started"}
+        />
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-950">
-              Brief Queue
+              Single Brief
             </h2>
-            <p className="text-sm text-slate-500">0 briefs</p>
+            <p className="text-sm text-slate-500">
+              {draft ? draft.brief_id : "No storyboard generated"}
+            </p>
           </div>
           <button
             className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+            disabled={!directorPrompt && !draft}
+            onClick={() => {
+              setDirectorPrompt("");
+              setDraft(null);
+              setBriefError(null);
+              setContinueStatus(null);
+            }}
             type="button"
           >
-            Refresh
+            Reset
           </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
-              <tr>
-                <TableHead>Brand</TableHead>
-                <TableHead>Brief</TableHead>
-                <TableHead>Market</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Review</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
-              </tr>
-            </thead>
-          </table>
-        </div>
-        <div className="px-4 py-12 text-center text-sm text-slate-500">
-          No pending briefs.
-        </div>
+        <form
+          className="grid gap-4 p-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void generateStoryboard();
+          }}
+        >
+          <div className="grid gap-2">
+            <label
+              className="text-sm font-semibold text-slate-950"
+              htmlFor="brief-director-prompt"
+            >
+              Prompt director
+            </label>
+            <textarea
+              aria-describedby="brief-director-status"
+              aria-keyshortcuts="Control+Enter Meta+Enter"
+              className="min-h-36 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              id="brief-director-prompt"
+              onChange={(event) => setDirectorPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  (event.ctrlKey || event.metaKey) &&
+                  event.key === "Enter" &&
+                  canGenerate
+                ) {
+                  event.preventDefault();
+                  void generateStoryboard();
+                }
+              }}
+              placeholder="Brand, market, target client, hook, CTA, compliance notes..."
+              value={directorPrompt}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p
+              aria-live="polite"
+              className="text-sm text-slate-500"
+              id="brief-director-status"
+            >
+              {reviewerEmail ? `Creating as ${reviewerEmail}` : "Email required"}
+            </p>
+            <button
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canGenerate}
+              type="submit"
+            >
+              {isGeneratingStoryboard ? "Generating" : "Generate storyboard"}
+            </button>
+          </div>
+        </form>
+
+        {briefError ? <InlineError message={briefError} /> : null}
+
+        {!draft && !briefError ? (
+          <div className="border-t border-slate-200 px-4 py-12 text-center text-sm text-slate-500">
+            No storyboard generated.
+          </div>
+        ) : null}
       </section>
+
+      {draft ? (
+        <section
+          className="rounded-lg border border-slate-200 bg-white shadow-sm"
+          ref={previewRef}
+          tabIndex={-1}
+        >
+          <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold text-slate-950">
+                  Storyboard Preview
+                </h2>
+                <StatusPill
+                  label={briefDraftStatusLabel(draft.status)}
+                  tone={briefDraftStatusTone(draft.status)}
+                />
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                {draft.storyboard.visual_style}
+              </p>
+            </div>
+            <button
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canContinue}
+              onClick={() => void continueToVideo()}
+              type="button"
+            >
+              {isContinuing ? "Starting" : "Continue to video"}
+            </button>
+          </div>
+
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <div className="grid content-start gap-4">
+              <DescriptionGrid
+                rows={[
+                  ["Brand", briefDraftValue(draft, "brand")],
+                  ["Market", briefDraftValue(draft, "market")],
+                  ["Client type", briefDraftValue(draft, "client_type")],
+                  ["Hook", briefDraftValue(draft, "hook_angle")],
+                  ["CTA", briefDraftValue(draft, "cta")],
+                  ["Brief ID", draft.brief_id],
+                  ["Draft ID", draft.draft_id],
+                  ["Prompt variants", String(draft.prompt_count)],
+                  ["Run ID", draft.run_id ?? "-"],
+                ]}
+              />
+
+              {continueStatus ? (
+                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {continueStatus}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
+                  <tr>
+                    <TableHead>Scene</TableHead>
+                    <TableHead>Visual</TableHead>
+                    <TableHead>Copy</TableHead>
+                    <TableHead>Camera</TableHead>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {draft.storyboard.scenes.map((scene) => (
+                    <BriefStoryboardRow key={scene.scene_number} scene={scene} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
     </>
+  );
+}
+
+function BriefStoryboardRow({ scene }: { scene: BriefDraftScene }) {
+  return (
+    <tr className="hover:bg-slate-50">
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-slate-950">
+            {scene.scene_number}
+          </span>
+          <span className="text-xs text-slate-500">
+            {scene.duration_seconds}s
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex max-w-[260px] flex-col gap-1">
+          <span>{scene.visual_direction}</span>
+          {scene.transition ? (
+            <span className="text-xs text-slate-500">{scene.transition}</span>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex max-w-[280px] flex-col gap-1">
+          <span className="font-medium text-slate-950">
+            {scene.on_screen_text}
+          </span>
+          <span className="text-xs text-slate-500">{scene.voiceover}</span>
+        </div>
+      </TableCell>
+      <TableCell>{scene.camera_style}</TableCell>
+    </tr>
   );
 }
 
@@ -1071,6 +1358,49 @@ function formatTimestamp(value?: string | null): string {
 
 function formatQcScore(value?: number | null): string {
   return typeof value === "number" ? value.toFixed(3) : "n/a";
+}
+
+function briefDraftStatusLabel(status: BriefDraftResponse["status"]): string {
+  if (status === "generation_submitted") {
+    return "Submitted";
+  }
+
+  if (status === "generation_failed") {
+    return "Failed";
+  }
+
+  return "Storyboard ready";
+}
+
+function briefDraftStatusTone(status: BriefDraftResponse["status"]): StatusTone {
+  if (status === "generation_submitted") {
+    return "teal";
+  }
+
+  if (status === "generation_failed") {
+    return "rose";
+  }
+
+  return "amber";
+}
+
+function briefDraftValue(
+  draft: BriefDraftResponse,
+  key: "brand" | "client_type" | "cta" | "hook_angle" | "market",
+): string {
+  if (key === "brand") {
+    return String(asRecord(draft.brief.brand)?.name ?? "-");
+  }
+
+  if (key === "market") {
+    return String(asRecord(draft.brief.market)?.state ?? "-");
+  }
+
+  if (key === "client_type") {
+    return String(asRecord(draft.brief.market)?.client_type ?? "-");
+  }
+
+  return String(asRecord(draft.brief.creative)?.[key] ?? "-");
 }
 
 function buildFilterCounts(
