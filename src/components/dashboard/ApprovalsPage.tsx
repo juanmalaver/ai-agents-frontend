@@ -18,6 +18,7 @@ const REVIEWER_STORAGE_KEY = "video-approvals-reviewer";
 
 type ApprovalTab = "briefs" | "videos";
 type LoadState = "loading" | "ready" | "error";
+type StatusTone = "amber" | "rose" | "slate" | "teal";
 
 export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const searchParams = useSearchParams();
@@ -34,10 +35,21 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const [reviewer, setReviewer] = useState("");
 
   const pendingCount = useMemo(
-    () => items.filter((item) => !item.review_decision).length,
+    () =>
+      items.filter(
+        (item) =>
+          item.human_review_required &&
+          !item.approved &&
+          !item.review_decision,
+      ).length,
     [items],
   );
-  const reviewedCount = items.length - pendingCount;
+  const reviewedCount = useMemo(
+    () =>
+      items.filter((item) => Boolean(item.review_decision) || item.approved)
+        .length,
+    [items],
+  );
   const lastUpdated = useMemo(() => latestTimestamp(items), [items]);
 
   const loadPending = useCallback(async () => {
@@ -46,7 +58,7 @@ export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
 
     try {
       const response = await fetchJson<ReviewAssetsResponse>(
-        "/api/video-production/reviews/pending",
+        "/api/video-production/reviews",
       );
 
       setItems(response.items);
@@ -338,8 +350,8 @@ function VideoApprovalsPanel({
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
-        <MetricTile label="Pending" value={String(pendingCount)} />
-        <MetricTile label="Reviewed in view" value={String(reviewedCount)} />
+        <MetricTile label="Pending Review" value={String(pendingCount)} />
+        <MetricTile label="Reviewed" value={String(reviewedCount)} />
         <MetricTile label="Total loaded" value={String(items.length)} />
       </section>
 
@@ -381,7 +393,7 @@ function VideoApprovalsPanel({
 
         {loadState === "ready" && items.length === 0 ? (
           <div className="px-4 py-12 text-center text-sm text-slate-500">
-            No pending videos.
+            No loaded videos.
           </div>
         ) : null}
 
@@ -451,7 +463,7 @@ function VideoApprovalsPanel({
                       <div className="flex flex-col gap-1">
                         <StatusPill
                           label={reviewStatusLabel(item)}
-                          tone={item.review_decision ? "slate" : "amber"}
+                          tone={reviewStatusTone(item)}
                         />
                         {item.reviewed_by ? (
                           <span className="text-xs text-slate-500">
@@ -653,7 +665,7 @@ function ReviewDetailModal({
                     ) : null}
                     <DescriptionGrid
                       rows={[
-                        ["Decision", detail.asset.review_decision ?? "Pending"],
+                        ["Decision", reviewStatusLabel(detail.asset)],
                         ["Reviewed by", detail.asset.reviewed_by ?? "-"],
                         [
                           "Reviewed at",
@@ -744,10 +756,11 @@ function StatusPill({
   tone,
 }: {
   label: string;
-  tone: "amber" | "slate" | "teal";
+  tone: StatusTone;
 }) {
   const classes = {
     amber: "border-amber-200 bg-amber-50 text-amber-800",
+    rose: "border-rose-200 bg-rose-50 text-rose-800",
     slate: "border-slate-200 bg-slate-50 text-slate-700",
     teal: "border-teal-200 bg-teal-50 text-teal-800",
   };
@@ -807,7 +820,11 @@ function formatQcScore(value?: number | null): string {
   return typeof value === "number" ? value.toFixed(3) : "n/a";
 }
 
-function reviewStatusLabel(item: ReviewAssetListItem): string {
+function reviewStatusLabel(item: {
+  approved: boolean;
+  human_review_required: boolean;
+  review_decision: ReviewDecision | null;
+}): string {
   if (item.review_decision === "approved") {
     return "Approved";
   }
@@ -816,7 +833,27 @@ function reviewStatusLabel(item: ReviewAssetListItem): string {
     return "Rejected";
   }
 
+  if (!item.human_review_required) {
+    return "No review needed";
+  }
+
+  if (item.approved) {
+    return "Approved";
+  }
+
   return "Pending";
+}
+
+function reviewStatusTone(item: ReviewAssetListItem): StatusTone {
+  if (item.review_decision === "rejected") {
+    return "rose";
+  }
+
+  if (item.review_decision === "approved" || item.approved) {
+    return "teal";
+  }
+
+  return item.human_review_required ? "amber" : "slate";
 }
 
 function briefValue(
