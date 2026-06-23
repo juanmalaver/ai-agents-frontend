@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { resolveAuthApiUrl } from "@/src/utils/runtimeApiUrls";
 
-const DEFAULT_VIDEO_PRODUCTION_AGENT_API_URL = "http://localhost:8000";
+const DEFAULT_AI_AGENTS_BACKEND_ORIGIN = "http://localhost:3002";
 
 interface ProxyOptions {
   body?: BodyInit | null;
@@ -13,20 +12,14 @@ export async function proxyVideoReviewRequest(
   options: ProxyOptions = {},
   request?: Request,
 ): Promise<NextResponse> {
-  const authFailure = await validateDashboardSession(request);
-
-  if (authFailure) {
-    return authFailure;
-  }
-
-  const targetUrl = `${resolveVideoProductionAgentApiUrl()}${path}`;
+  const targetUrl = `${resolveVideoProductionBackendApiUrl()}${path}`;
   const headers = new Headers({
     Accept: "application/json",
   });
-  const reviewSecret = process.env.VIDEO_REVIEW_WEBHOOK_SECRET?.trim();
+  const cookie = request?.headers.get("cookie");
 
-  if (reviewSecret) {
-    headers.set("x-video-review-secret", reviewSecret);
+  if (cookie) {
+    headers.set("cookie", cookie);
   }
 
   if (options.body) {
@@ -51,54 +44,44 @@ export async function proxyVideoReviewRequest(
     });
   } catch {
     return NextResponse.json(
-      { detail: "Video Production Agent is unavailable." },
+      { detail: "AI Agents backend is unavailable." },
       { status: 502 },
     );
   }
 }
 
-async function validateDashboardSession(
-  request?: Request,
-): Promise<NextResponse | null> {
-  const cookie = request?.headers.get("cookie");
+function resolveVideoProductionBackendApiUrl(): string {
+  const explicit =
+    process.env.VIDEO_PRODUCTION_BACKEND_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_VIDEO_PRODUCTION_BACKEND_API_URL?.trim();
 
-  if (!cookie) {
-    return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+  if (explicit) {
+    return explicit.replace(/\/+$/, "");
+  }
+
+  const dashboardApiUrl = process.env.NEXT_PUBLIC_DASHBOARD_API_URL?.trim();
+  const dashboardOrigin = resolveOrigin(dashboardApiUrl);
+
+  if (dashboardOrigin) {
+    return `${dashboardOrigin}/api/video-production`;
+  }
+
+  const backendOrigin =
+    process.env.AI_AGENTS_BACKEND_URL?.trim() ||
+    process.env.NEXT_PUBLIC_AI_AGENTS_BACKEND_URL?.trim() ||
+    DEFAULT_AI_AGENTS_BACKEND_ORIGIN;
+
+  return `${backendOrigin.replace(/\/+$/, "")}/api/video-production`;
+}
+
+function resolveOrigin(value?: string): string | null {
+  if (!value) {
+    return null;
   }
 
   try {
-    const response = await fetch(`${resolveAuthBaseUrl()}/me`, {
-      cache: "no-store",
-      headers: {
-        cookie,
-      },
-    });
-
-    if (response.ok) {
-      return null;
-    }
+    return new URL(value).origin;
   } catch {
-    return NextResponse.json(
-      { detail: "Authentication service is unavailable." },
-      { status: 502 },
-    );
+    return null;
   }
-
-  return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-}
-
-function resolveVideoProductionAgentApiUrl(): string {
-  return (
-    process.env.VIDEO_PRODUCTION_AGENT_API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_VIDEO_PRODUCTION_AGENT_API_URL?.trim() ||
-    DEFAULT_VIDEO_PRODUCTION_AGENT_API_URL
-  ).replace(/\/+$/, "");
-}
-
-function resolveAuthBaseUrl(): string {
-  return resolveAuthApiUrl(
-    process.env.AUTH_API_URL?.trim() ||
-      process.env.NEXT_PUBLIC_AUTH_API_URL?.trim(),
-    process.env.NEXT_PUBLIC_DASHBOARD_API_URL?.trim(),
-  ).replace(/\/+$/, "");
 }

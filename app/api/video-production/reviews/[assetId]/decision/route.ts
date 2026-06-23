@@ -13,7 +13,7 @@ export async function POST(
   const body = await request.text();
 
   return proxyVideoReviewRequest(
-    `/agent/video-production/reviews/${encodeURIComponent(assetId)}/decision`,
+    `/reviews/${encodeURIComponent(assetId)}/decision`,
     {
       body,
       method: "POST",

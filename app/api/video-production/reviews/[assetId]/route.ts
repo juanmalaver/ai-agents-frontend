@@ -8,7 +8,7 @@ export async function GET(request: Request, context: AssetRouteContext) {
   const { assetId } = await context.params;
 
   return proxyVideoReviewRequest(
-    `/agent/video-production/reviews/${encodeURIComponent(assetId)}`,
+    `/reviews/${encodeURIComponent(assetId)}`,
     {},
     request,
   );
