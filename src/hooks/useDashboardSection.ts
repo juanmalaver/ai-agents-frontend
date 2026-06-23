@@ -22,6 +22,8 @@ export interface DashboardSectionState<TData> {
   retry: () => void;
 }
 
+const STALE_SECTION_REFRESH_RETRY_MS = 60_000;
+
 export function useDashboardSection<TResponse, TData = TResponse>({
   errorMessage,
   normalize,
@@ -98,7 +100,7 @@ export function useDashboardSection<TResponse, TData = TResponse>({
         if (response.cache.status === "stale") {
           staleRefreshTimer = window.setTimeout(() => {
             setReloadKey((current) => current + 1);
-          }, 5000);
+          }, STALE_SECTION_REFRESH_RETRY_MS);
         }
       } catch (caughtError) {
         if (controller.signal.aborted) {
