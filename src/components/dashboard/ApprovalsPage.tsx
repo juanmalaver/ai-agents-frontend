@@ -12,8 +12,8 @@ import type {
   ReviewAssetListItem,
   ReviewAssetsResponse,
   ReviewDecision,
+  VideoProductionBriefCatalogResponse,
   VideoProductionBrandOption,
-  VideoProductionBrandsResponse,
 } from "@/src/types/videoApprovals";
 import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
@@ -401,15 +401,20 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
 
 function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [briefText, setBriefText] = useState("");
-  const [brands, setBrands] = useState<VideoProductionBrandOption[]>([]);
-  const [brandsLoadState, setBrandsLoadState] = useState<LoadState>("loading");
-  const [brandsError, setBrandsError] = useState<string | null>(null);
+  const [catalog, setCatalog] =
+    useState<VideoProductionBriefCatalogResponse | null>(null);
+  const [catalogLoadState, setCatalogLoadState] =
+    useState<LoadState>("loading");
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [selectedBrandCode, setSelectedBrandCode] = useState("");
-  const [marketState, setMarketState] = useState("Florida");
-  const [clientType, setClientType] = useState("personal injury");
-  const [videoStyle, setVideoStyle] = useState("UGC testimonial");
-  const [hookAngle, setHookAngle] = useState("free consultation");
-  const [cta, setCta] = useState("Book a free consultation");
+  const [marketState, setMarketState] = useState("");
+  const [clientType, setClientType] = useState("");
+  const [videoStyle, setVideoStyle] = useState("");
+  const [awarenessLevel, setAwarenessLevel] = useState("problem-aware");
+  const [hookAngle, setHookAngle] = useState("");
+  const [cta, setCta] = useState("");
+  const [platform, setPlatform] = useState("");
+  const [aspectRatio, setAspectRatio] = useState("9:16");
   const [durationSeconds, setDurationSeconds] = useState(30);
   const [maxVariants, setMaxVariants] = useState(3);
   const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
@@ -419,6 +424,17 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [isContinuing, setIsContinuing] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const trimmedBriefText = briefText.trim();
+  const brands = catalog?.brands ?? [];
+  const clientTypeOptions = catalog?.client_types ?? [];
+  const videoStyleOptions = catalog?.video_styles ?? [];
+  const marketStateOptions = catalog?.market_states ?? [];
+  const hookAngleOptions = catalog?.hook_angles ?? [];
+  const ctaOptions = catalog?.ctas ?? [];
+  const awarenessLevelOptions = catalog?.awareness_levels ?? [];
+  const platformOptions = catalog?.platforms ?? [];
+  const aspectRatioOptions = catalog?.aspect_ratios ?? [];
+  const durationOptions = catalog?.durations_seconds ?? [15, 20, 30, 45, 60];
+  const variantOptions = catalog?.max_variants ?? [1, 2, 3];
   const activeBrands = useMemo(
     () => brands.filter((brand) => brand.is_active),
     [brands],
@@ -432,6 +448,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const canGenerate =
     Boolean(reviewerEmail) &&
     Boolean(selectedBrand) &&
+    Boolean(marketState) &&
+    Boolean(clientType) &&
+    Boolean(videoStyle) &&
+    Boolean(hookAngle) &&
+    Boolean(cta) &&
+    Boolean(platform) &&
+    Boolean(aspectRatio) &&
     trimmedBriefText.length >= 10 &&
     !isGeneratingStoryboard;
   const canContinue =
@@ -468,12 +491,15 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           body: JSON.stringify({
             metadata: buildBriefDraftMetadata({
               brand: selectedBrand,
+              aspectRatio,
+              awarenessLevel,
               clientType,
               cta,
               durationSeconds,
               hookAngle,
               marketState,
               maxVariants,
+              platform,
               videoStyle,
             }),
             source_prompt: trimmedBriefText,
@@ -493,12 +519,15 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       setIsGeneratingStoryboard(false);
     }
   }, [
+    aspectRatio,
+    awarenessLevel,
     clientType,
     cta,
     durationSeconds,
     hookAngle,
     marketState,
     maxVariants,
+    platform,
     reviewerEmail,
     selectedBrand,
     trimmedBriefText,
@@ -566,32 +595,32 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadBrands() {
-      setBrandsLoadState("loading");
-      setBrandsError(null);
+    async function loadCatalog() {
+      setCatalogLoadState("loading");
+      setCatalogError(null);
 
       try {
-        const response = await fetchJson<VideoProductionBrandsResponse>(
-          "/api/video-production/brands",
+        const response = await fetchJson<VideoProductionBriefCatalogResponse>(
+          "/api/video-production/brief-catalog",
         );
 
         if (!isMounted) {
           return;
         }
 
-        setBrands(response.items);
-        setBrandsLoadState("ready");
+        setCatalog(response);
+        setCatalogLoadState("ready");
       } catch (caughtError) {
         if (!isMounted) {
           return;
         }
 
-        setBrandsError(errorMessage(caughtError, "Unable to load brands."));
-        setBrandsLoadState("error");
+        setCatalogError(errorMessage(caughtError, "Unable to load catalog."));
+        setCatalogLoadState("error");
       }
     }
 
-    void loadBrands();
+    void loadCatalog();
 
     return () => {
       isMounted = false;
@@ -599,10 +628,54 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   }, []);
 
   useEffect(() => {
+    if (!catalog) {
+      return;
+    }
+
     if (!selectedBrandCode && activeBrands[0]) {
       setSelectedBrandCode(activeBrands[0].brand_code);
     }
-  }, [activeBrands, selectedBrandCode]);
+
+    if (!marketState && marketStateOptions[0]) {
+      setMarketState(marketStateOptions[0]);
+    }
+
+    if (!clientType && clientTypeOptions[0]) {
+      setClientType(clientTypeOptions[0].label);
+    }
+
+    if (!videoStyle && videoStyleOptions[0]) {
+      setVideoStyle(videoStyleOptions[0].label);
+    }
+
+    if (!hookAngle && hookAngleOptions[0]) {
+      setHookAngle(hookAngleOptions[0].label);
+    }
+
+    if (!cta && ctaOptions[0]) {
+      setCta(ctaOptions[0].label);
+    }
+
+    if (!platform && platformOptions[0]) {
+      setPlatform(platformOptions[0].label);
+    }
+  }, [
+    activeBrands,
+    catalog,
+    clientType,
+    clientTypeOptions,
+    cta,
+    ctaOptions,
+    hookAngle,
+    hookAngleOptions,
+    marketState,
+    marketStateOptions,
+    platform,
+    platformOptions,
+    selectedBrandCode,
+    videoStyle,
+    videoStyleOptions,
+  ]);
 
   return (
     <>
@@ -646,7 +719,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           </button>
         </div>
 
-        {brandsError ? <InlineError message={brandsError} /> : null}
+        {catalogError ? <InlineError message={catalogError} /> : null}
 
         <form
           className="grid gap-4 p-4"
@@ -657,17 +730,16 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
         >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <FormField label="Brand" htmlFor="brief-brand-select">
-              <select
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
-                disabled={brandsLoadState === "loading"}
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-brand-select"
                 onChange={(event) => setSelectedBrandCode(event.target.value)}
                 value={selectedBrandCode}
               >
-                {brandsLoadState === "loading" ? (
-                  <option value="">Loading brands</option>
+                {catalogLoadState === "loading" ? (
+                  <option value="">Loading catalog</option>
                 ) : null}
-                {brandsLoadState !== "loading" && activeBrands.length === 0 ? (
+                {catalogLoadState !== "loading" && activeBrands.length === 0 ? (
                   <option value="">No brands available</option>
                 ) : null}
                 {activeBrands.map((brand) => (
@@ -675,78 +747,159 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                     {brand.brand_name}
                   </option>
                 ))}
-              </select>
+              </SelectControl>
             </FormField>
 
             <FormField label="Market" htmlFor="brief-market-state">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-market-state"
                 onChange={(event) => setMarketState(event.target.value)}
                 value={marketState}
-              />
+              >
+                {marketStateOptions.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="Client type" htmlFor="brief-client-type">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-client-type"
                 onChange={(event) => setClientType(event.target.value)}
                 value={clientType}
-              />
+              >
+                {clientTypeOptions.map((option) => (
+                  <option key={option.code} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="Video style" htmlFor="brief-video-style">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-video-style"
                 onChange={(event) => setVideoStyle(event.target.value)}
                 value={videoStyle}
-              />
+              >
+                {videoStyleOptions.map((option) => (
+                  <option key={option.code} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
+            <FormField label="Awareness" htmlFor="brief-awareness-level">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-awareness-level"
+                onChange={(event) => setAwarenessLevel(event.target.value)}
+                value={awarenessLevel}
+              >
+                {awarenessLevelOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="Hook" htmlFor="brief-hook-angle">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-hook-angle"
                 onChange={(event) => setHookAngle(event.target.value)}
                 value={hookAngle}
-              />
+              >
+                {hookAngleOptions.map((option) => (
+                  <option key={option.code} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="CTA" htmlFor="brief-cta">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-cta"
                 onChange={(event) => setCta(event.target.value)}
                 value={cta}
-              />
+              >
+                {ctaOptions.map((option) => (
+                  <option key={option.code} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
+            <FormField label="Platform" htmlFor="brief-platform">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-platform"
+                onChange={(event) => setPlatform(event.target.value)}
+                value={platform}
+              >
+                {platformOptions.map((option) => (
+                  <option key={option.code} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
+            <FormField label="Aspect ratio" htmlFor="brief-aspect-ratio">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-aspect-ratio"
+                onChange={(event) => setAspectRatio(event.target.value)}
+                value={aspectRatio}
+              >
+                {aspectRatioOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="Duration" htmlFor="brief-duration">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-duration"
-                max={180}
-                min={5}
                 onChange={(event) =>
                   setDurationSeconds(Number(event.target.value))
                 }
-                type="number"
-                value={durationSeconds}
-              />
+                value={String(durationSeconds)}
+              >
+                {durationOptions.map((duration) => (
+                  <option key={duration} value={duration}>
+                    {duration}s
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
 
             <FormField label="Variants" htmlFor="brief-max-variants">
-              <input
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
                 id="brief-max-variants"
-                max={3}
-                min={1}
                 onChange={(event) => setMaxVariants(Number(event.target.value))}
-                type="number"
-                value={maxVariants}
-              />
+                value={String(maxVariants)}
+              >
+                {variantOptions.map((variant) => (
+                  <option key={variant} value={variant}>
+                    {variant}
+                  </option>
+                ))}
+              </SelectControl>
             </FormField>
           </div>
 
@@ -1442,6 +1595,21 @@ function FormField({
   );
 }
 
+function SelectControl({
+  children,
+  className = "",
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={`h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${className}`}
+      {...props}
+    >
+      {children}
+    </select>
+  );
+}
+
 function DetailSection({
   children,
   title,
@@ -1611,6 +1779,8 @@ function briefDraftValue(
 }
 
 function buildBriefDraftMetadata({
+  aspectRatio,
+  awarenessLevel,
   brand,
   clientType,
   cta,
@@ -1618,8 +1788,11 @@ function buildBriefDraftMetadata({
   hookAngle,
   marketState,
   maxVariants,
+  platform,
   videoStyle,
 }: {
+  aspectRatio: string;
+  awarenessLevel: string;
   brand: VideoProductionBrandOption;
   clientType: string;
   cta: string;
@@ -1627,6 +1800,7 @@ function buildBriefDraftMetadata({
   hookAngle: string;
   marketState: string;
   maxVariants: number;
+  platform: string;
   videoStyle: string;
 }): Record<string, unknown> {
   return {
@@ -1643,12 +1817,12 @@ function buildBriefDraftMetadata({
       requires_human_approval: true,
     },
     creative: {
-      aspect_ratio: "9:16",
-      awareness_level: "problem-aware",
+      aspect_ratio: aspectRatio.trim() || "9:16",
+      awareness_level: awarenessLevel.trim() || "problem-aware",
       cta: cta.trim() || "Book a free consultation",
       duration_seconds: clampNumber(durationSeconds, 5, 180, 30),
       hook_angle: hookAngle.trim() || "free consultation",
-      platform: "TikTok/Reels/Shorts",
+      platform: platform.trim() || "TikTok/Reels/Shorts",
       video_style: videoStyle.trim() || "UGC testimonial",
     },
     market: {

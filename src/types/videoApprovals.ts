@@ -159,6 +159,30 @@ export interface VideoProductionBrandsResponse {
   items: VideoProductionBrandOption[];
 }
 
+export interface VideoProductionCatalogOption {
+  code: string;
+  label: string;
+}
+
+export interface VideoProductionClientTypeOption
+  extends VideoProductionCatalogOption {
+  awareness_level: string | null;
+}
+
+export interface VideoProductionBriefCatalogResponse {
+  aspect_ratios: VideoProductionCatalogOption[];
+  awareness_levels: VideoProductionCatalogOption[];
+  brands: VideoProductionBrandOption[];
+  client_types: VideoProductionClientTypeOption[];
+  ctas: VideoProductionCatalogOption[];
+  durations_seconds: number[];
+  hook_angles: VideoProductionCatalogOption[];
+  market_states: string[];
+  max_variants: number[];
+  platforms: VideoProductionCatalogOption[];
+  video_styles: VideoProductionCatalogOption[];
+}
+
 export type VideoReviewBrief = {
   brand?: {
     name?: string;
