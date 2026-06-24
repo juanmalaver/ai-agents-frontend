@@ -138,8 +138,13 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
   const [selectedAdIds, setSelectedAdIds] = useState<string[]>([]);
-  const [selectedGrades, setSelectedGrades] = useState<CampaignHealthGrade[]>(
-    [],
+  const selectedGrades = useMemo(
+    () => normalizeGradeParams(searchParams.getAll("grades")),
+    [searchParams],
+  );
+  const selectedAdGrades = useMemo(
+    () => normalizeGradeParams(searchParams.getAll("adGrades")),
+    [searchParams],
   );
   const [selectedRecommendations, setSelectedRecommendations] = useState<
     CampaignHealthRecommendation[]
@@ -203,6 +208,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     () =>
       filterHealthRows(data?.campaignRows ?? [], {
         selectedAdIds,
+        selectedAdGrades,
         selectedCampaignIds,
         selectedGrades: [],
         selectedMetaStatuses,
@@ -212,6 +218,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [
       data,
       selectedAdIds,
+      selectedAdGrades,
       selectedCampaignIds,
       selectedMetaStatuses,
       selectedRecommendations,
@@ -222,6 +229,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     () =>
       filterHealthRows(rowsBeforeGradeFilter, {
         selectedAdIds,
+        selectedAdGrades,
         selectedCampaignIds,
         selectedGrades,
         selectedMetaStatuses,
@@ -231,6 +239,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [
       rowsBeforeGradeFilter,
       selectedAdIds,
+      selectedAdGrades,
       selectedCampaignIds,
       selectedGrades,
       selectedMetaStatuses,
@@ -310,15 +319,23 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   const handleStatesChange = useCallback(
     (states: string[]) => {
       replaceParams((nextParams) => {
-        nextParams.delete("states");
-
-        for (const state of states) {
-          const normalized = state.trim();
-
-          if (normalized) {
-            nextParams.append("states", normalized);
-          }
-        }
+        setRepeatedQueryValues(nextParams, "states", states);
+      });
+    },
+    [replaceParams],
+  );
+  const handleGradesChange = useCallback(
+    (grades: string[]) => {
+      replaceParams((nextParams) => {
+        setRepeatedQueryValues(nextParams, "grades", grades);
+      });
+    },
+    [replaceParams],
+  );
+  const handleAdGradesChange = useCallback(
+    (grades: string[]) => {
+      replaceParams((nextParams) => {
+        setRepeatedQueryValues(nextParams, "adGrades", grades);
       });
     },
     [replaceParams],
@@ -329,6 +346,8 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         nextParams.delete("brand");
         nextParams.delete("brands");
         nextParams.delete("states");
+        nextParams.delete("grades");
+        nextParams.delete("adGrades");
 
         for (const brand of brands) {
           nextParams.append("brands", brand);
@@ -336,7 +355,6 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       });
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
-      setSelectedGrades([]);
       setSelectedRecommendations([]);
       setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
@@ -357,10 +375,11 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         }
 
         nextParams.delete("states");
+        nextParams.delete("grades");
+        nextParams.delete("adGrades");
       });
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
-      setSelectedGrades([]);
       setSelectedRecommendations([]);
       setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
@@ -381,7 +400,12 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     pruneSelection(
       selectedGrades,
       (data?.filterOptions.grades ?? ALL_GRADES) as string[],
-      (values) => setSelectedGrades(values as CampaignHealthGrade[]),
+      handleGradesChange,
+    );
+    pruneSelection(
+      selectedAdGrades,
+      (data?.filterOptions.grades ?? ALL_GRADES) as string[],
+      handleAdGradesChange,
     );
     pruneSelection(
       selectedRecommendations,
@@ -411,8 +435,11 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     data?.filterOptions.grades,
     data?.filterOptions.metaStatuses,
     data?.filterOptions.states,
+    handleAdGradesChange,
+    handleGradesChange,
     handleStatesChange,
     selectedAdIds,
+    selectedAdGrades,
     selectedCampaignIds,
     selectedGrades,
     selectedRecommendations,
@@ -431,13 +458,16 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     : undefined;
   const isRefreshingHealth = isLoading && Boolean(data);
   const dependentFiltersDisabled = !data || isRefreshingHealth;
-  const handleSummaryGradeToggle = useCallback((grade: CampaignHealthGrade) => {
-    setSelectedGrades((current) =>
-      current.includes(grade)
-        ? current.filter((currentGrade) => currentGrade !== grade)
-        : [...current, grade],
-    );
-  }, []);
+  const handleSummaryGradeToggle = useCallback(
+    (grade: CampaignHealthGrade) => {
+      handleGradesChange(
+        selectedGrades.includes(grade)
+          ? selectedGrades.filter((currentGrade) => currentGrade !== grade)
+          : [...selectedGrades, grade],
+      );
+    },
+    [handleGradesChange, selectedGrades],
+  );
   const handleOpenAdReuse = useCallback(
     (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => {
       const key = normalizeAdName(ad.adName);
@@ -505,17 +535,29 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             />
             <MultiSelectFilter
               disabled={dependentFiltersDisabled}
-              label="Grades"
+              label="Campaign grades"
               loading={isRefreshingHealth}
-              onChange={(values) =>
-                setSelectedGrades(values as CampaignHealthGrade[])
-              }
+              onChange={handleGradesChange}
               options={gradeOptions}
               selectedIds={selectedGrades}
               summary={summarizeSelection(
                 selectedGrades,
-                "All grades",
-                "grades selected",
+                "All campaign grades",
+                "campaign grades selected",
+              )}
+              withSearch={false}
+            />
+            <MultiSelectFilter
+              disabled={dependentFiltersDisabled}
+              label="Ad grades"
+              loading={isRefreshingHealth}
+              onChange={handleAdGradesChange}
+              options={gradeOptions}
+              selectedIds={selectedAdGrades}
+              summary={summarizeSelection(
+                selectedAdGrades,
+                "All ad grades",
+                "ad grades selected",
               )}
               withSearch={false}
             />
@@ -586,7 +628,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
               <HealthSummary
                 disabled={dependentFiltersDisabled}
                 gradeCountRows={rowsBeforeGradeFilter}
-                onClearGrades={() => setSelectedGrades([])}
+                onClearGrades={() => handleGradesChange([])}
                 onToggleGrade={handleSummaryGradeToggle}
                 rows={filteredRows}
                 selectedGrades={selectedGrades}
@@ -603,6 +645,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 rampUpDays={data.thresholds.rampUp.minimumCampaignAgeDays}
                 rows={filteredRows}
                 selectedAdIds={selectedAdIds}
+                selectedAdGrades={selectedAdGrades}
                 selectedMetaStatuses={selectedMetaStatuses}
                 selectedStates={selectedStates}
               />
@@ -847,6 +890,7 @@ function HealthTable({
   rampUpDays,
   rows,
   selectedAdIds,
+  selectedAdGrades,
   selectedMetaStatuses,
   selectedStates,
 }: {
@@ -858,11 +902,13 @@ function HealthTable({
   rampUpDays: number;
   rows: CampaignHealthRow[];
   selectedAdIds: string[];
+  selectedAdGrades: CampaignHealthGrade[];
   selectedMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedStates: string[];
 }) {
   const expandedSet = new Set(expandedRows);
   const selectedAdSet = new Set(selectedAdIds);
+  const selectedAdGradeSet = new Set(selectedAdGrades);
   const selectedMetaStatusSet = new Set(selectedMetaStatuses);
   const selectedStateSet = new Set(selectedStates);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -1040,11 +1086,15 @@ function HealthTable({
             {rows.length > 0 ? (
               table.getRowModel().rows.map((tableRow) => {
                 const row = tableRow.original;
+                const hasAdScopedFilter =
+                  selectedAdSet.size > 0 || selectedAdGradeSet.size > 0;
                 const autoExpanded =
-                  selectedAdSet.size > 0 &&
+                  hasAdScopedFilter &&
                   row.ads.some(
                     (ad) =>
-                      selectedAdSet.has(toAdFilterId(row, ad)) &&
+                      (selectedAdSet.size === 0 ||
+                        selectedAdSet.has(toAdFilterId(row, ad))) &&
+                      adMatchesSelectedGrade(ad, selectedAdGradeSet) &&
                       adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet) &&
                       adMatchesSelectedStates(ad, selectedStateSet),
                   );
@@ -1061,6 +1111,7 @@ function HealthTable({
                     rampUpDays={rampUpDays}
                     row={row}
                     selectedAdIds={selectedAdIds}
+                    selectedAdGrades={selectedAdGrades}
                     selectedMetaStatuses={selectedMetaStatuses}
                     selectedStates={selectedStates}
                   />
@@ -1092,6 +1143,7 @@ function HealthTableRow({
   rampUpDays,
   row,
   selectedAdIds,
+  selectedAdGrades,
   selectedMetaStatuses,
   selectedStates,
 }: {
@@ -1103,6 +1155,7 @@ function HealthTableRow({
   rampUpDays: number;
   row: CampaignHealthRow;
   selectedAdIds: string[];
+  selectedAdGrades: CampaignHealthGrade[];
   selectedMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedStates: string[];
 }) {
@@ -1187,6 +1240,7 @@ function HealthTableRow({
                 campaign={row}
                 onOpenAdReuse={onOpenAdReuse}
                 selectedAdIds={selectedAdIds}
+                selectedAdGrades={selectedAdGrades}
                 selectedMetaStatuses={selectedMetaStatuses}
                 selectedStates={selectedStates}
               />
@@ -1242,6 +1296,7 @@ function AdDetailTable({
   campaign,
   onOpenAdReuse,
   selectedAdIds,
+  selectedAdGrades,
   selectedMetaStatuses,
   selectedStates,
 }: {
@@ -1250,11 +1305,13 @@ function AdDetailTable({
   campaign: CampaignHealthRow;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   selectedAdIds: string[];
+  selectedAdGrades: CampaignHealthGrade[];
   selectedMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedStates: string[];
 }) {
   const visibleAds = useMemo(() => {
     const selectedAdIdSet = new Set(selectedAdIds);
+    const selectedAdGradeSet = new Set(selectedAdGrades);
     const selectedMetaStatusSet = new Set(selectedMetaStatuses);
     const selectedStateSet = new Set(selectedStates);
 
@@ -1266,13 +1323,24 @@ function AdDetailTable({
         return false;
       }
 
+      if (!adMatchesSelectedGrade(ad, selectedAdGradeSet)) {
+        return false;
+      }
+
       if (!adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet)) {
         return false;
       }
 
       return adMatchesSelectedStates(ad, selectedStateSet);
     });
-  }, [ads, campaign, selectedAdIds, selectedMetaStatuses, selectedStates]);
+  }, [
+    ads,
+    campaign,
+    selectedAdIds,
+    selectedAdGrades,
+    selectedMetaStatuses,
+    selectedStates,
+  ]);
   const [sorting, setSorting] = useState<SortingState>([]);
   const columns = useMemo<ColumnDef<CampaignHealthAdRow>[]>(
     () => [
@@ -2678,6 +2746,13 @@ function adMatchesSelectedMetaStatus(
   );
 }
 
+function adMatchesSelectedGrade(
+  ad: CampaignHealthAdRow,
+  selectedAdGrades: Set<CampaignHealthGrade>,
+): boolean {
+  return selectedAdGrades.size === 0 || selectedAdGrades.has(ad.grade);
+}
+
 function adMatchesSelectedStates(
   ad: CampaignHealthAdRow,
   selectedStates: Set<string>,
@@ -2702,6 +2777,7 @@ function filterHealthRows(
   rows: CampaignHealthRow[],
   filters: {
     selectedAdIds: string[];
+    selectedAdGrades: CampaignHealthGrade[];
     selectedCampaignIds: string[];
     selectedGrades: CampaignHealthGrade[];
     selectedMetaStatuses: CampaignMetaDeliveryStatus[];
@@ -2711,6 +2787,7 @@ function filterHealthRows(
 ): CampaignHealthRow[] {
   const selectedCampaignIds = new Set(filters.selectedCampaignIds);
   const selectedAdIds = new Set(filters.selectedAdIds);
+  const selectedAdGrades = new Set(filters.selectedAdGrades);
   const selectedGrades = new Set(filters.selectedGrades);
   const selectedMetaStatuses = new Set(filters.selectedMetaStatuses);
   const selectedRecommendations = new Set(filters.selectedRecommendations);
@@ -2721,37 +2798,52 @@ function filterHealthRows(
       return false;
     }
 
-    const selectedRowAds =
-      selectedAdIds.size > 0
-        ? row.ads.filter((ad) => selectedAdIds.has(toAdFilterId(row, ad)))
-        : [];
+    const hasAdScopedFilter =
+      selectedAdIds.size > 0 || selectedAdGrades.size > 0;
+    let selectedRowAds = hasAdScopedFilter ? row.ads : [];
 
-    if (selectedAdIds.size > 0 && selectedRowAds.length === 0) {
+    if (selectedAdIds.size > 0) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        selectedAdIds.has(toAdFilterId(row, ad)),
+      );
+    }
+
+    if (selectedAdGrades.size > 0) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        adMatchesSelectedGrade(ad, selectedAdGrades),
+      );
+    }
+
+    if (selectedMetaStatuses.size > 0 && hasAdScopedFilter) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        adMatchesSelectedMetaStatus(ad, selectedMetaStatuses),
+      );
+    }
+
+    if (selectedStates.size > 0 && hasAdScopedFilter) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        adMatchesSelectedStates(ad, selectedStates),
+      );
+    }
+
+    if (hasAdScopedFilter && selectedRowAds.length === 0) {
       return false;
     }
 
-    if (selectedMetaStatuses.size > 0) {
-      const hasMatchingMetaStatus =
-        selectedAdIds.size > 0
-          ? selectedRowAds.some((ad) =>
-              adMatchesSelectedMetaStatus(ad, selectedMetaStatuses),
-            )
-          : selectedMetaStatuses.has(getRowMetaStatus(row).id);
-
-      if (!hasMatchingMetaStatus) {
-        return false;
-      }
+    if (
+      selectedMetaStatuses.size > 0 &&
+      !hasAdScopedFilter &&
+      !selectedMetaStatuses.has(getRowMetaStatus(row).id)
+    ) {
+      return false;
     }
 
-    if (selectedStates.size > 0) {
-      const hasMatchingState =
-        selectedAdIds.size > 0
-          ? selectedRowAds.some((ad) => adMatchesSelectedStates(ad, selectedStates))
-          : rowMatchesSelectedStates(row, selectedStates);
-
-      if (!hasMatchingState) {
-        return false;
-      }
+    if (
+      selectedStates.size > 0 &&
+      !hasAdScopedFilter &&
+      !rowMatchesSelectedStates(row, selectedStates)
+    ) {
+      return false;
     }
 
     if (selectedGrades.size > 0 && !selectedGrades.has(row.grade)) {
@@ -3047,6 +3139,40 @@ function pruneSelection(
   if (nextIds.length !== selectedIds.length) {
     onChange(nextIds);
   }
+}
+
+function setRepeatedQueryValues(
+  params: URLSearchParams,
+  key: string,
+  values: string[],
+): void {
+  params.delete(key);
+
+  for (const value of values) {
+    const normalized = value.trim();
+
+    if (normalized) {
+      params.append(key, normalized);
+    }
+  }
+}
+
+function normalizeGradeParams(values: string[]): CampaignHealthGrade[] {
+  const selected = new Set<CampaignHealthGrade>();
+
+  for (const value of values) {
+    const normalized = value.trim().toUpperCase();
+
+    if (isCampaignHealthGrade(normalized)) {
+      selected.add(normalized);
+    }
+  }
+
+  return ALL_GRADES.filter((grade) => selected.has(grade));
+}
+
+function isCampaignHealthGrade(value: string): value is CampaignHealthGrade {
+  return (ALL_GRADES as string[]).includes(value);
 }
 
 function normalizeBrands(values: string[]): string[] {

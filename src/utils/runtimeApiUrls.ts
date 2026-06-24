@@ -4,6 +4,7 @@ const LOCAL_BACKEND_ORIGIN = "http://localhost:3002";
 const FRONTEND_SERVICE_NAME = "ai-agents-frontend";
 const BACKEND_SERVICE_NAME = "ai-agents-backend";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const GRADE_PATTERN = /^(A|B|C|D|F)$/i;
 
 export function resolveAuthApiUrl(
   explicitAuthApiUrl?: string | null,
@@ -210,7 +211,11 @@ export function appendDashboardQueryParams(
 }
 
 export function buildHealthPageUrl(
-  query?: Partial<DashboardQueryParams> & { states?: string[] | null },
+  query?: Partial<DashboardQueryParams> & {
+    adGrades?: string[] | null;
+    grades?: string[] | null;
+    states?: string[] | null;
+  },
 ): string {
   const params = new URLSearchParams();
   const normalizedBrand = normalizeBrandParam(query?.brand);
@@ -231,6 +236,22 @@ export function buildHealthPageUrl(
 
     if (normalizedState) {
       params.append("states", normalizedState);
+    }
+  }
+
+  for (const grade of query?.grades ?? []) {
+    const normalizedGrade = normalizeGradeParam(grade);
+
+    if (normalizedGrade) {
+      params.append("grades", normalizedGrade);
+    }
+  }
+
+  for (const grade of query?.adGrades ?? []) {
+    const normalizedGrade = normalizeGradeParam(grade);
+
+    if (normalizedGrade) {
+      params.append("adGrades", normalizedGrade);
     }
   }
 
@@ -383,6 +404,12 @@ function normalizeDateParam(value: string | null | undefined): string | null {
     parsed.toISOString().slice(0, 10) !== normalized
     ? null
     : normalized;
+}
+
+function normalizeGradeParam(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toUpperCase();
+
+  return normalized && GRADE_PATTERN.test(normalized) ? normalized : null;
 }
 
 function getRuntimeBackendOrigin(): string | null {

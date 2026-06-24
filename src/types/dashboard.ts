@@ -49,6 +49,12 @@ export interface CampaignStateTableProps {
   rows: CampaignStateRow[];
 }
 
+export type CampaignGrade = "A" | "B" | "C" | "D" | "F";
+
+export type CampaignGradeCounts = Record<CampaignGrade, number>;
+
+export type CampaignGradeCountsStatus = "available" | "unavailable";
+
 export interface StateLawFirmCampaignRow {
   campaignName: string;
   id: string;
@@ -68,6 +74,14 @@ export interface StateLawFirmRow {
   leadsGoal: number;
   mtdSl: number;
   slGoal: number;
+}
+
+export interface StateLawFirmsSection {
+  adGradeCounts: CampaignGradeCounts;
+  adGradeCountsStatus: CampaignGradeCountsStatus;
+  gradeCounts: CampaignGradeCounts;
+  gradeCountsStatus: CampaignGradeCountsStatus;
+  rows: StateLawFirmRow[];
 }
 
 export interface RecommendationPanelProps {

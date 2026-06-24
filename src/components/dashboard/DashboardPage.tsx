@@ -6,6 +6,7 @@ import { useDashboardSection } from "@/src/hooks/useDashboardSection";
 import type {
   AggregatedKpis,
   CampaignStateRow,
+  DashboardDateRange,
   DashboardPageProps,
   KpiCardData,
   MetricStatus,
@@ -14,6 +15,7 @@ import type {
 import {
   formatCurrency,
   formatDashboardTimestamp,
+  formatNumber,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
 import {
@@ -82,8 +84,15 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   });
 
   const kpiCards = useMemo(
-    () => (kpisSection.data ? buildKpiCards(kpisSection.data) : []),
-    [kpisSection.data],
+    () =>
+      kpisSection.data
+        ? buildKpiCards(
+            kpisSection.data,
+            dateRange,
+            stateCampaignsSection.data ?? [],
+          )
+        : [],
+    [dateRange, kpisSection.data, stateCampaignsSection.data],
   );
   const lastUpdated = useMemo(
     () =>
@@ -261,7 +270,20 @@ function normalizeStateCampaignRows(
   return rows.map(normalizeStateCampaignRow);
 }
 
-function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
+function buildKpiCards(
+  kpis: AggregatedKpis,
+  dateRange: DashboardDateRange,
+  stateRows: CampaignStateRow[],
+): KpiCardData[] {
+  const monthPacing = buildMonthPacing(dateRange.to);
+  const mtdBudgetGoal = calculateMtdGoal(kpis.budget, monthPacing);
+  const mtdBudgetCompletionPct = safeDivide(kpis.mtdSpent, mtdBudgetGoal);
+  const slGoalCompletion = calculateMtdSlGoalCompletion(
+    stateRows,
+    monthPacing,
+  );
+  const intakeConversion = calculateIntakeConversion(stateRows);
+
   return [
     {
       format: "currency",
@@ -278,40 +300,54 @@ function buildKpiCards(kpis: AggregatedKpis): KpiCardData[] {
       value: kpis.finalCpl,
     },
     {
-      format: "currency",
-      helperText: formatMonthlySpendHelper(kpis.mtdSpent),
-      id: "monthly-budget",
-      label: "Monthly Budget",
-      status: getCompletionStatus(kpis.budgetSpentCompletionPct),
-      value: kpis.budget,
-    },
-    {
       format: "percentage",
-      id: "budget-spent-completion",
-      label: "% Budget Spent Completion",
+      helperText: formatBudgetProgressHelper({
+        goal: kpis.budget,
+        spent: kpis.mtdSpent,
+      }),
+      id: "monthly-budget-eom",
+      label: "Monthly Budget EOM",
       status: getCompletionStatus(kpis.budgetSpentCompletionPct),
       value: kpis.budgetSpentCompletionPct,
     },
     {
       format: "percentage",
-      id: "sl-goal-completion",
+      helperText: formatBudgetProgressHelper({
+        goal: mtdBudgetGoal,
+        spent: kpis.mtdSpent,
+      }),
+      id: "monthly-budget-mtd",
+      label: "Monthly Budget MTD",
+      status: getCompletionStatus(mtdBudgetCompletionPct),
+      value: mtdBudgetCompletionPct,
+    },
+    {
+      format: "currency",
+      helperText: formatMtdBudgetGoalHelper({
+        monthlyBudget: kpis.budget,
+        monthPacing,
+        spent: kpis.mtdSpent,
+      }),
+      id: "mtd-budget-goal",
+      label: "MTD Budget Goal",
+      status: getCompletionStatus(mtdBudgetCompletionPct),
+      value: mtdBudgetGoal,
+    },
+    {
+      format: "percentage",
+      helperText: formatSlGoalCompletionHelper(slGoalCompletion),
+      id: "mtd-sl-goal-completion",
       label: "% SL Goal Completion",
-      status: getCompletionStatus(kpis.slGoalCompletionPct),
-      value: kpis.slGoalCompletionPct,
+      status: getCompletionStatus(slGoalCompletion.completionPct),
+      value: slGoalCompletion.completionPct,
     },
     {
       format: "percentage",
-      id: "lead-goal-completion",
-      label: "% Leads Goal Completion",
-      status: getCompletionStatus(kpis.leadGoalCompletionPct),
-      value: kpis.leadGoalCompletionPct,
-    },
-    {
-      format: "percentage",
-      id: "mtd-spent-pct",
-      label: "MTD % Spent",
-      status: getCompletionStatus(kpis.mtdSpentPct),
-      value: kpis.mtdSpentPct,
+      helperText: formatIntakeConversionHelper(intakeConversion),
+      id: "intake-conversion",
+      label: "Intake Conversion",
+      status: getCompletionStatus(intakeConversion.conversionRate),
+      value: intakeConversion.conversionRate,
     },
   ];
 }
@@ -348,12 +384,191 @@ function getCostStatus(value: number | null): MetricStatus {
   return "on-track";
 }
 
-function formatMonthlySpendHelper(mtdSpent: number | null): string | undefined {
-  if (mtdSpent == null) {
+function formatBudgetProgressHelper({
+  goal,
+  spent,
+}: {
+  goal: number | null;
+  spent: number | null;
+}): string | undefined {
+  if (goal == null && spent == null) {
     return undefined;
   }
 
-  return `${formatCurrency(mtdSpent)} spent this month`;
+  return `Goal ${formatCurrency(goal)} · Spent ${formatCurrency(spent)}`;
+}
+
+function formatMtdBudgetGoalHelper({
+  monthlyBudget,
+  monthPacing,
+  spent,
+}: {
+  monthlyBudget: number | null;
+  monthPacing: MonthPacing;
+  spent: number | null;
+}): string | undefined {
+  if (monthlyBudget == null && spent == null) {
+    return undefined;
+  }
+
+  return `Spent ${formatCurrency(spent)} · EOM ${formatCurrency(
+    monthlyBudget,
+  )} · ${monthPacing.daysElapsed}/${monthPacing.daysInMonth} days`;
+}
+
+interface SlGoalCompletion {
+  completionPct: number | null;
+  mtdSl: number | null;
+  mtdSlGoal: number | null;
+}
+
+function calculateMtdSlGoalCompletion(
+  rows: CampaignStateRow[],
+  monthPacing: MonthPacing,
+): SlGoalCompletion {
+  let mtdSl = 0;
+  let mtdSlGoal = 0;
+  let hasGoal = false;
+
+  for (const row of rows) {
+    const rowMtdSlGoal = calculateMtdGoal(row.slGoal, monthPacing);
+
+    if (rowMtdSlGoal === null) {
+      continue;
+    }
+
+    hasGoal = true;
+    mtdSlGoal += rowMtdSlGoal;
+
+    if (typeof row.mtdSl === "number" && Number.isFinite(row.mtdSl)) {
+      mtdSl += row.mtdSl;
+    }
+  }
+
+  if (!hasGoal) {
+    return {
+      completionPct: null,
+      mtdSl: null,
+      mtdSlGoal: null,
+    };
+  }
+
+  return {
+    completionPct: safeDivide(mtdSl, mtdSlGoal),
+    mtdSl,
+    mtdSlGoal,
+  };
+}
+
+function formatSlGoalCompletionHelper({
+  mtdSl,
+  mtdSlGoal,
+}: SlGoalCompletion): string | undefined {
+  if (mtdSl == null && mtdSlGoal == null) {
+    return undefined;
+  }
+
+  return `MTD SL ${formatNumber(mtdSl)} · Goal ${formatNumber(mtdSlGoal)}`;
+}
+
+interface IntakeConversion {
+  conversionRate: number | null;
+  leads: number | null;
+  mtdSl: number | null;
+}
+
+function calculateIntakeConversion(rows: CampaignStateRow[]): IntakeConversion {
+  let leads = 0;
+  let mtdSl = 0;
+  let hasLeads = false;
+
+  for (const row of rows) {
+    if (typeof row.leads === "number" && Number.isFinite(row.leads)) {
+      leads += row.leads;
+      hasLeads = true;
+    }
+
+    if (typeof row.mtdSl === "number" && Number.isFinite(row.mtdSl)) {
+      mtdSl += row.mtdSl;
+    }
+  }
+
+  if (!hasLeads) {
+    return {
+      conversionRate: null,
+      leads: null,
+      mtdSl: null,
+    };
+  }
+
+  return {
+    conversionRate: safeDivide(mtdSl, leads),
+    leads,
+    mtdSl,
+  };
+}
+
+function formatIntakeConversionHelper({
+  leads,
+  mtdSl,
+}: IntakeConversion): string | undefined {
+  if (leads == null && mtdSl == null) {
+    return undefined;
+  }
+
+  return `MTD SL ${formatNumber(mtdSl)} · Leads ${formatNumber(leads)}`;
+}
+
+interface MonthPacing {
+  daysElapsed: number;
+  daysInMonth: number;
+}
+
+function buildMonthPacing(toDate: string | null | undefined): MonthPacing {
+  const date = parseDashboardDate(toDate) ?? new Date();
+  const daysInMonth = new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0,
+  ).getDate();
+  const daysElapsed = Math.max(1, Math.min(date.getDate(), daysInMonth));
+
+  return { daysElapsed, daysInMonth };
+}
+
+function parseDashboardDate(value: string | null | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "");
+
+  if (!match) {
+    return null;
+  }
+
+  const [, rawYear, rawMonth, rawDay] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function calculateMtdGoal(
+  monthlyGoal: number | null | undefined,
+  monthPacing: MonthPacing,
+): number | null {
+  if (typeof monthlyGoal !== "number" || !Number.isFinite(monthlyGoal)) {
+    return null;
+  }
+
+  return (monthlyGoal / monthPacing.daysInMonth) * monthPacing.daysElapsed;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -448,10 +663,10 @@ function KpiSkeletonGrid() {
   return (
     <section className="grid gap-3">
       <LoadingNotice label="Loading KPI cards..." />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         {Array.from({ length: 7 }).map((_, index) => (
           <div
-            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+            className="min-h-[9.25rem] rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             key={index}
           >
             <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
