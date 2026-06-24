@@ -4,7 +4,7 @@ const DEFAULT_AI_AGENTS_BACKEND_ORIGIN = "http://localhost:3002";
 
 interface ProxyOptions {
   body?: BodyInit | null;
-  method?: "GET" | "POST";
+  method?: "GET" | "PATCH" | "POST";
 }
 
 export async function proxyVideoReviewRequest(

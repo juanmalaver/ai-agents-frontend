@@ -25,6 +25,7 @@ type ApprovalTab = "briefs" | "videos";
 type LoadState = "loading" | "ready" | "error";
 type StatusTone = "amber" | "rose" | "slate" | "teal";
 type VideoReviewFilter = "all" | "approved" | "rejected" | "waiting";
+type StoryboardPayload = BriefDraftResponse["storyboard"];
 
 const videoReviewFilters: Array<{
   id: VideoReviewFilter;
@@ -35,6 +36,7 @@ const videoReviewFilters: Array<{
   { id: "rejected", label: "Rejected" },
   { id: "all", label: "All" },
 ];
+const sceneCountOptions = [2, 3, 4, 5];
 
 export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const pathname = usePathname();
@@ -419,12 +421,20 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [platform, setPlatform] = useState("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
   const [durationSeconds, setDurationSeconds] = useState(30);
+  const [sceneCount, setSceneCount] = useState("auto");
   const [maxVariants, setMaxVariants] = useState(3);
   const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
+  const [editableStoryboard, setEditableStoryboard] =
+    useState<StoryboardPayload | null>(null);
+  const [isStoryboardDirty, setIsStoryboardDirty] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
   const [continueStatus, setContinueStatus] = useState<string | null>(null);
+  const [storyboardSaveStatus, setStoryboardSaveStatus] = useState<
+    string | null
+  >(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isSavingStoryboard, setIsSavingStoryboard] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const trimmedBriefText = briefText.trim();
   const brands = catalog?.brands ?? [];
@@ -472,6 +482,10 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       ) ?? null,
     [characterOptions, selectedCharacterId],
   );
+  const storyboardValidationError = useMemo(
+    () => validateStoryboard(editableStoryboard),
+    [editableStoryboard],
+  );
   const canGenerate =
     Boolean(reviewerEmail) &&
     Boolean(selectedBrand) &&
@@ -489,7 +503,9 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     draft.status === "storyboard_ready" &&
     !draft.run_id &&
     Boolean(reviewerEmail) &&
-    !isContinuing;
+    !storyboardValidationError &&
+    !isContinuing &&
+    !isSavingStoryboard;
 
   const generateStoryboard = useCallback(async () => {
     if (!reviewerEmail) {
@@ -532,6 +548,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               marketState,
               maxVariants,
               platform,
+              sceneCount,
               videoStyle,
             }),
             source_prompt: trimmedBriefText,
@@ -544,8 +561,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       );
 
       setDraft(response);
+      setEditableStoryboard(response.storyboard);
+      setIsStoryboardDirty(false);
+      setStoryboardSaveStatus(null);
     } catch (caughtError) {
       setDraft(null);
+      setEditableStoryboard(null);
+      setIsStoryboardDirty(false);
       setBriefError(errorMessage(caughtError, "Unable to generate storyboard."));
     } finally {
       setIsGeneratingStoryboard(false);
@@ -564,10 +586,70 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     maxVariants,
     platform,
     reviewerEmail,
+    sceneCount,
     selectedBrand,
     trimmedBriefText,
     videoStyle,
   ]);
+
+  const saveStoryboard = useCallback(async (): Promise<BriefDraftResponse | null> => {
+    if (!draft) {
+      return null;
+    }
+
+    if (!editableStoryboard) {
+      setStoryboardSaveStatus("Storyboard is required.");
+      return null;
+    }
+
+    if (!reviewerEmail) {
+      setStoryboardSaveStatus("Authenticated reviewer email is required.");
+      return null;
+    }
+
+    if (storyboardValidationError) {
+      setStoryboardSaveStatus(storyboardValidationError);
+      return null;
+    }
+
+    setIsSavingStoryboard(true);
+    setStoryboardSaveStatus(null);
+
+    try {
+      const response = await fetchJson<BriefDraftResponse>(
+        `/api/video-production/brief-drafts/${encodeURIComponent(
+          draft.draft_id,
+        )}/storyboard`,
+        {
+          body: JSON.stringify({
+            storyboard: editableStoryboard,
+            updated_by: reviewerEmail,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "PATCH",
+        },
+      );
+
+      setDraft(response);
+      setEditableStoryboard(response.storyboard);
+      setIsStoryboardDirty(false);
+      setStoryboardSaveStatus(
+        `Storyboard saved. ${response.prompt_count} prompt${
+          response.prompt_count === 1 ? "" : "s"
+        } recompiled.`,
+      );
+      return response;
+    } catch (caughtError) {
+      setStoryboardSaveStatus(
+        errorMessage(caughtError, "Unable to save storyboard."),
+      );
+      return null;
+    } finally {
+      setIsSavingStoryboard(false);
+    }
+  }, [draft, editableStoryboard, reviewerEmail, storyboardValidationError]);
 
   const continueToVideo = useCallback(async () => {
     if (!draft) {
@@ -579,6 +661,15 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       return;
     }
 
+    let draftForContinue = draft;
+    if (isStoryboardDirty) {
+      const savedDraft = await saveStoryboard();
+      if (!savedDraft) {
+        return;
+      }
+      draftForContinue = savedDraft;
+    }
+
     setIsContinuing(true);
     setBriefError(null);
     setContinueStatus(null);
@@ -586,7 +677,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     try {
       const response = await fetchJson<BriefDraftContinueResponse>(
         `/api/video-production/brief-drafts/${encodeURIComponent(
-          draft.draft_id,
+          draftForContinue.draft_id,
         )}/continue`,
         {
           body: JSON.stringify({}),
@@ -619,10 +710,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     } finally {
       setIsContinuing(false);
     }
-  }, [draft, reviewerEmail]);
+  }, [draft, isStoryboardDirty, reviewerEmail, saveStoryboard]);
 
   useEffect(() => {
     if (draft) {
+      setEditableStoryboard(draft.storyboard);
+      setIsStoryboardDirty(false);
+      setStoryboardSaveStatus(null);
       previewRef.current?.focus();
     }
   }, [draft?.draft_id]);
@@ -729,6 +823,113 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     videoStyleOptions,
   ]);
 
+  const canEditStoryboard =
+    draft !== null && draft.status === "storyboard_ready" && !draft.run_id;
+  const canSaveStoryboard =
+    canEditStoryboard &&
+    isStoryboardDirty &&
+    !storyboardValidationError &&
+    !isSavingStoryboard &&
+    !isContinuing;
+  const storyboardForView = editableStoryboard ?? draft?.storyboard ?? null;
+
+  const updateStoryboard = useCallback(
+    (updater: (storyboard: StoryboardPayload) => StoryboardPayload) => {
+      setEditableStoryboard((current) => {
+        if (!current || !canEditStoryboard) {
+          return current;
+        }
+
+        setIsStoryboardDirty(true);
+        setStoryboardSaveStatus(null);
+        return updater(current);
+      });
+    },
+    [canEditStoryboard],
+  );
+
+  const updateStoryboardScene = useCallback(
+    (sceneIndex: number, patch: Partial<BriefDraftScene>) => {
+      updateStoryboard((storyboard) => ({
+        ...storyboard,
+        scenes: storyboard.scenes.map((scene, index) =>
+          index === sceneIndex ? { ...scene, ...patch } : scene,
+        ),
+      }));
+    },
+    [updateStoryboard],
+  );
+
+  const addStoryboardScene = useCallback(() => {
+    updateStoryboard((storyboard) => ({
+      ...storyboard,
+      scenes: renumberStoryboardScenes([
+        ...storyboard.scenes,
+        createStoryboardScene(
+          storyboard.scenes.length + 1,
+          storyboard.total_duration_seconds,
+        ),
+      ]),
+    }));
+  }, [updateStoryboard]);
+
+  const duplicateStoryboardScene = useCallback(
+    (sceneIndex: number) => {
+      updateStoryboard((storyboard) => {
+        const sourceScene = storyboard.scenes[sceneIndex];
+        if (!sourceScene) {
+          return storyboard;
+        }
+
+        const scenes = [...storyboard.scenes];
+        scenes.splice(sceneIndex + 1, 0, { ...sourceScene });
+        return {
+          ...storyboard,
+          scenes: renumberStoryboardScenes(scenes),
+        };
+      });
+    },
+    [updateStoryboard],
+  );
+
+  const removeStoryboardScene = useCallback(
+    (sceneIndex: number) => {
+      updateStoryboard((storyboard) => {
+        if (storyboard.scenes.length <= 1) {
+          return storyboard;
+        }
+
+        return {
+          ...storyboard,
+          scenes: renumberStoryboardScenes(
+            storyboard.scenes.filter((_, index) => index !== sceneIndex),
+          ),
+        };
+      });
+    },
+    [updateStoryboard],
+  );
+
+  const moveStoryboardScene = useCallback(
+    (sceneIndex: number, direction: -1 | 1) => {
+      updateStoryboard((storyboard) => {
+        const targetIndex = sceneIndex + direction;
+        if (targetIndex < 0 || targetIndex >= storyboard.scenes.length) {
+          return storyboard;
+        }
+
+        const scenes = [...storyboard.scenes];
+        const [scene] = scenes.splice(sceneIndex, 1);
+        scenes.splice(targetIndex, 0, scene);
+        return {
+          ...storyboard,
+          scenes: renumberStoryboardScenes(scenes),
+        };
+      });
+    },
+    [updateStoryboard],
+  );
+
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
@@ -738,7 +939,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
         />
         <MetricTile
           label="Storyboard scenes"
-          value={draft ? String(draft.storyboard.scenes.length) : "0"}
+          value={
+            editableStoryboard
+              ? String(editableStoryboard.scenes.length)
+              : draft
+                ? String(draft.storyboard.scenes.length)
+                : "0"
+          }
         />
         <MetricTile
           label="Video run"
@@ -762,8 +969,11 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
             onClick={() => {
               setBriefText("");
               setDraft(null);
+              setEditableStoryboard(null);
+              setIsStoryboardDirty(false);
               setBriefError(null);
               setContinueStatus(null);
+              setStoryboardSaveStatus(null);
             }}
             type="button"
           >
@@ -973,6 +1183,22 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               </SelectControl>
             </FormField>
 
+            <FormField label="Scenes" htmlFor="brief-scene-count">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-scene-count"
+                onChange={(event) => setSceneCount(event.target.value)}
+                value={sceneCount}
+              >
+                <option value="auto">Auto recommended</option>
+                {sceneCountOptions.map((count) => (
+                  <option key={count} value={count}>
+                    {count} scenes
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
             <FormField label="Variants" htmlFor="brief-max-variants">
               <SelectControl
                 disabled={catalogLoadState === "loading"}
@@ -1062,17 +1288,27 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                 />
               </div>
               <p className="mt-1 text-sm text-slate-500">
-                {draft.storyboard.visual_style}
+                {storyboardForView?.visual_style ?? draft.storyboard.visual_style}
               </p>
             </div>
-            <button
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!canContinue}
-              onClick={() => void continueToVideo()}
-              type="button"
-            >
-              {isContinuing ? "Starting" : "Continue to video"}
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!canSaveStoryboard}
+                onClick={() => void saveStoryboard()}
+                type="button"
+              >
+                {isSavingStoryboard ? "Saving" : "Save storyboard"}
+              </button>
+              <button
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!canContinue}
+                onClick={() => void continueToVideo()}
+                type="button"
+              >
+                {isContinuing ? "Starting" : "Continue to video"}
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
@@ -1087,9 +1323,31 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   ["Brief ID", draft.brief_id],
                   ["Draft ID", draft.draft_id],
                   ["Prompt variants", String(draft.prompt_count)],
+                  [
+                    "Recommended scenes",
+                    storyboardForView?.recommended_scene_count
+                      ? String(storyboardForView.recommended_scene_count)
+                      : "-",
+                  ],
                   ["Run ID", draft.run_id ?? "-"],
                 ]}
               />
+
+              {storyboardForView?.scene_count_reason ? (
+                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {storyboardForView.scene_count_reason}
+                </p>
+              ) : null}
+
+              {storyboardValidationError ? (
+                <InlineError message={storyboardValidationError} />
+              ) : null}
+
+              {storyboardSaveStatus ? (
+                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {storyboardSaveStatus}
+                </p>
+              ) : null}
 
               {continueStatus ? (
                 <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -1098,23 +1356,23 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               ) : null}
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
-                  <tr>
-                    <TableHead>Scene</TableHead>
-                    <TableHead>Visual</TableHead>
-                    <TableHead>Copy</TableHead>
-                    <TableHead>Camera</TableHead>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {draft.storyboard.scenes.map((scene) => (
-                    <BriefStoryboardRow key={scene.scene_number} scene={scene} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {storyboardForView ? (
+              <StoryboardEditor
+                canEdit={canEditStoryboard && !isContinuing}
+                onAddScene={addStoryboardScene}
+                onDuplicateScene={duplicateStoryboardScene}
+                onMoveScene={moveStoryboardScene}
+                onRemoveScene={removeStoryboardScene}
+                onSceneChange={updateStoryboardScene}
+                onVisualStyleChange={(visualStyle) =>
+                  updateStoryboard((storyboard) => ({
+                    ...storyboard,
+                    visual_style: visualStyle,
+                  }))
+                }
+                storyboard={storyboardForView}
+              />
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -1122,40 +1380,223 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   );
 }
 
-function BriefStoryboardRow({ scene }: { scene: BriefDraftScene }) {
+function StoryboardEditor({
+  canEdit,
+  onAddScene,
+  onDuplicateScene,
+  onMoveScene,
+  onRemoveScene,
+  onSceneChange,
+  onVisualStyleChange,
+  storyboard,
+}: {
+  canEdit: boolean;
+  onAddScene: () => void;
+  onDuplicateScene: (sceneIndex: number) => void;
+  onMoveScene: (sceneIndex: number, direction: -1 | 1) => void;
+  onRemoveScene: (sceneIndex: number) => void;
+  onSceneChange: (
+    sceneIndex: number,
+    patch: Partial<BriefDraftScene>,
+  ) => void;
+  onVisualStyleChange: (visualStyle: string) => void;
+  storyboard: StoryboardPayload;
+}) {
   return (
-    <tr className="hover:bg-slate-50">
-      <TableCell>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-slate-950">
-            {scene.scene_number}
-          </span>
-          <span className="text-xs text-slate-500">
-            {scene.duration_seconds}s
-          </span>
+    <div className="grid gap-4">
+      <FormField label="Visual style" htmlFor="storyboard-visual-style">
+        <input
+          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50 disabled:text-slate-500"
+          disabled={!canEdit}
+          id="storyboard-visual-style"
+          onChange={(event) => onVisualStyleChange(event.target.value)}
+          value={storyboard.visual_style}
+        />
+      </FormField>
+
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Scenes</h3>
+          <p className="text-xs text-slate-500">
+            {storyboard.scenes.length} scene
+            {storyboard.scenes.length === 1 ? "" : "s"} /{" "}
+            {storyboard.total_duration_seconds}s total
+          </p>
         </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex max-w-[260px] flex-col gap-1">
-          <span>{scene.visual_direction}</span>
-          {scene.transition ? (
-            <span className="text-xs text-slate-500">{scene.transition}</span>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex max-w-[280px] flex-col gap-1">
-          <span className="font-medium text-slate-950">
-            {scene.on_screen_text}
-          </span>
-          <span className="text-xs text-slate-500">{scene.voiceover}</span>
-        </div>
-      </TableCell>
-      <TableCell>{scene.camera_style}</TableCell>
-    </tr>
+        <button
+          className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!canEdit}
+          onClick={onAddScene}
+          type="button"
+        >
+          Add scene
+        </button>
+      </div>
+
+      <div className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+        {storyboard.scenes.map((scene, index) => (
+          <div className="grid gap-3 p-3" key={`scene-${scene.scene_number}`}>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">
+                  Scene {scene.scene_number}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {scene.duration_seconds}s
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canEdit || index === 0}
+                  onClick={() => onMoveScene(index, -1)}
+                  type="button"
+                >
+                  Move up
+                </button>
+                <button
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canEdit || index === storyboard.scenes.length - 1}
+                  onClick={() => onMoveScene(index, 1)}
+                  type="button"
+                >
+                  Move down
+                </button>
+                <button
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canEdit}
+                  onClick={() => onDuplicateScene(index)}
+                  type="button"
+                >
+                  Duplicate
+                </button>
+                <button
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canEdit || storyboard.scenes.length <= 1}
+                  onClick={() => onRemoveScene(index)}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
+              <FormField
+                label="Duration"
+                htmlFor={`storyboard-scene-${scene.scene_number}-duration`}
+              >
+                <input
+                  className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50 disabled:text-slate-500"
+                  disabled={!canEdit}
+                  id={`storyboard-scene-${scene.scene_number}-duration`}
+                  min={1}
+                  onChange={(event) =>
+                    onSceneChange(index, {
+                      duration_seconds: Number(event.target.value),
+                    })
+                  }
+                  type="number"
+                  value={scene.duration_seconds}
+                />
+              </FormField>
+              <FormField
+                label="On-screen text"
+                htmlFor={`storyboard-scene-${scene.scene_number}-text`}
+              >
+                <input
+                  className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50 disabled:text-slate-500"
+                  disabled={!canEdit}
+                  id={`storyboard-scene-${scene.scene_number}-text`}
+                  onChange={(event) =>
+                    onSceneChange(index, {
+                      on_screen_text: event.target.value,
+                    })
+                  }
+                  value={scene.on_screen_text}
+                />
+              </FormField>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <StoryboardTextArea
+                disabled={!canEdit}
+                id={`storyboard-scene-${scene.scene_number}-visual`}
+                label="Visual direction"
+                onChange={(value) =>
+                  onSceneChange(index, { visual_direction: value })
+                }
+                value={scene.visual_direction}
+              />
+              <StoryboardTextArea
+                disabled={!canEdit}
+                id={`storyboard-scene-${scene.scene_number}-voiceover`}
+                label="Voiceover"
+                onChange={(value) => onSceneChange(index, { voiceover: value })}
+                value={scene.voiceover}
+              />
+              <StoryboardTextArea
+                disabled={!canEdit}
+                id={`storyboard-scene-${scene.scene_number}-camera`}
+                label="Camera style"
+                onChange={(value) =>
+                  onSceneChange(index, { camera_style: value })
+                }
+                value={scene.camera_style}
+              />
+              <StoryboardTextArea
+                disabled={!canEdit}
+                id={`storyboard-scene-${scene.scene_number}-transition`}
+                label="Transition"
+                onChange={(value) =>
+                  onSceneChange(index, { transition: value || null })
+                }
+                value={scene.transition ?? ""}
+              />
+              <div className="md:col-span-2">
+                <StoryboardTextArea
+                  disabled={!canEdit}
+                  id={`storyboard-scene-${scene.scene_number}-notes`}
+                  label="Notes"
+                  onChange={(value) =>
+                    onSceneChange(index, { notes: value || null })
+                  }
+                  value={scene.notes ?? ""}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
+function StoryboardTextArea({
+  disabled,
+  id,
+  label,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  id: string;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <FormField label={label} htmlFor={id}>
+      <textarea
+        className="min-h-24 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50 disabled:text-slate-500"
+        disabled={disabled}
+        id={id}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      />
+    </FormField>
+  );
+}
 function VideoApprovalsPanel({
   items,
   listError,
@@ -1878,6 +2319,7 @@ function buildBriefDraftMetadata({
   marketState,
   maxVariants,
   platform,
+  sceneCount,
   videoStyle,
 }: {
   aspectRatio: string;
@@ -1893,8 +2335,12 @@ function buildBriefDraftMetadata({
   marketState: string;
   maxVariants: number;
   platform: string;
+  sceneCount: string;
   videoStyle: string;
 }): Record<string, unknown> {
+  const parsedSceneCount =
+    sceneCount === "auto" ? null : clampNumber(Number(sceneCount), 1, 8, 3);
+
   return {
     brand: {
       brand_aliases: brand.brand_aliases,
@@ -1927,6 +2373,7 @@ function buildBriefDraftMetadata({
       duration_seconds: clampNumber(durationSeconds, 5, 180, 30),
       hook_angle: hookAngle.trim() || "free consultation",
       platform: platform.trim() || "TikTok/Reels/Shorts",
+      scene_count: parsedSceneCount,
       video_style: videoStyle.trim() || "UGC testimonial",
     },
     language: {
@@ -1939,6 +2386,69 @@ function buildBriefDraftMetadata({
       state: marketState.trim() || "Florida",
     },
   };
+}
+
+function validateStoryboard(storyboard: StoryboardPayload | null): string | null {
+  if (!storyboard) {
+    return null;
+  }
+
+  if (!storyboard.visual_style.trim()) {
+    return "Storyboard visual style is required.";
+  }
+
+  if (storyboard.scenes.length === 0) {
+    return "Storyboard must include at least one scene.";
+  }
+
+  for (const scene of storyboard.scenes) {
+    if (!Number.isFinite(scene.duration_seconds) || scene.duration_seconds <= 0) {
+      return `Scene ${scene.scene_number} duration must be greater than 0.`;
+    }
+
+    if (!scene.visual_direction.trim()) {
+      return `Scene ${scene.scene_number} visual direction is required.`;
+    }
+
+    if (!scene.on_screen_text.trim()) {
+      return `Scene ${scene.scene_number} on-screen text is required.`;
+    }
+
+    if (!scene.voiceover.trim()) {
+      return `Scene ${scene.scene_number} voiceover is required.`;
+    }
+
+    if (!scene.camera_style.trim()) {
+      return `Scene ${scene.scene_number} camera style is required.`;
+    }
+  }
+
+  return null;
+}
+
+function createStoryboardScene(
+  sceneNumber: number,
+  totalDurationSeconds: number,
+): BriefDraftScene {
+  return {
+    camera_style: "natural vertical video",
+    duration_seconds: Math.max(3, Math.round(totalDurationSeconds / 4)),
+    notes: "New scene added by reviewer.",
+    on_screen_text: "New beat",
+    scene_number: sceneNumber,
+    transition: "quick cut",
+    visual_direction: "Describe the visual action for this scene.",
+    voiceover: "Write the voiceover beat for this scene.",
+  };
+}
+
+function renumberStoryboardScenes(
+  scenes: BriefDraftScene[],
+): BriefDraftScene[] {
+  return scenes.map((scene, index) => ({
+    ...scene,
+    scene_number: index + 1,
+  }));
 }
 
 function clampNumber(

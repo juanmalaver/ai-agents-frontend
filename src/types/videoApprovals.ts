@@ -131,6 +131,8 @@ export interface BriefDraftResponse {
     scenes: BriefDraftScene[];
     visual_style: string;
     total_duration_seconds: number;
+    recommended_scene_count?: number | null;
+    scene_count_reason?: string | null;
   };
   prompt_count: number;
   metadata: Record<string, unknown>;
