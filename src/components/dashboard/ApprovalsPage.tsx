@@ -14,6 +14,7 @@ import type {
   ReviewDecision,
   VideoProductionBriefCatalogResponse,
   VideoProductionBrandOption,
+  VideoProductionCharacterOption,
 } from "@/src/types/videoApprovals";
 import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
@@ -407,7 +408,9 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     useState<LoadState>("loading");
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [selectedBrandCode, setSelectedBrandCode] = useState("");
+  const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [marketState, setMarketState] = useState("");
+  const [languageCode, setLanguageCode] = useState("en");
   const [clientType, setClientType] = useState("");
   const [videoStyle, setVideoStyle] = useState("");
   const [awarenessLevel, setAwarenessLevel] = useState("problem-aware");
@@ -425,11 +428,16 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const previewRef = useRef<HTMLDivElement>(null);
   const trimmedBriefText = briefText.trim();
   const brands = catalog?.brands ?? [];
+  const characters = catalog?.characters ?? [];
   const clientTypeOptions = catalog?.client_types ?? [];
   const videoStyleOptions = catalog?.video_styles ?? [];
   const marketStateOptions = catalog?.market_states ?? [];
   const hookAngleOptions = catalog?.hook_angles ?? [];
   const ctaOptions = catalog?.ctas ?? [];
+  const languageOptions = catalog?.languages ?? [
+    { code: "en", label: "English" },
+    { code: "es", label: "Spanish" },
+  ];
   const awarenessLevelOptions = catalog?.awareness_levels ?? [];
   const platformOptions = catalog?.platforms ?? [];
   const aspectRatioOptions = catalog?.aspect_ratios ?? [];
@@ -444,6 +452,25 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       activeBrands.find((brand) => brand.brand_code === selectedBrandCode) ??
       null,
     [activeBrands, selectedBrandCode],
+  );
+  const characterOptions = useMemo(
+    () =>
+      characters.filter((character) => {
+        const matchesBrand =
+          !character.brand_code || character.brand_code === selectedBrandCode;
+        const matchesLanguage =
+          character.language === "any" || character.language === languageCode;
+
+        return character.is_active && matchesBrand && matchesLanguage;
+      }),
+    [characters, languageCode, selectedBrandCode],
+  );
+  const selectedCharacter = useMemo(
+    () =>
+      characterOptions.find(
+        (character) => character.character_id === selectedCharacterId,
+      ) ?? null,
+    [characterOptions, selectedCharacterId],
   );
   const canGenerate =
     Boolean(reviewerEmail) &&
@@ -493,10 +520,15 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               brand: selectedBrand,
               aspectRatio,
               awarenessLevel,
+              character: selectedCharacter,
               clientType,
               cta,
               durationSeconds,
               hookAngle,
+              languageCode,
+              languageLabel:
+                languageOptions.find((option) => option.code === languageCode)
+                  ?.label ?? "English",
               marketState,
               maxVariants,
               platform,
@@ -521,10 +553,13 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   }, [
     aspectRatio,
     awarenessLevel,
+    selectedCharacter,
     clientType,
     cta,
     durationSeconds,
     hookAngle,
+    languageCode,
+    languageOptions,
     marketState,
     maxVariants,
     platform,
@@ -640,6 +675,10 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       setMarketState(marketStateOptions[0]);
     }
 
+    if (!languageOptions.some((option) => option.code === languageCode)) {
+      setLanguageCode(languageOptions[0]?.code ?? "en");
+    }
+
     if (!clientType && clientTypeOptions[0]) {
       setClientType(clientTypeOptions[0].label);
     }
@@ -659,19 +698,32 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     if (!platform && platformOptions[0]) {
       setPlatform(platformOptions[0].label);
     }
+
+    if (
+      selectedCharacterId &&
+      !characterOptions.some(
+        (character) => character.character_id === selectedCharacterId,
+      )
+    ) {
+      setSelectedCharacterId("");
+    }
   }, [
     activeBrands,
     catalog,
+    characterOptions,
     clientType,
     clientTypeOptions,
     cta,
     ctaOptions,
     hookAngle,
     hookAngleOptions,
+    languageCode,
+    languageOptions,
     marketState,
     marketStateOptions,
     platform,
     platformOptions,
+    selectedCharacterId,
     selectedBrandCode,
     videoStyle,
     videoStyleOptions,
@@ -760,6 +812,40 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                 {marketStateOptions.map((state) => (
                   <option key={state} value={state}>
                     {state}
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
+            <FormField label="Language" htmlFor="brief-language">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-language"
+                onChange={(event) => setLanguageCode(event.target.value)}
+                value={languageCode}
+              >
+                {languageOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectControl>
+            </FormField>
+
+            <FormField label="Character" htmlFor="brief-character">
+              <SelectControl
+                disabled={catalogLoadState === "loading"}
+                id="brief-character"
+                onChange={(event) => setSelectedCharacterId(event.target.value)}
+                value={selectedCharacterId}
+              >
+                <option value="">No character</option>
+                {characterOptions.map((character) => (
+                  <option
+                    key={character.character_id}
+                    value={character.character_id}
+                  >
+                    {character.display_name}
                   </option>
                 ))}
               </SelectControl>
@@ -1782,10 +1868,13 @@ function buildBriefDraftMetadata({
   aspectRatio,
   awarenessLevel,
   brand,
+  character,
   clientType,
   cta,
   durationSeconds,
   hookAngle,
+  languageCode,
+  languageLabel,
   marketState,
   maxVariants,
   platform,
@@ -1794,10 +1883,13 @@ function buildBriefDraftMetadata({
   aspectRatio: string;
   awarenessLevel: string;
   brand: VideoProductionBrandOption;
+  character: VideoProductionCharacterOption | null;
   clientType: string;
   cta: string;
   durationSeconds: number;
   hookAngle: string;
+  languageCode: string;
+  languageLabel: string;
   marketState: string;
   maxVariants: number;
   platform: string;
@@ -1811,6 +1903,18 @@ function buildBriefDraftMetadata({
       meta_ad_account_id: brand.meta_ad_account_id,
       slack_channel: brand.slack_channel,
     },
+    character: character
+      ? {
+          brand_code: character.brand_code,
+          character_id: character.character_id,
+          description: character.description,
+          display_name: character.display_name,
+          image_url: character.image_url,
+          language: character.language,
+          metadata: character.metadata,
+          thumbnail_url: character.thumbnail_url,
+        }
+      : null,
     constraints: {
       compliance_level: "regulated",
       max_variants: clampNumber(maxVariants, 1, 3, 3),
@@ -1825,8 +1929,13 @@ function buildBriefDraftMetadata({
       platform: platform.trim() || "TikTok/Reels/Shorts",
       video_style: videoStyle.trim() || "UGC testimonial",
     },
+    language: {
+      code: languageCode,
+      label: languageLabel,
+    },
     market: {
       client_type: clientType.trim() || "personal injury",
+      language: languageLabel,
       state: marketState.trim() || "Florida",
     },
   };

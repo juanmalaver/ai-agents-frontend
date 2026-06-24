@@ -159,6 +159,18 @@ export interface VideoProductionBrandsResponse {
   items: VideoProductionBrandOption[];
 }
 
+export interface VideoProductionCharacterOption {
+  character_id: string;
+  display_name: string;
+  description: string | null;
+  image_url: string;
+  thumbnail_url: string | null;
+  brand_code: string | null;
+  language: string;
+  is_active: boolean;
+  metadata: Record<string, unknown>;
+}
+
 export interface VideoProductionCatalogOption {
   code: string;
   label: string;
@@ -173,10 +185,12 @@ export interface VideoProductionBriefCatalogResponse {
   aspect_ratios: VideoProductionCatalogOption[];
   awareness_levels: VideoProductionCatalogOption[];
   brands: VideoProductionBrandOption[];
+  characters: VideoProductionCharacterOption[];
   client_types: VideoProductionClientTypeOption[];
   ctas: VideoProductionCatalogOption[];
   durations_seconds: number[];
   hook_angles: VideoProductionCatalogOption[];
+  languages: VideoProductionCatalogOption[];
   market_states: string[];
   max_variants: number[];
   platforms: VideoProductionCatalogOption[];
