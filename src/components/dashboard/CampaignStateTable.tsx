@@ -42,9 +42,11 @@ const headerLines: Record<string, string[]> = {
   cpl: ["CPL"],
   cpsl: ["CPSL"],
   lawFirms: ["Law", "firms"],
+  leads: ["Leads"],
   leadsGoal: ["EOM Lead", "Goal"],
   mtdLeadGoalPct: ["% to MTD", "Lead Goal"],
   mtdLeadsGoal: ["MTD Lead", "Goal"],
+  mtdSl: ["SL"],
   mtdSlGoal: ["MTD SL", "Goal"],
   mtdSlGoalPct: ["% to MTD", "SL Goal"],
   mtdSpentPct: ["MTD %", "Spent"],
@@ -180,6 +182,17 @@ export function CampaignStateTable({
         sortingFn: nullableNumberSortingFn,
       },
       {
+        accessorKey: "leads",
+        cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+        footer: () => formatNumber(totalRow?.leads ?? null),
+        header: "Leads",
+        meta: {
+          info: "Meaning: leads generated month-to-date. Formula: count of CRM leads in the selected month-to-date period.",
+        },
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
         accessorFn: (row) =>
           safeDivide(row.leads, calculateMtdGoal(row.leadsGoal, monthPacing)),
         cell: ({ getValue }) => formatPercentage(getValue<number | null>()),
@@ -218,6 +231,17 @@ export function CampaignStateTable({
         id: "mtdSlGoal",
         meta: {
           info: "Meaning: signed-lead goal expected by the selected date. Formula: EOM SL Goal / days in month x elapsed days.",
+        },
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "mtdSl",
+        cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+        footer: () => formatNumber(totalRow?.mtdSl ?? null),
+        header: "SL",
+        meta: {
+          info: "Meaning: signed leads generated month-to-date. Formula: count of signed CRM leads in the selected month-to-date period.",
         },
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
@@ -303,7 +327,7 @@ export function CampaignStateTable({
           </h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-[1200px] w-full border-collapse text-left text-sm">
+          <table className="min-w-[1360px] w-full border-collapse text-left text-sm">
             <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>

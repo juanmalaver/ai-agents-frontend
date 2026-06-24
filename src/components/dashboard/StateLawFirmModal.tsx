@@ -79,6 +79,11 @@ export function StateLawFirmModal({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
+  const monthPacing = useMemo(() => buildMonthPacing(query.to), [query.to]);
+  const summaryItems = useMemo(
+    () => buildStateLawFirmSummaryItems(rows, monthPacing),
+    [monthPacing, rows],
+  );
   const lawFirmUrl = useMemo(
     () =>
       appendStateLawFirmsQueryParams(
@@ -207,20 +212,14 @@ export function StateLawFirmModal({
             Close
           </button>
         </div>
-        <div className="grid shrink-0 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 sm:grid-cols-4">
-          <SummaryItem
-            label="Leads goal"
-            value={formatNumber(stateRow.leadsGoal ?? 0)}
-          />
-          <SummaryItem
-            label="Leads"
-            value={formatNumber(stateRow.leads ?? 0)}
-          />
-          <SummaryItem
-            label="SL goal"
-            value={formatNumber(stateRow.slGoal ?? 0)}
-          />
-          <SummaryItem label="SL" value={formatNumber(stateRow.mtdSl ?? 0)} />
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 md:grid-cols-4 xl:grid-cols-8">
+          {summaryItems.map((item) => (
+            <SummaryItem
+              key={item.label}
+              label={item.label}
+              value={item.value}
+            />
+          ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           {isLoading ? (
@@ -287,14 +286,14 @@ function StateLawFirmTable({
               {hasCampaigns ? (
                 <button
                   aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} campaigns for ${lawFirm}`}
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-sky-50"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-sky-50"
                   onClick={row.getToggleExpandedHandler()}
                   type="button"
                 >
                   {row.getIsExpanded() ? "−" : "+"}
                 </button>
               ) : (
-                <span aria-hidden="true" className="h-6 w-6 shrink-0" />
+                <span aria-hidden="true" className="h-7 w-7 shrink-0" />
               )}
               <span
                 className="truncate font-semibold text-slate-950"
@@ -311,24 +310,26 @@ function StateLawFirmTable({
         },
       },
       {
-        accessorFn: (row) => safeDivide(row.leads, row.leadsGoal),
+        accessorFn: (row) =>
+          safeDivide(row.leads, calculateMtdGoal(row.leadsGoal, monthPacing)),
         cell: ({ getValue }) =>
           renderNumberCell(formatPercentage(getValue<number | null>())),
-        header: "% Lead Goal",
+        header: "MTD % to Lead Goal",
         id: "leadGoalPct",
         meta: {
-          info: "How much of the monthly lead goal has been reached: MTD leads divided by lead goal.",
+          info: "How much of the month-to-date lead goal has been reached: MTD current leads divided by MTD lead goal.",
         },
         sortDescFirst: true,
         sortingFn: nullableLawFirmNumberSortingFn,
       },
       {
-        accessorKey: "leadsGoal",
+        accessorFn: (row) => calculateMtdGoal(row.leadsGoal, monthPacing),
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number>())),
-        header: "Lead Goal",
+          renderNumberCell(formatNumber(getValue<number | null>())),
+        header: "MTD L GOAL",
+        id: "mtdLeadsGoal",
         meta: {
-          info: "The monthly lead target for this law firm.",
+          info: "The lead goal expected by the selected date: EOM lead goal divided by days in the month, then multiplied by elapsed days.",
         },
         sortDescFirst: true,
         sortingFn: nullableLawFirmNumberSortingFn,
@@ -337,7 +338,7 @@ function StateLawFirmTable({
         accessorKey: "leads",
         cell: ({ getValue }) =>
           renderNumberCell(formatNumber(getValue<number>())),
-        header: "MTD Leads",
+        header: "MTD Current Leads",
         meta: {
           info: "Leads generated so far in the selected month.",
         },
@@ -345,13 +346,12 @@ function StateLawFirmTable({
         sortingFn: nullableLawFirmNumberSortingFn,
       },
       {
-        accessorFn: (row) => projectToEndOfMonth(row.leads, monthPacing),
+        accessorKey: "leadsGoal",
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number | null>())),
-        header: "EOM Leads",
-        id: "eomLeads",
+          renderNumberCell(formatNumber(getValue<number>())),
+        header: "EOM L Goal",
         meta: {
-          info: "Projected leads by the end of the month: MTD leads divided by elapsed days, then multiplied by days in the month.",
+          info: "The full-month lead goal for this law firm.",
         },
         sortDescFirst: true,
         sortingFn: nullableLawFirmNumberSortingFn,
@@ -360,7 +360,7 @@ function StateLawFirmTable({
         accessorFn: (row) =>
           safeDivide(row.mtdSl, calculateMtdGoal(row.slGoal, monthPacing)),
         cell: ({ getValue }) => renderSlPacingCell(getValue<number | null>()),
-        header: "% to SL",
+        header: "MTD % to SL Goal",
         id: "slPacingPct",
         meta: {
           info: "Signed-lead pacing for the month: MTD SL divided by MTD SL goal. Green is 100% or more, yellow is 80% to 99%, red is below 80%.",
@@ -369,12 +369,13 @@ function StateLawFirmTable({
         sortingFn: nullableLawFirmNumberSortingFn,
       },
       {
-        accessorKey: "slGoal",
+        accessorFn: (row) => calculateMtdGoal(row.slGoal, monthPacing),
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number>())),
-        header: "SL Goal",
+          renderNumberCell(formatNumber(getValue<number | null>())),
+        header: "MTD SL GOAL",
+        id: "mtdSlGoal",
         meta: {
-          info: "The monthly signed-lead goal for this law firm.",
+          info: "The signed-lead goal expected by the selected date: EOM SL goal divided by days in the month, then multiplied by elapsed days.",
         },
         sortDescFirst: true,
         sortingFn: nullableLawFirmNumberSortingFn,
@@ -383,7 +384,7 @@ function StateLawFirmTable({
         accessorKey: "mtdSl",
         cell: ({ getValue }) =>
           renderNumberCell(formatNumber(getValue<number>())),
-        header: "MTD SL",
+        header: "MTD Current SL",
         meta: {
           info: "Signed leads generated so far in the selected month.",
         },
@@ -391,37 +392,13 @@ function StateLawFirmTable({
         sortingFn: nullableLawFirmNumberSortingFn,
       },
       {
-        accessorFn: (row) => projectToEndOfMonth(row.mtdSl, monthPacing),
+        accessorKey: "slGoal",
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number | null>())),
-        header: "EOM SL goal",
+          renderNumberCell(formatNumber(getValue<number>())),
+        header: "EOM SL Goal",
         id: "eomSlGoal",
         meta: {
-          info: "Projected signed leads by the end of the month: MTD SL divided by elapsed days, then multiplied by days in the month.",
-        },
-        sortDescFirst: true,
-        sortingFn: nullableLawFirmNumberSortingFn,
-      },
-      {
-        accessorFn: (row) => calculateMtdGoal(row.slGoal, monthPacing),
-        cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number | null>())),
-        header: "MTD SL goal",
-        id: "mtdSlGoal",
-        meta: {
-          info: "The signed-lead goal expected by today: SL Goal divided by days in the month, then multiplied by elapsed days.",
-        },
-        sortDescFirst: true,
-        sortingFn: nullableLawFirmNumberSortingFn,
-      },
-      {
-        accessorFn: (row) => row.conversionRate,
-        cell: ({ getValue }) =>
-          renderNumberCell(formatPercentage(getValue<number | null>())),
-        header: "Conv. rate",
-        id: "conversionRate",
-        meta: {
-          info: "Lead-to-signed-lead conversion rate: MTD SL divided by MTD leads.",
+          info: "The full-month signed-lead goal for this law firm.",
         },
         sortDescFirst: true,
         sortingFn: nullableLawFirmNumberSortingFn,
@@ -447,8 +424,8 @@ function StateLawFirmTable({
 
   return (
     <div className="rounded-lg border border-slate-200">
-      <table className="w-full table-fixed border-collapse text-left text-xs">
-        <thead className="bg-slate-50 text-[0.68rem] leading-tight text-slate-500">
+      <table className="w-full table-fixed border-collapse text-left text-sm">
+        <thead className="bg-slate-50 text-xs leading-tight text-slate-500">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
@@ -537,7 +514,7 @@ function renderSortableHeader<TData>(header: Header<TData, unknown>) {
 
   if (!header.column.getCanSort()) {
     return (
-      <span className="flex min-w-0 items-start gap-0.5">
+      <span className="inline-flex min-w-0 items-center gap-1">
         {flexRender(header.column.columnDef.header, header.getContext())}
         {info ? <HeaderInfoIcon info={info} /> : null}
       </span>
@@ -545,9 +522,9 @@ function renderSortableHeader<TData>(header: Header<TData, unknown>) {
   }
 
   return (
-    <span className="flex min-w-0 items-start gap-0.5">
+    <span className="inline-flex min-w-0 items-center gap-1">
       <button
-        className="group/sort relative min-w-0 flex-1 pr-2 text-left leading-tight transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+        className="group/sort relative inline-flex min-w-0 pr-3 text-left leading-tight transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
         onClick={header.column.getToggleSortingHandler()}
         type="button"
       >
@@ -572,18 +549,16 @@ function getHeaderInfo<TData>(header: Header<TData, unknown>): string | null {
 function getColumnWidth(columnId: string): string {
   const widths: Record<string, string> = {
     campaignName: "70%",
-    conversionRate: "8%",
-    eomLeads: "7.5%",
-    eomSlGoal: "8%",
+    eomSlGoal: "11%",
     lawFirm: "22%",
-    leadGoalPct: "8%",
-    leads: "7.5%",
-    leadsGoal: "8%",
-    mtdSl: "7%",
-    mtdSlGoal: "8.5%",
+    leadGoalPct: "10%",
+    leads: "9%",
+    leadsGoal: "9%",
+    mtdLeadsGoal: "10%",
+    mtdSl: "9%",
+    mtdSlGoal: "10%",
     signedLeads: "15%",
-    slGoal: "7.5%",
-    slPacingPct: "7.5%",
+    slPacingPct: "10%",
   };
 
   return widths[columnId] ?? "8%";
@@ -593,7 +568,7 @@ function HeaderInfoIcon({ info }: { info: string }) {
   return (
     <button
       aria-label={info}
-      className="group/info relative inline-flex h-3 w-3 shrink-0 cursor-help items-center justify-center rounded-full text-slate-400 transition hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+      className="group/info relative inline-flex h-3 w-3 shrink-0 cursor-help items-center justify-center self-center rounded-full text-slate-400 transition hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -732,17 +707,78 @@ function calculateMtdGoal(
   return (monthlyGoal / monthPacing.daysInMonth) * monthPacing.daysElapsed;
 }
 
-function projectToEndOfMonth(
-  value: number | null | undefined,
+interface StateLawFirmSummaryItem {
+  label: string;
+  value: string;
+}
+
+function buildStateLawFirmSummaryItems(
+  rows: StateLawFirmRow[],
   monthPacing: MonthPacing,
-): number | null {
-  const dailyValue = safeDivide(value, monthPacing.daysElapsed);
+): StateLawFirmSummaryItem[] {
+  const totals = buildStateLawFirmTotals(rows, monthPacing);
 
-  if (dailyValue === null) {
-    return null;
-  }
+  return [
+    {
+      label: "MTD % to Lead Goal",
+      value: formatPercentage(safeDivide(totals.leads, totals.mtdLeadsGoal)),
+    },
+    {
+      label: "MTD L GOAL",
+      value: formatNumber(totals.mtdLeadsGoal),
+    },
+    {
+      label: "MTD Current Leads",
+      value: formatNumber(totals.leads),
+    },
+    {
+      label: "EOM L Goal",
+      value: formatNumber(totals.leadsGoal),
+    },
+    {
+      label: "MTD % to SL Goal",
+      value: formatPercentage(safeDivide(totals.mtdSl, totals.mtdSlGoal)),
+    },
+    {
+      label: "MTD SL GOAL",
+      value: formatNumber(totals.mtdSlGoal),
+    },
+    {
+      label: "MTD Current SL",
+      value: formatNumber(totals.mtdSl),
+    },
+    {
+      label: "EOM SL Goal",
+      value: formatNumber(totals.slGoal),
+    },
+  ];
+}
 
-  return dailyValue * monthPacing.daysInMonth;
+function buildStateLawFirmTotals(
+  rows: StateLawFirmRow[],
+  monthPacing: MonthPacing,
+) {
+  return rows.reduce(
+    (totals, row) => ({
+      leads: totals.leads + row.leads,
+      leadsGoal: totals.leadsGoal + row.leadsGoal,
+      mtdLeadsGoal:
+        totals.mtdLeadsGoal +
+        (calculateMtdGoal(row.leadsGoal, monthPacing) ?? 0),
+      mtdSl: totals.mtdSl + row.mtdSl,
+      mtdSlGoal:
+        totals.mtdSlGoal + (calculateMtdGoal(row.slGoal, monthPacing) ?? 0),
+      slGoal: totals.slGoal + row.slGoal,
+    }),
+    {
+      leads: 0,
+      leadsGoal: 0,
+      mtdLeadsGoal: 0,
+      mtdSl: 0,
+      mtdSlGoal: 0,
+      slGoal: 0,
+    },
+  );
 }
 
 function renderNumberCell(value: string) {
@@ -752,7 +788,7 @@ function renderNumberCell(value: string) {
 function renderSlPacingCell(value: number | null) {
   return (
     <span
-      className={`inline-flex min-w-12 justify-center rounded-full border px-1.5 py-0.5 text-[0.7rem] font-semibold tabular-nums ${getSlPacingClass(
+      className={`inline-flex min-w-12 justify-center rounded-full border px-1.5 py-0.5 text-xs font-semibold tabular-nums ${getSlPacingClass(
         value,
       )}`}
     >
