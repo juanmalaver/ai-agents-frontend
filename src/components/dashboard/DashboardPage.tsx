@@ -278,10 +278,7 @@ function buildKpiCards(
   const monthPacing = buildMonthPacing(dateRange.to);
   const mtdBudgetGoal = calculateMtdGoal(kpis.budget, monthPacing);
   const mtdBudgetCompletionPct = safeDivide(kpis.mtdSpent, mtdBudgetGoal);
-  const slGoalCompletion = calculateMtdSlGoalCompletion(
-    stateRows,
-    monthPacing,
-  );
+  const slGoalCompletion = calculateMtdSlGoalCompletion(stateRows);
   const intakeConversion = calculateIntakeConversion(stateRows);
 
   return [
@@ -424,14 +421,17 @@ interface SlGoalCompletion {
 
 function calculateMtdSlGoalCompletion(
   rows: CampaignStateRow[],
-  monthPacing: MonthPacing,
 ): SlGoalCompletion {
   let mtdSl = 0;
   let mtdSlGoal = 0;
   let hasGoal = false;
 
   for (const row of rows) {
-    const rowMtdSlGoal = calculateMtdGoal(row.slGoal, monthPacing);
+    if (typeof row.mtdSl === "number" && Number.isFinite(row.mtdSl)) {
+      mtdSl += row.mtdSl;
+    }
+
+    const rowMtdSlGoal = row.slGoal;
 
     if (rowMtdSlGoal === null) {
       continue;
@@ -439,10 +439,6 @@ function calculateMtdSlGoalCompletion(
 
     hasGoal = true;
     mtdSlGoal += rowMtdSlGoal;
-
-    if (typeof row.mtdSl === "number" && Number.isFinite(row.mtdSl)) {
-      mtdSl += row.mtdSl;
-    }
   }
 
   if (!hasGoal) {
