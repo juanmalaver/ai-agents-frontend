@@ -39,7 +39,14 @@ const videoReviewFilters: Array<{
   { id: "rejected", label: "Rejected" },
   { id: "all", label: "All" },
 ];
-const sceneCountOptions = [2, 3, 4, 5];
+const DEFAULT_CHARACTER_DESCRIPTION = "Latina woman dressed very casually";
+const DEFAULT_SCENE_COUNT = "1";
+const DEFAULT_VARIANT_COUNT = 1;
+const DEFAULT_VIDEO_LENGTH_SECONDS = 15;
+const sceneCountOptions = [1, 2, 3, 4, 5];
+const videoLengthOptions = [15, 30, 45, 60];
+const REELS_ASPECT_RATIO = "9:16";
+const REELS_PLATFORM = "TikTok/Reels/Shorts";
 const promptChecklist = [
   "Brand",
   "Market / state",
@@ -48,9 +55,9 @@ const promptChecklist = [
   "Offer / CTA",
   "Script or voiceover",
   "Video style",
-  "Platform / duration",
+  "Vertical Reels length",
   "Scene count",
-  "Character",
+  "Character or character description",
   "Compliance notes",
   "References",
 ];
@@ -60,14 +67,15 @@ Market: Florida
 Language: Spanish
 Client type: commercial truck accident
 CTA: book a free consultation
-Style: raw UGC selfie, TikTok/Reels, 15s
+Style: raw UGC selfie, vertical Reels
+Character: bilingual attorney in her late 30s, calm and direct
 
 Script:
 Scene 1 voiceover...
 Scene 2 voiceover...
 
 Notes:
-Keep it compliant. Do not include phone numbers, websites, or final contact cards because the outro will be appended later.`;
+Keep it compliant. Do not include phone numbers, websites, end cards, or final contact cards.`;
 
 export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const pathname = usePathname();
@@ -443,6 +451,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [selectedBrandCode, setSelectedBrandCode] = useState("");
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
+  const [customCharacterDescription, setCustomCharacterDescription] =
+    useState(DEFAULT_CHARACTER_DESCRIPTION);
   const [marketState, setMarketState] = useState("");
   const [languageCode, setLanguageCode] = useState("en");
   const [clientType, setClientType] = useState("");
@@ -450,11 +460,12 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [awarenessLevel, setAwarenessLevel] = useState("problem-aware");
   const [hookAngle, setHookAngle] = useState("");
   const [cta, setCta] = useState("");
-  const [platform, setPlatform] = useState("");
-  const [aspectRatio, setAspectRatio] = useState("9:16");
-  const [durationSeconds, setDurationSeconds] = useState(30);
-  const [sceneCount, setSceneCount] = useState("auto");
-  const [maxVariants, setMaxVariants] = useState(3);
+  const [sceneCount, setSceneCount] = useState(DEFAULT_SCENE_COUNT);
+  const [maxVariants, setMaxVariants] = useState(DEFAULT_VARIANT_COUNT);
+  const [videoLengthSeconds, setVideoLengthSeconds] = useState(
+    DEFAULT_VIDEO_LENGTH_SECONDS,
+  );
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
   const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
   const [editableScript, setEditableScript] = useState<ScriptPayload | null>(
     null,
@@ -487,9 +498,6 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     { code: "es", label: "Spanish" },
   ];
   const awarenessLevelOptions = catalog?.awareness_levels ?? [];
-  const platformOptions = catalog?.platforms ?? [];
-  const aspectRatioOptions = catalog?.aspect_ratios ?? [];
-  const durationOptions = catalog?.durations_seconds ?? [15, 20, 30, 45, 60];
   const variantOptions = catalog?.max_variants ?? [1, 2, 3];
   const activeBrands = useMemo(
     () => brands.filter((brand) => brand.is_active),
@@ -530,31 +538,25 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     () =>
       buildBriefDraftAutofillMetadata({
         activeBrands,
-        aspectRatioOptions,
         awarenessLevelOptions,
         characters,
         clientTypeOptions,
         ctaOptions,
-        durationOptions,
         hookAngleOptions,
         languageOptions,
         marketStateOptions,
-        platformOptions,
         variantOptions,
         videoStyleOptions,
       }),
     [
       activeBrands,
-      aspectRatioOptions,
       awarenessLevelOptions,
       characters,
       clientTypeOptions,
       ctaOptions,
-      durationOptions,
       hookAngleOptions,
       languageOptions,
       marketStateOptions,
-      platformOptions,
       variantOptions,
       videoStyleOptions,
     ],
@@ -617,19 +619,19 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               useAdvancedOptions && selectedBrand
                 ? buildBriefDraftMetadata({
                     brand: selectedBrand,
-                    aspectRatio,
                     awarenessLevel,
                     character: selectedCharacter,
+                    customCharacterDescription,
                     clientType,
                     cta,
-                    durationSeconds,
                     hookAngle,
                     languageCode,
                     languageLabel: selectedLanguageLabel,
                     marketState,
                     maxVariants,
-                    platform,
                     sceneCount,
+                    subtitlesEnabled,
+                    videoLengthSeconds,
                     videoStyle,
                   })
                 : autofillMetadata,
@@ -660,24 +662,24 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       setIsGeneratingStoryboard(false);
     }
   }, [
-    aspectRatio,
     awarenessLevel,
     autofillMetadata,
     selectedCharacter,
+    customCharacterDescription,
     clientType,
     cta,
-    durationSeconds,
     hookAngle,
     languageCode,
     selectedLanguageLabel,
     marketState,
     maxVariants,
-    platform,
     reviewerEmail,
     sceneCount,
     selectedBrand,
+    subtitlesEnabled,
     trimmedBriefText,
     useAdvancedOptions,
+    videoLengthSeconds,
     videoStyle,
   ]);
 
@@ -955,10 +957,6 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       setCta(ctaOptions[0].label);
     }
 
-    if (!platform && platformOptions[0]) {
-      setPlatform(platformOptions[0].label);
-    }
-
     if (
       selectedCharacterId &&
       !characterOptions.some(
@@ -981,8 +979,6 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     languageOptions,
     marketState,
     marketStateOptions,
-    platform,
-    platformOptions,
     selectedCharacterId,
     selectedBrandCode,
     videoStyle,
@@ -1176,6 +1172,11 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               setIsScriptDirty(false);
               setEditableStoryboard(null);
               setIsStoryboardDirty(false);
+              setCustomCharacterDescription(DEFAULT_CHARACTER_DESCRIPTION);
+              setSceneCount(DEFAULT_SCENE_COUNT);
+              setMaxVariants(DEFAULT_VARIANT_COUNT);
+              setVideoLengthSeconds(DEFAULT_VIDEO_LENGTH_SECONDS);
+              setSubtitlesEnabled(false);
               setBriefError(null);
               setContinueStatus(null);
               setScriptSaveStatus(null);
@@ -1277,6 +1278,24 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                 </SelectControl>
               </FormField>
 
+              <div className="md:col-span-2 xl:col-span-4">
+                <FormField
+                  label="Custom character"
+                  htmlFor="brief-custom-character"
+                >
+                  <textarea
+                    className="min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50 disabled:text-slate-500"
+                    disabled={catalogLoadState === "loading"}
+                    id="brief-custom-character"
+                    onChange={(event) =>
+                      setCustomCharacterDescription(event.target.value)
+                    }
+                    placeholder="Describe the on-camera person if they are not in the catalog."
+                    value={customCharacterDescription}
+                  />
+                </FormField>
+              </div>
+
               <FormField label="Client type" htmlFor="brief-client-type">
                 <SelectControl
                   disabled={catalogLoadState === "loading"}
@@ -1352,53 +1371,6 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                 </SelectControl>
               </FormField>
 
-              <FormField label="Platform" htmlFor="brief-platform">
-                <SelectControl
-                  disabled={catalogLoadState === "loading"}
-                  id="brief-platform"
-                  onChange={(event) => setPlatform(event.target.value)}
-                  value={platform}
-                >
-                  {platformOptions.map((option) => (
-                    <option key={option.code} value={option.label}>
-                      {option.label}
-                    </option>
-                  ))}
-                </SelectControl>
-              </FormField>
-
-              <FormField label="Aspect ratio" htmlFor="brief-aspect-ratio">
-                <SelectControl
-                  disabled={catalogLoadState === "loading"}
-                  id="brief-aspect-ratio"
-                  onChange={(event) => setAspectRatio(event.target.value)}
-                  value={aspectRatio}
-                >
-                  {aspectRatioOptions.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.label}
-                    </option>
-                  ))}
-                </SelectControl>
-              </FormField>
-
-              <FormField label="Duration" htmlFor="brief-duration">
-                <SelectControl
-                  disabled={catalogLoadState === "loading"}
-                  id="brief-duration"
-                  onChange={(event) =>
-                    setDurationSeconds(Number(event.target.value))
-                  }
-                  value={String(durationSeconds)}
-                >
-                  {durationOptions.map((duration) => (
-                    <option key={duration} value={duration}>
-                      {duration}s
-                    </option>
-                  ))}
-                </SelectControl>
-              </FormField>
-
               <FormField label="Scenes" htmlFor="brief-scene-count">
                 <SelectControl
                   disabled={catalogLoadState === "loading"}
@@ -1406,7 +1378,6 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   onChange={(event) => setSceneCount(event.target.value)}
                   value={sceneCount}
                 >
-                  <option value="auto">Auto recommended</option>
                   {sceneCountOptions.map((count) => (
                     <option key={count} value={count}>
                       {count} scenes
@@ -1414,6 +1385,45 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   ))}
                 </SelectControl>
               </FormField>
+
+              <FormField label="Video length" htmlFor="brief-video-length">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-video-length"
+                  onChange={(event) =>
+                    setVideoLengthSeconds(Number(event.target.value))
+                  }
+                  value={String(videoLengthSeconds)}
+                >
+                  {videoLengthOptions.map((duration) => (
+                    <option key={duration} value={duration}>
+                      {duration}s
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
+
+              <div className="grid gap-1.5">
+                <span className="text-xs font-semibold text-slate-700">
+                  Subtitles
+                </span>
+                <button
+                  aria-pressed={subtitlesEnabled}
+                  className={`inline-flex h-10 items-center justify-center rounded-lg border px-3 text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 ${
+                    subtitlesEnabled
+                      ? "border-teal-500 bg-teal-50 text-teal-800"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                  }`}
+                  disabled={catalogLoadState === "loading"}
+                  onClick={() => {
+                    markAdvancedOptionsUsed();
+                    setSubtitlesEnabled((current) => !current);
+                  }}
+                  type="button"
+                >
+                  {subtitlesEnabled ? "Subtitles on" : "Subtitles off"}
+                </button>
+              </div>
 
               <FormField label="Variants" htmlFor="brief-max-variants">
                 <SelectControl
@@ -2662,40 +2672,44 @@ function briefDraftValue(
 }
 
 function buildBriefDraftMetadata({
-  aspectRatio,
   awarenessLevel,
   brand,
   character,
+  customCharacterDescription,
   clientType,
   cta,
-  durationSeconds,
   hookAngle,
   languageCode,
   languageLabel,
   marketState,
   maxVariants,
-  platform,
   sceneCount,
+  subtitlesEnabled,
+  videoLengthSeconds,
   videoStyle,
 }: {
-  aspectRatio: string;
   awarenessLevel: string;
   brand: VideoProductionBrandOption;
   character: VideoProductionCharacterOption | null;
+  customCharacterDescription: string;
   clientType: string;
   cta: string;
-  durationSeconds: number;
   hookAngle: string;
   languageCode: string;
   languageLabel: string;
   marketState: string;
   maxVariants: number;
-  platform: string;
   sceneCount: string;
+  subtitlesEnabled: boolean;
+  videoLengthSeconds: number;
   videoStyle: string;
 }): Record<string, unknown> {
   const parsedSceneCount =
     sceneCount === "auto" ? null : clampNumber(Number(sceneCount), 1, 8, 3);
+  const parsedVideoLengthSeconds = clampNumber(videoLengthSeconds, 15, 60, 15);
+  const trimmedCharacterDescription = customCharacterDescription.trim();
+  const characterDescription =
+    trimmedCharacterDescription || character?.description || null;
 
   return {
     brand: {
@@ -2716,21 +2730,31 @@ function buildBriefDraftMetadata({
           metadata: character.metadata,
           thumbnail_url: character.thumbnail_url,
         }
-      : null,
+      : trimmedCharacterDescription
+        ? {
+            custom_description: trimmedCharacterDescription,
+            description: trimmedCharacterDescription,
+          }
+        : null,
     constraints: {
       compliance_level: "regulated",
       max_variants: clampNumber(maxVariants, 1, 3, 3),
       requires_human_approval: true,
     },
     creative: {
-      aspect_ratio: aspectRatio.trim() || "9:16",
+      aspect_ratio: REELS_ASPECT_RATIO,
       awareness_level: awarenessLevel.trim() || "problem-aware",
       cta: cta.trim() || "Book a free consultation",
-      duration_seconds: clampNumber(durationSeconds, 5, 180, 30),
+      duration_seconds: parsedVideoLengthSeconds,
       hook_angle: hookAngle.trim() || "free consultation",
-      platform: platform.trim() || "TikTok/Reels/Shorts",
+      platform: REELS_PLATFORM,
       scene_count: parsedSceneCount,
+      subtitles_enabled: subtitlesEnabled,
       video_style: videoStyle.trim() || "UGC testimonial",
+      character_description: characterDescription,
+      character_id: character?.character_id ?? null,
+      character_image_url: character?.image_url ?? null,
+      character_name: character?.display_name ?? null,
     },
     language: {
       code: languageCode,
@@ -2746,36 +2770,29 @@ function buildBriefDraftMetadata({
 
 function buildBriefDraftAutofillMetadata({
   activeBrands,
-  aspectRatioOptions,
   awarenessLevelOptions,
   characters,
   clientTypeOptions,
   ctaOptions,
-  durationOptions,
   hookAngleOptions,
   languageOptions,
   marketStateOptions,
-  platformOptions,
   variantOptions,
   videoStyleOptions,
 }: {
   activeBrands: VideoProductionBrandOption[];
-  aspectRatioOptions: VideoProductionCatalogOption[];
   awarenessLevelOptions: VideoProductionCatalogOption[];
   characters: VideoProductionCharacterOption[];
   clientTypeOptions: VideoProductionClientTypeOption[];
   ctaOptions: VideoProductionCatalogOption[];
-  durationOptions: number[];
   hookAngleOptions: VideoProductionCatalogOption[];
   languageOptions: VideoProductionCatalogOption[];
   marketStateOptions: string[];
-  platformOptions: VideoProductionCatalogOption[];
   variantOptions: number[];
   videoStyleOptions: VideoProductionCatalogOption[];
 }): Record<string, unknown> {
   return {
     autofill_options: {
-      aspect_ratios: aspectRatioOptions.map(catalogOptionForAutofill),
       awareness_levels: awarenessLevelOptions.map(catalogOptionForAutofill),
       brands: activeBrands.map((brand) => ({
         aliases: brand.brand_aliases,
@@ -2797,16 +2814,39 @@ function buildBriefDraftAutofillMetadata({
         label: option.label,
       })),
       ctas: ctaOptions.map(catalogOptionForAutofill),
-      durations_seconds: durationOptions,
       hook_angles: hookAngleOptions.map(catalogOptionForAutofill),
       languages: languageOptions.map(catalogOptionForAutofill),
       market_states: marketStateOptions,
       max_variants: variantOptions,
-      platforms: platformOptions.map(catalogOptionForAutofill),
       scene_counts: ["auto", ...sceneCountOptions],
+      video_lengths_seconds: videoLengthOptions,
       video_styles: videoStyleOptions.map(catalogOptionForAutofill),
     },
+    character: {
+      custom_description: DEFAULT_CHARACTER_DESCRIPTION,
+      description: DEFAULT_CHARACTER_DESCRIPTION,
+    },
+    constraints: {
+      compliance_level: "regulated",
+      max_variants: DEFAULT_VARIANT_COUNT,
+      requires_human_approval: true,
+    },
+    creative: {
+      aspect_ratio: REELS_ASPECT_RATIO,
+      character_description: DEFAULT_CHARACTER_DESCRIPTION,
+      duration_seconds: DEFAULT_VIDEO_LENGTH_SECONDS,
+      platform: REELS_PLATFORM,
+      scene_count: Number(DEFAULT_SCENE_COUNT),
+      subtitles_enabled: false,
+    },
     input_mode: "manual_prompt_autofill",
+    production_defaults: {
+      aspect_ratio: REELS_ASPECT_RATIO,
+      duration_seconds: DEFAULT_VIDEO_LENGTH_SECONDS,
+      platform: REELS_PLATFORM,
+      scene_count: Number(DEFAULT_SCENE_COUNT),
+      subtitles_enabled: false,
+    },
     prompt_requirements: promptChecklist,
   };
 }
