@@ -14,7 +14,9 @@ import type {
   ReviewDecision,
   VideoProductionBriefCatalogResponse,
   VideoProductionBrandOption,
+  VideoProductionCatalogOption,
   VideoProductionCharacterOption,
+  VideoProductionClientTypeOption,
 } from "@/src/types/videoApprovals";
 import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
@@ -25,6 +27,7 @@ type ApprovalTab = "briefs" | "videos";
 type LoadState = "loading" | "ready" | "error";
 type StatusTone = "amber" | "rose" | "slate" | "teal";
 type VideoReviewFilter = "all" | "approved" | "rejected" | "waiting";
+type ScriptPayload = BriefDraftResponse["script"];
 type StoryboardPayload = BriefDraftResponse["storyboard"];
 
 const videoReviewFilters: Array<{
@@ -37,6 +40,34 @@ const videoReviewFilters: Array<{
   { id: "all", label: "All" },
 ];
 const sceneCountOptions = [2, 3, 4, 5];
+const promptChecklist = [
+  "Brand",
+  "Market / state",
+  "Language",
+  "Client type",
+  "Offer / CTA",
+  "Script or voiceover",
+  "Video style",
+  "Platform / duration",
+  "Scene count",
+  "Character",
+  "Compliance notes",
+  "References",
+];
+const manualPromptPlaceholder = `Example:
+Brand: Los Abogados Latinos
+Market: Florida
+Language: Spanish
+Client type: commercial truck accident
+CTA: book a free consultation
+Style: raw UGC selfie, TikTok/Reels, 15s
+
+Script:
+Scene 1 voiceover...
+Scene 2 voiceover...
+
+Notes:
+Keep it compliant. Do not include phone numbers, websites, or final contact cards because the outro will be appended later.`;
 
 export function ApprovalsPage({ activeTab }: { activeTab: ApprovalTab }) {
   const pathname = usePathname();
@@ -404,6 +435,7 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
 
 function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [briefText, setBriefText] = useState("");
+  const [useAdvancedOptions, setUseAdvancedOptions] = useState(false);
   const [catalog, setCatalog] =
     useState<VideoProductionBriefCatalogResponse | null>(null);
   const [catalogLoadState, setCatalogLoadState] =
@@ -424,16 +456,22 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [sceneCount, setSceneCount] = useState("auto");
   const [maxVariants, setMaxVariants] = useState(3);
   const [draft, setDraft] = useState<BriefDraftResponse | null>(null);
+  const [editableScript, setEditableScript] = useState<ScriptPayload | null>(
+    null,
+  );
+  const [isScriptDirty, setIsScriptDirty] = useState(false);
   const [editableStoryboard, setEditableStoryboard] =
     useState<StoryboardPayload | null>(null);
   const [isStoryboardDirty, setIsStoryboardDirty] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
   const [continueStatus, setContinueStatus] = useState<string | null>(null);
+  const [scriptSaveStatus, setScriptSaveStatus] = useState<string | null>(null);
   const [storyboardSaveStatus, setStoryboardSaveStatus] = useState<
     string | null
   >(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isSavingScript, setIsSavingScript] = useState(false);
   const [isSavingStoryboard, setIsSavingStoryboard] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const trimmedBriefText = briefText.trim();
@@ -482,20 +520,61 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       ) ?? null,
     [characterOptions, selectedCharacterId],
   );
+  const selectedLanguageLabel = useMemo(
+    () =>
+      languageOptions.find((option) => option.code === languageCode)?.label ??
+      "English",
+    [languageCode, languageOptions],
+  );
+  const autofillMetadata = useMemo(
+    () =>
+      buildBriefDraftAutofillMetadata({
+        activeBrands,
+        aspectRatioOptions,
+        awarenessLevelOptions,
+        characters,
+        clientTypeOptions,
+        ctaOptions,
+        durationOptions,
+        hookAngleOptions,
+        languageOptions,
+        marketStateOptions,
+        platformOptions,
+        variantOptions,
+        videoStyleOptions,
+      }),
+    [
+      activeBrands,
+      aspectRatioOptions,
+      awarenessLevelOptions,
+      characters,
+      clientTypeOptions,
+      ctaOptions,
+      durationOptions,
+      hookAngleOptions,
+      languageOptions,
+      marketStateOptions,
+      platformOptions,
+      variantOptions,
+      videoStyleOptions,
+    ],
+  );
+  const markAdvancedOptionsUsed = useCallback(() => {
+    setUseAdvancedOptions(true);
+  }, []);
+  const scriptValidationError = useMemo(
+    () => validateScript(editableScript),
+    [editableScript],
+  );
   const storyboardValidationError = useMemo(
     () => validateStoryboard(editableStoryboard),
     [editableStoryboard],
   );
+  const isCatalogLoading = catalogLoadState === "loading";
   const canGenerate =
     Boolean(reviewerEmail) &&
-    Boolean(selectedBrand) &&
-    Boolean(marketState) &&
-    Boolean(clientType) &&
-    Boolean(videoStyle) &&
-    Boolean(hookAngle) &&
-    Boolean(cta) &&
-    Boolean(platform) &&
-    Boolean(aspectRatio) &&
+    !isCatalogLoading &&
+    (!useAdvancedOptions || Boolean(selectedBrand)) &&
     trimmedBriefText.length >= 10 &&
     !isGeneratingStoryboard;
   const canContinue =
@@ -503,8 +582,10 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     draft.status === "storyboard_ready" &&
     !draft.run_id &&
     Boolean(reviewerEmail) &&
+    !scriptValidationError &&
     !storyboardValidationError &&
     !isContinuing &&
+    !isSavingScript &&
     !isSavingStoryboard;
 
   const generateStoryboard = useCallback(async () => {
@@ -513,8 +594,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       return;
     }
 
-    if (!selectedBrand) {
-      setBriefError("Brand is required.");
+    if (useAdvancedOptions && !selectedBrand) {
+      setBriefError("Brand is required when using advanced options.");
       return;
     }
 
@@ -532,25 +613,26 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
         "/api/video-production/brief-drafts",
         {
           body: JSON.stringify({
-            metadata: buildBriefDraftMetadata({
-              brand: selectedBrand,
-              aspectRatio,
-              awarenessLevel,
-              character: selectedCharacter,
-              clientType,
-              cta,
-              durationSeconds,
-              hookAngle,
-              languageCode,
-              languageLabel:
-                languageOptions.find((option) => option.code === languageCode)
-                  ?.label ?? "English",
-              marketState,
-              maxVariants,
-              platform,
-              sceneCount,
-              videoStyle,
-            }),
+            metadata:
+              useAdvancedOptions && selectedBrand
+                ? buildBriefDraftMetadata({
+                    brand: selectedBrand,
+                    aspectRatio,
+                    awarenessLevel,
+                    character: selectedCharacter,
+                    clientType,
+                    cta,
+                    durationSeconds,
+                    hookAngle,
+                    languageCode,
+                    languageLabel: selectedLanguageLabel,
+                    marketState,
+                    maxVariants,
+                    platform,
+                    sceneCount,
+                    videoStyle,
+                  })
+                : autofillMetadata,
             source_prompt: trimmedBriefText,
           }),
           headers: {
@@ -561,27 +643,33 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
       );
 
       setDraft(response);
+      setEditableScript(response.script);
+      setIsScriptDirty(false);
       setEditableStoryboard(response.storyboard);
       setIsStoryboardDirty(false);
+      setScriptSaveStatus(null);
       setStoryboardSaveStatus(null);
     } catch (caughtError) {
       setDraft(null);
+      setEditableScript(null);
+      setIsScriptDirty(false);
       setEditableStoryboard(null);
       setIsStoryboardDirty(false);
-      setBriefError(errorMessage(caughtError, "Unable to generate storyboard."));
+      setBriefError(errorMessage(caughtError, "Unable to generate script."));
     } finally {
       setIsGeneratingStoryboard(false);
     }
   }, [
     aspectRatio,
     awarenessLevel,
+    autofillMetadata,
     selectedCharacter,
     clientType,
     cta,
     durationSeconds,
     hookAngle,
     languageCode,
-    languageOptions,
+    selectedLanguageLabel,
     marketState,
     maxVariants,
     platform,
@@ -589,8 +677,68 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     sceneCount,
     selectedBrand,
     trimmedBriefText,
+    useAdvancedOptions,
     videoStyle,
   ]);
+
+  const saveScript = useCallback(async (): Promise<BriefDraftResponse | null> => {
+    if (!draft) {
+      return null;
+    }
+
+    if (!editableScript) {
+      setScriptSaveStatus("Script is required.");
+      return null;
+    }
+
+    if (!reviewerEmail) {
+      setScriptSaveStatus("Authenticated reviewer email is required.");
+      return null;
+    }
+
+    if (scriptValidationError) {
+      setScriptSaveStatus(scriptValidationError);
+      return null;
+    }
+
+    setIsSavingScript(true);
+    setScriptSaveStatus(null);
+
+    try {
+      const response = await fetchJson<BriefDraftResponse>(
+        `/api/video-production/brief-drafts/${encodeURIComponent(
+          draft.draft_id,
+        )}/script`,
+        {
+          body: JSON.stringify({
+            script: editableScript,
+            updated_by: reviewerEmail,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "PATCH",
+        },
+      );
+
+      setDraft(response);
+      setEditableScript(response.script);
+      setIsScriptDirty(false);
+      setEditableStoryboard(response.storyboard);
+      setIsStoryboardDirty(false);
+      setScriptSaveStatus(
+        `Script saved. ${response.prompt_count} prompt${
+          response.prompt_count === 1 ? "" : "s"
+        } recompiled.`,
+      );
+      return response;
+    } catch (caughtError) {
+      setScriptSaveStatus(errorMessage(caughtError, "Unable to save script."));
+      return null;
+    } finally {
+      setIsSavingScript(false);
+    }
+  }, [draft, editableScript, reviewerEmail, scriptValidationError]);
 
   const saveStoryboard = useCallback(async (): Promise<BriefDraftResponse | null> => {
     if (!draft) {
@@ -662,6 +810,14 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     }
 
     let draftForContinue = draft;
+    if (isScriptDirty) {
+      const savedDraft = await saveScript();
+      if (!savedDraft) {
+        return;
+      }
+      draftForContinue = savedDraft;
+    }
+
     if (isStoryboardDirty) {
       const savedDraft = await saveStoryboard();
       if (!savedDraft) {
@@ -710,10 +866,20 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     } finally {
       setIsContinuing(false);
     }
-  }, [draft, isStoryboardDirty, reviewerEmail, saveStoryboard]);
+  }, [
+    draft,
+    isScriptDirty,
+    isStoryboardDirty,
+    reviewerEmail,
+    saveScript,
+    saveStoryboard,
+  ]);
 
   useEffect(() => {
     if (draft) {
+      setEditableScript(draft.script);
+      setIsScriptDirty(false);
+      setScriptSaveStatus(null);
       setEditableStoryboard(draft.storyboard);
       setIsStoryboardDirty(false);
       setStoryboardSaveStatus(null);
@@ -825,13 +991,49 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
 
   const canEditStoryboard =
     draft !== null && draft.status === "storyboard_ready" && !draft.run_id;
+  const canEditScript =
+    draft !== null && draft.status === "storyboard_ready" && !draft.run_id;
+  const canSaveScript =
+    canEditScript &&
+    isScriptDirty &&
+    !scriptValidationError &&
+    !isSavingScript &&
+    !isContinuing;
   const canSaveStoryboard =
     canEditStoryboard &&
     isStoryboardDirty &&
     !storyboardValidationError &&
     !isSavingStoryboard &&
     !isContinuing;
+  const scriptForView = editableScript ?? draft?.script ?? null;
   const storyboardForView = editableStoryboard ?? draft?.storyboard ?? null;
+
+  const updateScript = useCallback(
+    (updater: (script: ScriptPayload) => ScriptPayload) => {
+      setEditableScript((current) => {
+        if (!current || !canEditScript) {
+          return current;
+        }
+
+        setIsScriptDirty(true);
+        setScriptSaveStatus(null);
+        return updater(current);
+      });
+    },
+    [canEditScript],
+  );
+
+  const updateScriptScene = useCallback(
+    (sceneIndex: number, patch: Partial<BriefDraftScene>) => {
+      updateScript((script) => ({
+        ...script,
+        scenes: script.scenes.map((scene, index) =>
+          index === sceneIndex ? { ...scene, ...patch } : scene,
+        ),
+      }));
+    },
+    [updateScript],
+  );
 
   const updateStoryboard = useCallback(
     (updater: (storyboard: StoryboardPayload) => StoryboardPayload) => {
@@ -938,12 +1140,12 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           value={draft ? briefDraftStatusLabel(draft.status) : "-"}
         />
         <MetricTile
-          label="Storyboard scenes"
+          label="Script scenes"
           value={
-            editableStoryboard
-              ? String(editableStoryboard.scenes.length)
+            editableScript
+              ? String(editableScript.scenes.length)
               : draft
-                ? String(draft.storyboard.scenes.length)
+                ? String(draft.script.scenes.length)
                 : "0"
           }
         />
@@ -960,7 +1162,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               Single Brief
             </h2>
             <p className="text-sm text-slate-500">
-              {draft ? draft.brief_id : "No storyboard generated"}
+              {draft ? draft.brief_id : "No script generated"}
             </p>
           </div>
           <button
@@ -968,11 +1170,15 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
             disabled={!briefText && !draft}
             onClick={() => {
               setBriefText("");
+              setUseAdvancedOptions(false);
               setDraft(null);
+              setEditableScript(null);
+              setIsScriptDirty(false);
               setEditableStoryboard(null);
               setIsStoryboardDirty(false);
               setBriefError(null);
               setContinueStatus(null);
+              setScriptSaveStatus(null);
               setStoryboardSaveStatus(null);
             }}
             type="button"
@@ -990,244 +1196,274 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
             void generateStoryboard();
           }}
         >
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <FormField label="Brand" htmlFor="brief-brand-select">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-brand-select"
-                onChange={(event) => setSelectedBrandCode(event.target.value)}
-                value={selectedBrandCode}
-              >
-                {catalogLoadState === "loading" ? (
-                  <option value="">Loading catalog</option>
-                ) : null}
-                {catalogLoadState !== "loading" && activeBrands.length === 0 ? (
-                  <option value="">No brands available</option>
-                ) : null}
-                {activeBrands.map((brand) => (
-                  <option key={brand.brand_code} value={brand.brand_code}>
-                    {brand.brand_name}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+          <details className="order-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+              Advanced options{useAdvancedOptions ? " (using overrides)" : ""}
+            </summary>
+            <div
+              className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4"
+              onChange={markAdvancedOptionsUsed}
+            >
+              <FormField label="Brand" htmlFor="brief-brand-select">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-brand-select"
+                  onChange={(event) => setSelectedBrandCode(event.target.value)}
+                  value={selectedBrandCode}
+                >
+                  {catalogLoadState === "loading" ? (
+                    <option value="">Loading catalog</option>
+                  ) : null}
+                  {catalogLoadState !== "loading" &&
+                  activeBrands.length === 0 ? (
+                    <option value="">No brands available</option>
+                  ) : null}
+                  {activeBrands.map((brand) => (
+                    <option key={brand.brand_code} value={brand.brand_code}>
+                      {brand.brand_name}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Market" htmlFor="brief-market-state">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-market-state"
-                onChange={(event) => setMarketState(event.target.value)}
-                value={marketState}
-              >
-                {marketStateOptions.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Market" htmlFor="brief-market-state">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-market-state"
+                  onChange={(event) => setMarketState(event.target.value)}
+                  value={marketState}
+                >
+                  {marketStateOptions.map((state) => (
+                    <option key={state} value={state}>
+                      {state}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Language" htmlFor="brief-language">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-language"
-                onChange={(event) => setLanguageCode(event.target.value)}
-                value={languageCode}
-              >
-                {languageOptions.map((option) => (
-                  <option key={option.code} value={option.code}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Language" htmlFor="brief-language">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-language"
+                  onChange={(event) => setLanguageCode(event.target.value)}
+                  value={languageCode}
+                >
+                  {languageOptions.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Character" htmlFor="brief-character">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-character"
-                onChange={(event) => setSelectedCharacterId(event.target.value)}
-                value={selectedCharacterId}
-              >
-                <option value="">No character</option>
-                {characterOptions.map((character) => (
-                  <option
-                    key={character.character_id}
-                    value={character.character_id}
-                  >
-                    {character.display_name}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Character" htmlFor="brief-character">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-character"
+                  onChange={(event) =>
+                    setSelectedCharacterId(event.target.value)
+                  }
+                  value={selectedCharacterId}
+                >
+                  <option value="">No character</option>
+                  {characterOptions.map((character) => (
+                    <option
+                      key={character.character_id}
+                      value={character.character_id}
+                    >
+                      {character.display_name}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Client type" htmlFor="brief-client-type">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-client-type"
-                onChange={(event) => setClientType(event.target.value)}
-                value={clientType}
-              >
-                {clientTypeOptions.map((option) => (
-                  <option key={option.code} value={option.label}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Client type" htmlFor="brief-client-type">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-client-type"
+                  onChange={(event) => setClientType(event.target.value)}
+                  value={clientType}
+                >
+                  {clientTypeOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Video style" htmlFor="brief-video-style">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-video-style"
-                onChange={(event) => setVideoStyle(event.target.value)}
-                value={videoStyle}
-              >
-                {videoStyleOptions.map((option) => (
-                  <option key={option.code} value={option.label}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Video style" htmlFor="brief-video-style">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-video-style"
+                  onChange={(event) => setVideoStyle(event.target.value)}
+                  value={videoStyle}
+                >
+                  {videoStyleOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Awareness" htmlFor="brief-awareness-level">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-awareness-level"
-                onChange={(event) => setAwarenessLevel(event.target.value)}
-                value={awarenessLevel}
-              >
-                {awarenessLevelOptions.map((option) => (
-                  <option key={option.code} value={option.code}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Awareness" htmlFor="brief-awareness-level">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-awareness-level"
+                  onChange={(event) => setAwarenessLevel(event.target.value)}
+                  value={awarenessLevel}
+                >
+                  {awarenessLevelOptions.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Hook" htmlFor="brief-hook-angle">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-hook-angle"
-                onChange={(event) => setHookAngle(event.target.value)}
-                value={hookAngle}
-              >
-                {hookAngleOptions.map((option) => (
-                  <option key={option.code} value={option.label}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Hook" htmlFor="brief-hook-angle">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-hook-angle"
+                  onChange={(event) => setHookAngle(event.target.value)}
+                  value={hookAngle}
+                >
+                  {hookAngleOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="CTA" htmlFor="brief-cta">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-cta"
-                onChange={(event) => setCta(event.target.value)}
-                value={cta}
-              >
-                {ctaOptions.map((option) => (
-                  <option key={option.code} value={option.label}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="CTA" htmlFor="brief-cta">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-cta"
+                  onChange={(event) => setCta(event.target.value)}
+                  value={cta}
+                >
+                  {ctaOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Platform" htmlFor="brief-platform">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-platform"
-                onChange={(event) => setPlatform(event.target.value)}
-                value={platform}
-              >
-                {platformOptions.map((option) => (
-                  <option key={option.code} value={option.label}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Platform" htmlFor="brief-platform">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-platform"
+                  onChange={(event) => setPlatform(event.target.value)}
+                  value={platform}
+                >
+                  {platformOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Aspect ratio" htmlFor="brief-aspect-ratio">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-aspect-ratio"
-                onChange={(event) => setAspectRatio(event.target.value)}
-                value={aspectRatio}
-              >
-                {aspectRatioOptions.map((option) => (
-                  <option key={option.code} value={option.code}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Aspect ratio" htmlFor="brief-aspect-ratio">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-aspect-ratio"
+                  onChange={(event) => setAspectRatio(event.target.value)}
+                  value={aspectRatio}
+                >
+                  {aspectRatioOptions.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Duration" htmlFor="brief-duration">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-duration"
-                onChange={(event) =>
-                  setDurationSeconds(Number(event.target.value))
-                }
-                value={String(durationSeconds)}
-              >
-                {durationOptions.map((duration) => (
-                  <option key={duration} value={duration}>
-                    {duration}s
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Duration" htmlFor="brief-duration">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-duration"
+                  onChange={(event) =>
+                    setDurationSeconds(Number(event.target.value))
+                  }
+                  value={String(durationSeconds)}
+                >
+                  {durationOptions.map((duration) => (
+                    <option key={duration} value={duration}>
+                      {duration}s
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Scenes" htmlFor="brief-scene-count">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-scene-count"
-                onChange={(event) => setSceneCount(event.target.value)}
-                value={sceneCount}
-              >
-                <option value="auto">Auto recommended</option>
-                {sceneCountOptions.map((count) => (
-                  <option key={count} value={count}>
-                    {count} scenes
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
+              <FormField label="Scenes" htmlFor="brief-scene-count">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-scene-count"
+                  onChange={(event) => setSceneCount(event.target.value)}
+                  value={sceneCount}
+                >
+                  <option value="auto">Auto recommended</option>
+                  {sceneCountOptions.map((count) => (
+                    <option key={count} value={count}>
+                      {count} scenes
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
 
-            <FormField label="Variants" htmlFor="brief-max-variants">
-              <SelectControl
-                disabled={catalogLoadState === "loading"}
-                id="brief-max-variants"
-                onChange={(event) => setMaxVariants(Number(event.target.value))}
-                value={String(maxVariants)}
-              >
-                {variantOptions.map((variant) => (
-                  <option key={variant} value={variant}>
-                    {variant}
-                  </option>
-                ))}
-              </SelectControl>
-            </FormField>
-          </div>
+              <FormField label="Variants" htmlFor="brief-max-variants">
+                <SelectControl
+                  disabled={catalogLoadState === "loading"}
+                  id="brief-max-variants"
+                  onChange={(event) =>
+                    setMaxVariants(Number(event.target.value))
+                  }
+                  value={String(maxVariants)}
+                >
+                  {variantOptions.map((variant) => (
+                    <option key={variant} value={variant}>
+                      {variant}
+                    </option>
+                  ))}
+                </SelectControl>
+              </FormField>
+            </div>
+          </details>
 
-          <div className="grid gap-2">
+          <div className="order-1 grid gap-2">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+                Include if available
+              </p>
+              <ul className="mt-2 grid gap-x-4 gap-y-1 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+                {promptChecklist.map((item) => (
+                  <li className="flex gap-2" key={item}>
+                    <span aria-hidden="true" className="text-teal-600">
+                      -
+                    </span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
             <label
               className="text-sm font-semibold text-slate-950"
               htmlFor="brief-director-prompt"
             >
-              Brief
+              Prompt
             </label>
             <textarea
               aria-describedby="brief-director-status"
               aria-keyshortcuts="Control+Enter Meta+Enter"
               className="min-h-36 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               id="brief-director-prompt"
-              onChange={(event) => setBriefText(event.target.value)}
+              onChange={(event) => {
+                setBriefText(event.target.value);
+              }}
               onKeyDown={(event) => {
                 if (
                   (event.ctrlKey || event.metaKey) &&
@@ -1238,25 +1474,29 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   void generateStoryboard();
                 }
               }}
-              placeholder="Audience, offer, compliance notes, references, storyboard direction..."
+              placeholder={manualPromptPlaceholder}
               value={briefText}
             />
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="order-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p
               aria-live="polite"
               className="text-sm text-slate-500"
               id="brief-director-status"
             >
-              {reviewerEmail ? `Creating as ${reviewerEmail}` : "Email required"}
+              {isCatalogLoading
+                ? "Loading autofill catalog"
+                : reviewerEmail
+                  ? `Creating as ${reviewerEmail}`
+                  : "Email required"}
             </p>
             <button
               className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!canGenerate}
               type="submit"
             >
-              {isGeneratingStoryboard ? "Generating" : "Generate storyboard"}
+              {isGeneratingStoryboard ? "Generating" : "Generate script"}
             </button>
           </div>
         </form>
@@ -1265,7 +1505,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
 
         {!draft && !briefError ? (
           <div className="border-t border-slate-200 px-4 py-12 text-center text-sm text-slate-500">
-            No storyboard generated.
+            No script generated.
           </div>
         ) : null}
       </section>
@@ -1280,7 +1520,7 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-semibold text-slate-950">
-                  Storyboard Preview
+                  Script Review
                 </h2>
                 <StatusPill
                   label={briefDraftStatusLabel(draft.status)}
@@ -1288,17 +1528,21 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                 />
               </div>
               <p className="mt-1 text-sm text-slate-500">
-                {storyboardForView?.visual_style ?? draft.storyboard.visual_style}
+                {scriptForView
+                  ? `${scriptForView.scenes.length} scene${
+                      scriptForView.scenes.length === 1 ? "" : "s"
+                    } / ${scriptForView.total_duration_seconds}s`
+                  : "Script generated"}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <button
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!canSaveStoryboard}
-                onClick={() => void saveStoryboard()}
+                disabled={!canSaveScript}
+                onClick={() => void saveScript()}
                 type="button"
               >
-                {isSavingStoryboard ? "Saving" : "Save storyboard"}
+                {isSavingScript ? "Saving" : "Save script"}
               </button>
               <button
                 className="inline-flex h-10 items-center justify-center rounded-lg bg-teal-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1324,28 +1568,20 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
                   ["Draft ID", draft.draft_id],
                   ["Prompt variants", String(draft.prompt_count)],
                   [
-                    "Recommended scenes",
-                    storyboardForView?.recommended_scene_count
-                      ? String(storyboardForView.recommended_scene_count)
-                      : "-",
+                    "Script scenes",
+                    scriptForView ? String(scriptForView.scenes.length) : "-",
                   ],
                   ["Run ID", draft.run_id ?? "-"],
                 ]}
               />
 
-              {storyboardForView?.scene_count_reason ? (
-                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {storyboardForView.scene_count_reason}
-                </p>
+              {scriptValidationError ? (
+                <InlineError message={scriptValidationError} />
               ) : null}
 
-              {storyboardValidationError ? (
-                <InlineError message={storyboardValidationError} />
-              ) : null}
-
-              {storyboardSaveStatus ? (
+              {scriptSaveStatus ? (
                 <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {storyboardSaveStatus}
+                  {scriptSaveStatus}
                 </p>
               ) : null}
 
@@ -1356,27 +1592,147 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
               ) : null}
             </div>
 
-            {storyboardForView ? (
-              <StoryboardEditor
-                canEdit={canEditStoryboard && !isContinuing}
-                onAddScene={addStoryboardScene}
-                onDuplicateScene={duplicateStoryboardScene}
-                onMoveScene={moveStoryboardScene}
-                onRemoveScene={removeStoryboardScene}
-                onSceneChange={updateStoryboardScene}
-                onVisualStyleChange={(visualStyle) =>
-                  updateStoryboard((storyboard) => ({
-                    ...storyboard,
-                    visual_style: visualStyle,
-                  }))
-                }
-                storyboard={storyboardForView}
-              />
+            {scriptForView ? (
+              <div className="grid gap-4">
+                <ScriptEditor
+                  canEdit={canEditScript && !isContinuing}
+                  onFieldChange={(patch) =>
+                    updateScript((script) => ({ ...script, ...patch }))
+                  }
+                  onSceneChange={updateScriptScene}
+                  script={scriptForView}
+                />
+
+                {storyboardForView ? (
+                  <details className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                      Storyboard ({storyboardForView.scenes.length} scene
+                      {storyboardForView.scenes.length === 1 ? "" : "s"})
+                    </summary>
+                    <div className="mt-4 grid gap-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-slate-500">
+                          {storyboardForView.visual_style}
+                        </p>
+                        <button
+                          className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={!canSaveStoryboard}
+                          onClick={() => void saveStoryboard()}
+                          type="button"
+                        >
+                          {isSavingStoryboard ? "Saving" : "Save storyboard"}
+                        </button>
+                      </div>
+
+                      {storyboardForView.scene_count_reason ? (
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                          {storyboardForView.scene_count_reason}
+                        </p>
+                      ) : null}
+
+                      {storyboardValidationError ? (
+                        <InlineError message={storyboardValidationError} />
+                      ) : null}
+
+                      {storyboardSaveStatus ? (
+                        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                          {storyboardSaveStatus}
+                        </p>
+                      ) : null}
+
+                      <StoryboardEditor
+                        canEdit={canEditStoryboard && !isContinuing}
+                        onAddScene={addStoryboardScene}
+                        onDuplicateScene={duplicateStoryboardScene}
+                        onMoveScene={moveStoryboardScene}
+                        onRemoveScene={removeStoryboardScene}
+                        onSceneChange={updateStoryboardScene}
+                        onVisualStyleChange={(visualStyle) =>
+                          updateStoryboard((storyboard) => ({
+                            ...storyboard,
+                            visual_style: visualStyle,
+                          }))
+                        }
+                        storyboard={storyboardForView}
+                      />
+                    </div>
+                  </details>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </section>
       ) : null}
     </>
+  );
+}
+
+function ScriptEditor({
+  canEdit,
+  onFieldChange,
+  onSceneChange,
+  script,
+}: {
+  canEdit: boolean;
+  onFieldChange: (patch: Partial<ScriptPayload>) => void;
+  onSceneChange: (
+    sceneIndex: number,
+    patch: Partial<BriefDraftScene>,
+  ) => void;
+  script: ScriptPayload;
+}) {
+  return (
+    <div className="grid gap-4">
+      <StoryboardTextArea
+        disabled={!canEdit}
+        id="script-hook"
+        label="Hook"
+        onChange={(value) => onFieldChange({ hook: value })}
+        value={script.hook}
+      />
+
+      <div className="grid gap-3">
+        <StoryboardTextArea
+          disabled={!canEdit}
+          id="script-body"
+          label="Body"
+          onChange={(value) => onFieldChange({ body: value })}
+          value={script.body}
+        />
+        <StoryboardTextArea
+          disabled={!canEdit}
+          id="script-cta"
+          label="CTA"
+          onChange={(value) => onFieldChange({ cta: value })}
+          value={script.cta}
+        />
+      </div>
+
+      <div className="border-b border-slate-200 pb-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Voiceover</h3>
+          <p className="text-xs text-slate-500">
+            {script.scenes.length} scene
+            {script.scenes.length === 1 ? "" : "s"} /{" "}
+            {script.total_duration_seconds}s total
+          </p>
+        </div>
+      </div>
+
+      <div className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+        {script.scenes.map((scene, index) => (
+          <div className="grid gap-3 p-3" key={`script-scene-${scene.scene_number}`}>
+            <StoryboardTextArea
+              disabled={!canEdit}
+              id={`script-scene-${scene.scene_number}-voiceover`}
+              label={`Scene ${scene.scene_number}`}
+              onChange={(value) => onSceneChange(index, { voiceover: value })}
+              value={scene.voiceover}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2271,7 +2627,7 @@ function briefDraftStatusLabel(status: BriefDraftResponse["status"]): string {
     return "Failed";
   }
 
-  return "Storyboard ready";
+  return "Script ready";
 }
 
 function briefDraftStatusTone(status: BriefDraftResponse["status"]): StatusTone {
@@ -2388,6 +2744,141 @@ function buildBriefDraftMetadata({
   };
 }
 
+function buildBriefDraftAutofillMetadata({
+  activeBrands,
+  aspectRatioOptions,
+  awarenessLevelOptions,
+  characters,
+  clientTypeOptions,
+  ctaOptions,
+  durationOptions,
+  hookAngleOptions,
+  languageOptions,
+  marketStateOptions,
+  platformOptions,
+  variantOptions,
+  videoStyleOptions,
+}: {
+  activeBrands: VideoProductionBrandOption[];
+  aspectRatioOptions: VideoProductionCatalogOption[];
+  awarenessLevelOptions: VideoProductionCatalogOption[];
+  characters: VideoProductionCharacterOption[];
+  clientTypeOptions: VideoProductionClientTypeOption[];
+  ctaOptions: VideoProductionCatalogOption[];
+  durationOptions: number[];
+  hookAngleOptions: VideoProductionCatalogOption[];
+  languageOptions: VideoProductionCatalogOption[];
+  marketStateOptions: string[];
+  platformOptions: VideoProductionCatalogOption[];
+  variantOptions: number[];
+  videoStyleOptions: VideoProductionCatalogOption[];
+}): Record<string, unknown> {
+  return {
+    autofill_options: {
+      aspect_ratios: aspectRatioOptions.map(catalogOptionForAutofill),
+      awareness_levels: awarenessLevelOptions.map(catalogOptionForAutofill),
+      brands: activeBrands.map((brand) => ({
+        aliases: brand.brand_aliases,
+        brand_code: brand.brand_code,
+        brand_name: brand.brand_name,
+      })),
+      characters: characters
+        .filter((character) => character.is_active)
+        .map((character) => ({
+          brand_code: character.brand_code,
+          character_id: character.character_id,
+          description: character.description,
+          display_name: character.display_name,
+          language: character.language,
+        })),
+      client_types: clientTypeOptions.map((option) => ({
+        awareness_level: option.awareness_level,
+        code: option.code,
+        label: option.label,
+      })),
+      ctas: ctaOptions.map(catalogOptionForAutofill),
+      durations_seconds: durationOptions,
+      hook_angles: hookAngleOptions.map(catalogOptionForAutofill),
+      languages: languageOptions.map(catalogOptionForAutofill),
+      market_states: marketStateOptions,
+      max_variants: variantOptions,
+      platforms: platformOptions.map(catalogOptionForAutofill),
+      scene_counts: ["auto", ...sceneCountOptions],
+      video_styles: videoStyleOptions.map(catalogOptionForAutofill),
+    },
+    input_mode: "manual_prompt_autofill",
+    prompt_requirements: promptChecklist,
+  };
+}
+
+function catalogOptionForAutofill(option: VideoProductionCatalogOption) {
+  return {
+    code: option.code,
+    label: option.label,
+  };
+}
+
+function validateScript(script: ScriptPayload | null): string | null {
+  if (!script) {
+    return null;
+  }
+
+  if (!script.hook.trim()) {
+    return "Script hook is required.";
+  }
+
+  if (!script.body.trim()) {
+    return "Script body is required.";
+  }
+
+  if (!script.cta.trim()) {
+    return "Script CTA is required.";
+  }
+
+  if (
+    !Number.isFinite(script.total_duration_seconds) ||
+    script.total_duration_seconds <= 0
+  ) {
+    return "Script duration must be greater than 0.";
+  }
+
+  if (script.scenes.length === 0) {
+    return "Script must include at least one scene.";
+  }
+
+  const sceneDurationTotal = script.scenes.reduce(
+    (total, scene) => total + scene.duration_seconds,
+    0,
+  );
+  if (sceneDurationTotal > script.total_duration_seconds + 5) {
+    return "Scene durations exceed the script duration.";
+  }
+
+  for (const scene of script.scenes) {
+    if (!Number.isFinite(scene.duration_seconds) || scene.duration_seconds <= 0) {
+      return `Scene ${scene.scene_number} duration must be greater than 0.`;
+    }
+
+    if (!scene.visual_direction.trim()) {
+      return `Scene ${scene.scene_number} visual direction is required.`;
+    }
+
+    if (!scene.on_screen_text.trim()) {
+      return `Scene ${scene.scene_number} on-screen text is required.`;
+    }
+
+    if (!scene.voiceover.trim()) {
+      return `Scene ${scene.scene_number} voiceover is required.`;
+    }
+
+    if (!scene.camera_style.trim()) {
+      return `Scene ${scene.scene_number} camera style is required.`;
+    }
+  }
+
+  return null;
+}
+
 function validateStoryboard(storyboard: StoryboardPayload | null): string | null {
   if (!storyboard) {
     return null;
@@ -2443,6 +2934,12 @@ function createStoryboardScene(
 }
 
 function renumberStoryboardScenes(
+  scenes: BriefDraftScene[],
+): BriefDraftScene[] {
+  return renumberDraftScenes(scenes);
+}
+
+function renumberDraftScenes(
   scenes: BriefDraftScene[],
 ): BriefDraftScene[] {
   return scenes.map((scene, index) => ({
