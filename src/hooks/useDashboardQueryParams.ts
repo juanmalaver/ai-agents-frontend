@@ -6,11 +6,18 @@ import type {
   DashboardDateRange,
   DashboardQueryParams,
 } from "@/src/types/dashboard";
-import { getCurrentMonthDateRange } from "@/src/utils/dateRangeDefaults";
+import {
+  constrainDateRangeDays,
+  getCurrentMonthDateRange,
+} from "@/src/utils/dateRangeDefaults";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export function useDashboardQueryParams() {
+export function useDashboardQueryParams({
+  maxRangeDays,
+}: {
+  maxRangeDays?: number;
+} = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -20,11 +27,14 @@ export function useDashboardQueryParams() {
   );
   const dateRange = useMemo(
     () =>
-      normalizeDateRange({
-        from: searchParams.get("from"),
-        to: searchParams.get("to"),
-      }),
-    [searchParams],
+      normalizeDateRange(
+        {
+          from: searchParams.get("from"),
+          to: searchParams.get("to"),
+        },
+        maxRangeDays,
+      ),
+    [maxRangeDays, searchParams],
   );
   const dashboardQuery = useMemo<DashboardQueryParams>(
     () => ({
@@ -65,7 +75,7 @@ export function useDashboardQueryParams() {
   const setDateRange = useCallback(
     (range: DashboardDateRange) => {
       replaceParams((nextParams) => {
-        const nextRange = normalizeDateRange(range);
+        const nextRange = normalizeDateRange(range, maxRangeDays);
 
         if (nextRange.from && nextRange.to) {
           nextParams.set("from", nextRange.from);
@@ -76,7 +86,7 @@ export function useDashboardQueryParams() {
         }
       });
     },
-    [replaceParams],
+    [maxRangeDays, replaceParams],
   );
 
   return {
@@ -88,15 +98,18 @@ export function useDashboardQueryParams() {
   };
 }
 
-function normalizeDateRange(range: DashboardDateRange): DashboardDateRange {
+function normalizeDateRange(
+  range: DashboardDateRange,
+  maxRangeDays?: number,
+): DashboardDateRange {
   const from = normalizeDateParam(range.from);
   const to = normalizeDateParam(range.to);
 
   if (!from || !to || from > to) {
-    return getCurrentMonthDateRange();
+    return constrainDateRangeDays(getCurrentMonthDateRange(), maxRangeDays);
   }
 
-  return { from, to };
+  return constrainDateRangeDays({ from, to }, maxRangeDays);
 }
 
 function normalizeDateParam(value: string | null | undefined): string | null {

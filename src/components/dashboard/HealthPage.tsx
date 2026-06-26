@@ -27,6 +27,8 @@ import type {
   CampaignHealthRecommendation,
   CampaignHealthRow,
   CampaignHealthStatus,
+  CampaignPlatform,
+  HealthDashboardPlatform,
   CampaignMetaDeliveryStatus,
   CampaignMetaStatus,
   MarketingDashboardHealthResponse,
@@ -84,6 +86,13 @@ const ALL_META_STATUSES: Array<{
   { id: "off", label: "Off" },
   { id: "unknown", label: "Unknown" },
 ];
+const ALL_PLATFORM_OPTIONS: Array<{
+  id: CampaignPlatform;
+  label: string;
+}> = [
+  { id: "meta", label: "Meta" },
+  { id: "tiktok", label: "TikTok" },
+];
 
 interface HealthPageProps {
   apiUrl?: string;
@@ -123,6 +132,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [searchParams],
   );
   const selectedBrandsKey = selectedBrands.join("\u0000");
+  const selectedPlatform = useMemo(
+    () => normalizePlatformParam(searchParams.get("platform")),
+    [searchParams],
+  );
+  const selectedPlatformIds = useMemo(
+    () => (selectedPlatform === "all" ? [] : [selectedPlatform]),
+    [selectedPlatform],
+  );
   const dateRange = useMemo(
     () =>
       normalizeDateRange({
@@ -172,9 +189,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       appendHealthDashboardQueryParams(resolveHealthDashboardApiUrl(apiUrl), {
         brands: selectedBrands,
         from: dateRange.from,
+        platform: selectedPlatform,
         to: dateRange.to,
       }),
-    [apiUrl, dateRange.from, dateRange.to, selectedBrandsKey],
+    [apiUrl, dateRange.from, dateRange.to, selectedBrandsKey, selectedPlatform],
   );
   const tabQuery = useMemo(
     () => ({
@@ -203,6 +221,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   const recommendationOptions = ALL_RECOMMENDATIONS;
   const metaStatusOptions =
     data?.filterOptions.metaStatuses ?? ALL_META_STATUSES;
+  const platformOptions = mergePlatformOptions(data?.filterOptions.platforms);
   const stateOptions = data?.filterOptions.states ?? [];
   const rowsBeforeGradeFilter = useMemo(
     () =>
@@ -340,6 +359,25 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [replaceParams],
   );
+  const handlePlatformChange = useCallback(
+    (platforms: string[]) => {
+      const selectedPlatforms = normalizePlatformIds(platforms);
+
+      replaceParams((nextParams) => {
+        if (selectedPlatforms.length === 1) {
+          nextParams.set("platform", selectedPlatforms[0]);
+        } else {
+          nextParams.delete("platform");
+        }
+      });
+      setSelectedCampaignIds([]);
+      setSelectedAdIds([]);
+      setSelectedRecommendations([]);
+      setSelectedMetaStatuses([]);
+      setSelectedAdReuse(null);
+    },
+    [replaceParams],
+  );
   const handleBrandChange = useCallback(
     (brands: string[]) => {
       replaceParams((nextParams) => {
@@ -470,7 +508,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   );
   const handleOpenAdReuse = useCallback(
     (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => {
-      const key = normalizeAdName(ad.adName);
+      const key = buildAdNamePlacementKey(campaign, ad);
 
       if (!key) {
         return;
@@ -489,7 +527,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
         <DashboardHeader
           lastUpdated={lastUpdated}
-          subtitle="Campaign and ad audit across selected Meta brands, campaigns, and ads."
+          subtitle="Campaign and ad audit across selected platforms, brands, campaigns, and ads."
           title="Audit"
         />
         <DashboardTabs activeTab="health" query={tabQuery} />
@@ -498,6 +536,16 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <MultiSelectFilter
+              disabled={isLoading && !data}
+              label="Platforms"
+              loading={isRefreshingHealth}
+              onChange={handlePlatformChange}
+              options={platformOptions}
+              selectedIds={selectedPlatformIds}
+              summary={summarizePlatformSelection(selectedPlatformIds)}
+              withSearch={false}
+            />
             <MultiSelectFilter
               disabled={isLoading && !data}
               label="Brands"
@@ -533,34 +581,36 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 "ads selected",
               )}
             />
-            <MultiSelectFilter
-              disabled={dependentFiltersDisabled}
-              label="Campaign grades"
-              loading={isRefreshingHealth}
-              onChange={handleGradesChange}
-              options={gradeOptions}
-              selectedIds={selectedGrades}
-              summary={summarizeSelection(
-                selectedGrades,
-                "All campaign grades",
-                "campaign grades selected",
-              )}
-              withSearch={false}
-            />
-            <MultiSelectFilter
-              disabled={dependentFiltersDisabled}
-              label="Ad grades"
-              loading={isRefreshingHealth}
-              onChange={handleAdGradesChange}
-              options={gradeOptions}
-              selectedIds={selectedAdGrades}
-              summary={summarizeSelection(
-                selectedAdGrades,
-                "All ad grades",
-                "ad grades selected",
-              )}
-              withSearch={false}
-            />
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Campaign grades"
+                loading={isRefreshingHealth}
+                onChange={handleGradesChange}
+                options={gradeOptions}
+                selectedIds={selectedGrades}
+                summary={summarizeSelection(
+                  selectedGrades,
+                  "All campaign grades",
+                  "campaign grades selected",
+                )}
+                withSearch={false}
+              />
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Ad grades"
+                loading={isRefreshingHealth}
+                onChange={handleAdGradesChange}
+                options={gradeOptions}
+                selectedIds={selectedAdGrades}
+                summary={summarizeSelection(
+                  selectedAdGrades,
+                  "All ad grades",
+                  "ad grades selected",
+                )}
+                withSearch={false}
+              />
+            </div>
             <MultiSelectFilter
               disabled={dependentFiltersDisabled}
               label="Recommendation"
@@ -581,7 +631,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             />
             <MultiSelectFilter
               disabled={dependentFiltersDisabled}
-              label="Meta status"
+              label="Delivery status"
               loading={isRefreshingHealth}
               onChange={(values) =>
                 setSelectedMetaStatuses(values as CampaignMetaDeliveryStatus[])
@@ -924,18 +974,23 @@ function HealthTable({
         header: "Brand",
       },
       {
+        accessorFn: (row) => row.platform ?? "meta",
+        header: "Platform",
+        id: "platform",
+      },
+      {
         accessorKey: "campaignName",
         header: "Campaign",
       },
       {
-        accessorKey: "campaignAgeDays",
-        header: "Avg. Days",
+        accessorKey: "activeDays",
+        header: "Age days",
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
       },
       {
         accessorFn: (row) => getRowMetaStatus(row).id,
-        header: "Meta",
+        header: "Status",
         id: "meta",
         sortingFn: metaStatusSortingFn,
       },
@@ -1027,14 +1082,15 @@ function HealthTable({
         <table className="w-full table-fixed border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[4%]" />
-            <col className="w-[10%]" />
-            <col className="w-[13%]" />
-            <col className="w-[5%]" />
-            <col className="w-[5%]" />
-            <col className="w-[5%]" />
-            <col className="w-[7%]" />
             <col className="w-[8%]" />
-            <col className="w-[7%]" />
+            <col className="w-[6%]" />
+            <col className="w-[11%]" />
+            <col className="w-[5%]" />
+            <col className="w-[5%]" />
+            <col className="w-[5%]" />
+            <col className="w-[6%]" />
+            <col className="w-[8%]" />
+            <col className="w-[6%]" />
             <col className="w-[5%]" />
             <col className="w-[4%]" />
             <col className="w-[7%]" />
@@ -1095,7 +1151,11 @@ function HealthTable({
                       (selectedAdSet.size === 0 ||
                         selectedAdSet.has(toAdFilterId(row, ad))) &&
                       adMatchesSelectedGrade(ad, selectedAdGradeSet) &&
-                      adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet) &&
+                      adMatchesSelectedMetaStatus(
+                        ad,
+                        selectedMetaStatusSet,
+                        row.platform ?? "meta",
+                      ) &&
                       adMatchesSelectedStates(ad, selectedStateSet),
                   );
                 const isExpanded = expandedSet.has(row.id) || autoExpanded;
@@ -1121,7 +1181,7 @@ function HealthTable({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-slate-500"
-                  colSpan={15}
+                  colSpan={16}
                 >
                   No campaigns match the selected filters.
                 </td>
@@ -1159,6 +1219,9 @@ function HealthTableRow({
   selectedMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedStates: string[];
 }) {
+  const activePeriod = formatActivePeriod(row);
+  const activePeriodTitle = activePeriod === "-" ? undefined : activePeriod;
+
   return (
     <>
       <tr className="align-top transition hover:bg-slate-50">
@@ -1177,6 +1240,9 @@ function HealthTableRow({
         <td className="break-words px-4 py-3 font-medium text-slate-900">
           {row.brand}
         </td>
+        <td className="px-4 py-3">
+          <PlatformChip platform={row.platform ?? "meta"} />
+        </td>
         <td className="break-words px-4 py-3">
           <div className="font-semibold text-slate-950">{row.campaignName}</div>
           <div className="mt-1 text-xs text-slate-500">
@@ -1184,13 +1250,18 @@ function HealthTableRow({
           </div>
           {row.isRampUp ? (
             <div className="mt-2 inline-flex rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
-              Ramp-up day {formatNumber(row.campaignAgeDays)} of{" "}
+              Ramp-up active day {formatNumber(row.activeDays)} of{" "}
               {formatNumber(rampUpDays)}
             </div>
           ) : null}
         </td>
         <td className="px-4 py-3 text-right">
-          {formatNumber(row.campaignAgeDays)}
+          <span
+            className="inline-block font-medium text-slate-900"
+            title={activePeriodTitle}
+          >
+            {formatNumber(row.activeDays)}
+          </span>
         </td>
         <td className="px-4 py-3">
           <MetaStatusChip status={getRowMetaStatus(row)} />
@@ -1231,7 +1302,7 @@ function HealthTableRow({
       {isExpanded ? (
         <tr className="bg-slate-50/70">
           <td className="px-4 py-3" />
-          <td className="px-4 py-3" colSpan={14}>
+          <td className="px-4 py-3" colSpan={15}>
             <div className="space-y-3">
               <QualitySignalsPanel signals={row.qualitySignals} />
               <AdDetailTable
@@ -1327,7 +1398,13 @@ function AdDetailTable({
         return false;
       }
 
-      if (!adMatchesSelectedMetaStatus(ad, selectedMetaStatusSet)) {
+      if (
+        !adMatchesSelectedMetaStatus(
+          ad,
+          selectedMetaStatusSet,
+          campaign.platform ?? "meta",
+        )
+      ) {
         return false;
       }
 
@@ -1342,65 +1419,81 @@ function AdDetailTable({
     selectedStates,
   ]);
   const [sorting, setSorting] = useState<SortingState>([]);
+  const isTikTokCampaign = campaign.platform === "tiktok";
+  const showAdGroupColumn = isTikTokCampaign;
+  const showAdStatusColumn = !isTikTokCampaign;
   const columns = useMemo<ColumnDef<CampaignHealthAdRow>[]>(
-    () => [
-      {
-        accessorKey: "adName",
-        header: "Ad",
-      },
-      {
-        accessorKey: "grade",
-        header: "Grade",
-        sortDescFirst: true,
-        sortingFn: adGradeSortingFn,
-      },
-      {
-        accessorFn: (row) => getAdMetaStatus(row).id,
-        header: "Meta",
-        id: "meta",
-        sortingFn: adMetaStatusSortingFn,
-      },
-      {
-        accessorFn: (row) => row.adId ?? "",
-        header: "Ad ID",
-        id: "adId",
-      },
-      {
-        accessorKey: "spend",
-        header: "Spend",
-        sortDescFirst: true,
-        sortingFn: nullableAdNumberSortingFn,
-      },
-      {
-        accessorKey: "leads",
-        header: "Leads",
-        sortDescFirst: true,
-        sortingFn: nullableAdNumberSortingFn,
-      },
-      {
-        accessorKey: "signedLeads",
-        header: "SL",
-        sortDescFirst: true,
-        sortingFn: nullableAdNumberSortingFn,
-      },
-      {
-        accessorKey: "cpl",
-        header: "CPL",
-        sortingFn: nullableAdNumberSortingFn,
-      },
-      {
-        accessorKey: "cpsl",
-        header: "CPSL",
-        sortingFn: nullableAdNumberSortingFn,
-      },
-      {
-        accessorKey: "metaLeadActions",
-        header: "Meta leads",
-        sortDescFirst: true,
-        sortingFn: nullableAdNumberSortingFn,
-      },
-    ],
-    [],
+    () => {
+      const nextColumns: ColumnDef<CampaignHealthAdRow>[] = [
+        {
+          accessorKey: "adName",
+          header: "Ad",
+        },
+        {
+          accessorKey: "grade",
+          header: "Grade",
+          sortDescFirst: true,
+          sortingFn: adGradeSortingFn,
+        },
+      ];
+
+      if (showAdGroupColumn) {
+        nextColumns.push({
+          accessorFn: (row) => getAdsetMetaStatus(row).id,
+          header: "Ad status",
+          id: "adsetStatus",
+          sortingFn: adMetaStatusSortingFn,
+        });
+      }
+
+      if (showAdStatusColumn) {
+        nextColumns.push({
+          accessorFn: (row) => getAdMetaStatus(row).id,
+          header: "Ad status",
+          id: "meta",
+          sortingFn: adMetaStatusSortingFn,
+        });
+      }
+
+      nextColumns.push(
+        {
+          accessorFn: (row) => row.adId ?? "",
+          header: "Ad ID",
+          id: "adId",
+        },
+        {
+          accessorKey: "spend",
+          header: "Spend",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "leads",
+          header: "Leads",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "signedLeads",
+          header: "SL",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "cpl",
+          header: "CPL",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "cpsl",
+          header: "CPSL",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+      );
+
+      return nextColumns;
+    },
+    [showAdGroupColumn, showAdStatusColumn],
   );
   const table = useReactTable({
     columns,
@@ -1416,18 +1509,31 @@ function AdDetailTable({
   return (
     <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
       <table className="w-full table-fixed text-sm">
+        {isTikTokCampaign ? (
           <colgroup>
-            <col className="w-[19%]" />
-            <col className="w-[7%]" />
-            <col className="w-[8%]" />
+            <col className="w-[28%]" />
+            <col className="w-[6%]" />
+            <col className="w-[14%]" />
             <col className="w-[13%]" />
-            <col className="w-[9%]" />
             <col className="w-[8%]" />
             <col className="w-[7%]" />
+            <col className="w-[6%]" />
             <col className="w-[9%]" />
+            <col className="w-[9%]" />
+          </colgroup>
+        ) : (
+          <colgroup>
+            <col className="w-[31%]" />
+            <col className="w-[6%]" />
             <col className="w-[9%]" />
             <col className="w-[14%]" />
+            <col className="w-[8%]" />
+            <col className="w-[7%]" />
+            <col className="w-[6%]" />
+            <col className="w-[10%]" />
+            <col className="w-[9%]" />
           </colgroup>
+        )}
           <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -1474,22 +1580,29 @@ function AdDetailTable({
               const placementCount = getAdNamePlacementCount(
                 adNamePlacements,
                 ad,
+                campaign,
               );
               const isClickable = Boolean(normalizeAdName(ad.adName));
 
               return (
                 <tr key={ad.id}>
-                  <td className="break-words px-3 py-2 font-medium text-slate-900">
+                  <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
                     {isClickable ? (
                       <button
-                        className="text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                        className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
                         onClick={() => onOpenAdReuse(ad, campaign)}
+                        title={ad.adName}
                         type="button"
                       >
                         {ad.adName}
                       </button>
                     ) : (
-                      ad.adName
+                      <span
+                        className="block max-w-full break-words [overflow-wrap:anywhere]"
+                        title={ad.adName || undefined}
+                      >
+                        {ad.adName}
+                      </span>
                     )}
                     {placementCount > 1 ? (
                       <div className="mt-1 text-xs font-medium text-slate-500">
@@ -1500,9 +1613,19 @@ function AdDetailTable({
                   <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
                     <GradeChip grade={ad.grade} />
                   </td>
-                  <td className="px-3 py-2">
-                    <MetaStatusChip status={getAdMetaStatus(ad)} />
-                  </td>
+                  {showAdGroupColumn ? (
+                    <td className="px-3 py-2">
+                      <MetaStatusChip
+                        status={getAdsetMetaStatus(ad)}
+                        unknownLabel="-"
+                      />
+                    </td>
+                  ) : null}
+                  {showAdStatusColumn ? (
+                    <td className="px-3 py-2">
+                      <MetaStatusChip status={getAdMetaStatus(ad)} />
+                    </td>
+                  ) : null}
                   <td className="break-words px-3 py-2 text-slate-500">
                     {ad.adId ?? "-"}
                   </td>
@@ -1520,9 +1643,6 @@ function AdDetailTable({
                   </td>
                   <td className="px-3 py-2 text-right">
                     {formatCurrency(ad.cpsl)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatNumber(ad.metaLeadActions)}
                   </td>
                 </tr>
               );
@@ -1544,16 +1664,21 @@ function AdReuseModal({
   onClose: () => void;
   placements: AdNamePlacement[];
 }) {
+  const placementPlatform = getAdReusePlacementPlatform(placements);
+  const isMetaPlacement = placementPlatform === "meta";
   const [selectedMetaStatuses, setSelectedMetaStatuses] = useState<
     CampaignMetaDeliveryStatus[]
   >([]);
   const visiblePlacements = useMemo(
-    () => filterPlacementsByMetaStatus(placements, selectedMetaStatuses),
-    [placements, selectedMetaStatuses],
+    () =>
+      isMetaPlacement
+        ? filterPlacementsByMetaStatus(placements, selectedMetaStatuses)
+        : placements,
+    [isMetaPlacement, placements, selectedMetaStatuses],
   );
   const mediaTargets = useMemo(
-    () => buildAdMediaTargets(visiblePlacements),
-    [visiblePlacements],
+    () => (isMetaPlacement ? buildAdMediaTargets(visiblePlacements) : []),
+    [isMetaPlacement, visiblePlacements],
   );
   const [mediaByAdId, setMediaByAdId] = useState<Record<string, AdMediaState>>(
     {},
@@ -1561,14 +1686,11 @@ function AdReuseModal({
   const totals = visiblePlacements.reduce(
     (sum, placement) => ({
       leads: sum.leads + placement.ad.leads,
-      metaLeadActions:
-        sum.metaLeadActions + (placement.ad.metaLeadActions ?? 0),
       signedLeads: sum.signedLeads + placement.ad.signedLeads,
       spend: sum.spend + placement.ad.spend,
     }),
     {
       leads: 0,
-      metaLeadActions: 0,
       signedLeads: 0,
       spend: 0,
     },
@@ -1703,11 +1825,13 @@ function AdReuseModal({
               value={formatNumber(totals.signedLeads)}
             />
           </div>
-          <AdMediaPreviewPanel
-            isConfigured={Boolean(adMediaApiUrl)}
-            mediaByAdId={mediaByAdId}
-            targets={mediaTargets}
-          />
+          {isMetaPlacement ? (
+            <AdMediaPreviewPanel
+              isConfigured={Boolean(adMediaApiUrl)}
+              mediaByAdId={mediaByAdId}
+              targets={mediaTargets}
+            />
+          ) : null}
           <AdReusePlacementList
             onClearMetaStatuses={() => setSelectedMetaStatuses([])}
             onToggleMetaStatus={(status) =>
@@ -1718,6 +1842,7 @@ function AdReuseModal({
               )
             }
             placements={visiblePlacements}
+            platform={placementPlatform}
             selectedMetaStatuses={selectedMetaStatuses}
             totalPlacements={placements.length}
           />
@@ -1864,65 +1989,78 @@ function AdReusePlacementList({
   onClearMetaStatuses,
   onToggleMetaStatus,
   placements,
+  platform,
   selectedMetaStatuses,
   totalPlacements,
 }: {
   onClearMetaStatuses: () => void;
   onToggleMetaStatus: (status: CampaignMetaDeliveryStatus) => void;
   placements: AdNamePlacement[];
+  platform: CampaignPlatform;
   selectedMetaStatuses: CampaignMetaDeliveryStatus[];
   totalPlacements: number;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const isMetaPlacement = platform === "meta";
   const columns = useMemo<ColumnDef<AdNamePlacement>[]>(
-    () => [
-      {
-        accessorFn: (row) =>
-          `${row.campaign.brand} / ${row.campaign.campaignName}`,
-        header: "Campaign",
-        id: "campaign",
-      },
-      {
-        accessorFn: (row) => row.ad.adId ?? "",
-        header: "Ad ID",
-        id: "adId",
-      },
-      {
-        accessorFn: (row) => row.ad.grade,
-        header: "Grade",
-        id: "grade",
-        sortDescFirst: true,
-        sortingFn: placementGradeSortingFn,
-      },
-      {
-        accessorFn: (row) => getAdMetaStatus(row.ad).id,
-        header: "Meta",
-        id: "meta",
-        sortingFn: placementMetaStatusSortingFn,
-      },
-      {
-        accessorFn: (row) => row.ad.spend,
-        header: "Spend",
-        id: "spend",
-        sortDescFirst: true,
-        sortingFn: placementNumberSortingFn,
-      },
-      {
-        accessorFn: (row) => row.ad.leads,
-        header: "Leads",
-        id: "leads",
-        sortDescFirst: true,
-        sortingFn: placementNumberSortingFn,
-      },
-      {
-        accessorFn: (row) => row.ad.signedLeads,
-        header: "SL",
-        id: "signedLeads",
-        sortDescFirst: true,
-        sortingFn: placementNumberSortingFn,
-      },
-    ],
-    [],
+    () => {
+      const nextColumns: ColumnDef<AdNamePlacement>[] = [
+        {
+          accessorFn: (row) =>
+            `${row.campaign.brand} / ${row.campaign.campaignName}`,
+          header: "Campaign",
+          id: "campaign",
+        },
+        {
+          accessorFn: (row) => row.ad.adId ?? "",
+          header: "Ad ID",
+          id: "adId",
+        },
+        {
+          accessorFn: (row) => row.ad.grade,
+          header: "Grade",
+          id: "grade",
+          sortDescFirst: true,
+          sortingFn: placementGradeSortingFn,
+        },
+      ];
+
+      if (isMetaPlacement) {
+        nextColumns.push({
+          accessorFn: (row) => getAdMetaStatus(row.ad).id,
+          header: "Status",
+          id: "meta",
+          sortingFn: placementMetaStatusSortingFn,
+        });
+      }
+
+      nextColumns.push(
+        {
+          accessorFn: (row) => row.ad.spend,
+          header: "Spend",
+          id: "spend",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.ad.leads,
+          header: "Leads",
+          id: "leads",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.ad.signedLeads,
+          header: "SL",
+          id: "signedLeads",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
+      );
+
+      return nextColumns;
+    },
+    [isMetaPlacement],
   );
   const table = useReactTable({
     columns,
@@ -1945,50 +2083,63 @@ function AdReusePlacementList({
           {totalPlacements === 1 ? "" : "s"}
         </span>
       </div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Meta status
-        </span>
-        {ALL_META_STATUSES.map(({ id, label }) => {
-          const isActive = selectedMetaStatuses.includes(id);
+      {isMetaPlacement ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Delivery status
+          </span>
+          {ALL_META_STATUSES.map(({ id, label }) => {
+            const isActive = selectedMetaStatuses.includes(id);
 
-          return (
+            return (
+              <button
+                aria-pressed={isActive}
+                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
+                  isActive
+                    ? metaStatusClasses[id]
+                    : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-slate-900"
+                }`}
+                key={id}
+                onClick={() => onToggleMetaStatus(id)}
+                type="button"
+              >
+                {label}
+              </button>
+            );
+          })}
+          {selectedMetaStatuses.length > 0 ? (
             <button
-              aria-pressed={isActive}
-              className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
-                isActive
-                  ? metaStatusClasses[id]
-                  : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-slate-900"
-              }`}
-              key={id}
-              onClick={() => onToggleMetaStatus(id)}
+              className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              onClick={onClearMetaStatuses}
               type="button"
             >
-              {label}
+              Clear
             </button>
-          );
-        })}
-        {selectedMetaStatuses.length > 0 ? (
-          <button
-            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-            onClick={onClearMetaStatuses}
-            type="button"
-          >
-            Clear
-          </button>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded-lg border border-slate-200">
         <table className="w-full table-fixed text-sm">
-          <colgroup>
-            <col className="w-[28%]" />
-            <col className="w-[16%]" />
-            <col className="w-[8%]" />
-            <col className="w-[10%]" />
-            <col className="w-[12%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-          </colgroup>
+          {isMetaPlacement ? (
+            <colgroup>
+              <col className="w-[30%]" />
+              <col className="w-[17%]" />
+              <col className="w-[8%]" />
+              <col className="w-[11%]" />
+              <col className="w-[12%]" />
+              <col className="w-[11%]" />
+              <col className="w-[11%]" />
+            </colgroup>
+          ) : (
+            <colgroup>
+              <col className="w-[34%]" />
+              <col className="w-[18%]" />
+              <col className="w-[8%]" />
+              <col className="w-[14%]" />
+              <col className="w-[12%]" />
+              <col className="w-[14%]" />
+            </colgroup>
+          )}
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -2045,14 +2196,16 @@ function AdReusePlacementList({
                       </div>
                     </td>
                     <td className="break-words px-3 py-2 text-slate-500">
-                      {placement.ad.adId ?? "No Meta ad ID"}
+                      {placement.ad.adId ?? "No ad ID"}
                     </td>
                     <td className="px-3 py-2">
                       <GradeChip grade={placement.ad.grade} />
                     </td>
-                    <td className="px-3 py-2">
-                      <MetaStatusChip status={getAdMetaStatus(placement.ad)} />
-                    </td>
+                    {isMetaPlacement ? (
+                      <td className="px-3 py-2">
+                        <MetaStatusChip status={getAdMetaStatus(placement.ad)} />
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2 text-right">
                       {formatCurrency(placement.ad.spend)}
                     </td>
@@ -2069,11 +2222,11 @@ function AdReusePlacementList({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-sm text-slate-500"
-                  colSpan={7}
+                  colSpan={isMetaPlacement ? 7 : 6}
                 >
                   {totalPlacements === 0
                     ? "No matching ad names in the current audit data."
-                    : "No placements match the selected Meta status filters."}
+                    : "No placements match the selected delivery status filters."}
                 </td>
               </tr>
             )}
@@ -2205,21 +2358,56 @@ function formatAdGradeTitle(ad: CampaignHealthAdRow): string {
   return `${ad.recommendation}. ${ad.confidence} confidence. ${metricSummary}`;
 }
 
-function MetaStatusChip({ status }: { status: CampaignMetaStatus }) {
+function formatActivePeriod(row: CampaignHealthRow): string {
+  if (!row.activeStartDate || !row.activeEndDate) {
+    return "-";
+  }
+
+  if (row.activeStartDate === row.activeEndDate) {
+    return row.activeStartDate;
+  }
+
+  return `${row.activeStartDate} -> ${row.activeEndDate}`;
+}
+
+function MetaStatusChip({
+  status,
+  unknownLabel,
+}: {
+  status: CampaignMetaStatus;
+  unknownLabel?: string;
+}) {
   const rawStatus = [status.effectiveStatus, status.configuredStatus]
     .filter(Boolean)
     .join(" / ");
+  const label = status.id === "unknown" && unknownLabel ? unknownLabel : status.label;
 
   return (
     <span
       className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${metaStatusClasses[status.id]}`}
       title={
         rawStatus
-          ? `Meta effective/configured status: ${rawStatus}`
-          : "Meta campaign status is unavailable."
+          ? `Effective/configured status: ${rawStatus}`
+          : "Delivery status is unavailable."
       }
     >
-      {status.label}
+      {label}
+    </span>
+  );
+}
+
+function PlatformChip({ platform }: { platform: CampaignPlatform }) {
+  const isTikTok = platform === "tiktok";
+
+  return (
+    <span
+      className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${
+        isTikTok
+          ? "border-rose-200 bg-rose-50 text-rose-700"
+          : "border-sky-200 bg-sky-50 text-sky-700"
+      }`}
+    >
+      {platformLabel(platform)}
     </span>
   );
 }
@@ -2365,12 +2553,12 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
               )}`}
             />
             <ThresholdRow
-              formula="CRM Leads / Meta Lead Actions"
+              formula="Signed Leads / Leads"
               green={`>= ${formatPercentage(thresholds.intake.greenMin)}`}
               metric="Int. Conv."
-              neutral={`Meta lead actions missing or fewer than ${formatNumber(
-                thresholds.intake.minimumMetaLeadActions,
-              )}`}
+              neutral={`Fewer than ${formatNumber(
+                thresholds.intake.minimumLeads,
+              )} leads`}
               red={`< ${formatPercentage(thresholds.intake.yellowMin)}`}
               yellow={`${formatPercentage(
                 thresholds.intake.yellowMin,
@@ -2380,13 +2568,13 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
         </table>
       </div>
       <p className="mt-3 text-xs font-medium text-slate-500">
-        Campaigns inside the first{" "}
-        {formatNumber(thresholds.rampUp.minimumCampaignAgeDays)} days are in
-        ramp-up: no-lead and no-signed-lead failures are not scored yet. Quality
-        sources are exact CRM substatus/stage values, Turndown Reason, Date of
-        Accident, and structured attorney answers. Previous attorney and
-        old-accident signals are shown as quality context. Speed-to-lead needs
-        call-log data before it can be scored.
+        Campaigns with fewer than{" "}
+        {formatNumber(thresholds.rampUp.minimumCampaignAgeDays)} active days are
+        in ramp-up: no-lead and no-signed-lead failures are not scored yet.
+        Quality sources are exact CRM substatus/stage values, Turndown Reason,
+        Date of Accident, and structured attorney answers. Previous attorney
+        and old-accident signals are shown as quality context. Speed-to-lead
+        needs call-log data before it can be scored.
       </p>
     </section>
   );
@@ -2680,7 +2868,7 @@ function normalizeSortableNumber(value: number | null | undefined): number {
 
 function getCampaignHeaderClassName(columnId: string): string {
   const rightAligned = new Set([
-    "campaignAgeDays",
+    "activeDays",
     "spend",
     "leads",
     "signedLeads",
@@ -2691,7 +2879,7 @@ function getCampaignHeaderClassName(columnId: string): string {
 }
 
 function getCampaignHeaderButtonClassName(columnId: string): string {
-  return ["campaignAgeDays", "spend", "leads", "signedLeads"].includes(columnId)
+  return ["activeDays", "spend", "leads", "signedLeads"].includes(columnId)
     ? "justify-end"
     : "";
 }
@@ -2703,7 +2891,6 @@ function getAdHeaderClassName(columnId: string): string {
     "signedLeads",
     "cpl",
     "cpsl",
-    "metaLeadActions",
   ]);
 
   return rightAligned.has(columnId)
@@ -2718,7 +2905,6 @@ function getAdHeaderButtonClassName(columnId: string): string {
     "signedLeads",
     "cpl",
     "cpsl",
-    "metaLeadActions",
   ].includes(columnId)
     ? "justify-end"
     : "";
@@ -2739,10 +2925,11 @@ function formatSortIndicator(value: false | "asc" | "desc"): string {
 function adMatchesSelectedMetaStatus(
   ad: CampaignHealthAdRow,
   selectedMetaStatuses: Set<CampaignMetaDeliveryStatus>,
+  platform: CampaignPlatform = "meta",
 ): boolean {
   return (
     selectedMetaStatuses.size === 0 ||
-    selectedMetaStatuses.has(getAdMetaStatus(ad).id)
+    selectedMetaStatuses.has(getAdDeliveryStatus(ad, platform).id)
   );
 }
 
@@ -2816,7 +3003,11 @@ function filterHealthRows(
 
     if (selectedMetaStatuses.size > 0 && hasAdScopedFilter) {
       selectedRowAds = selectedRowAds.filter((ad) =>
-        adMatchesSelectedMetaStatus(ad, selectedMetaStatuses),
+        adMatchesSelectedMetaStatus(
+          ad,
+          selectedMetaStatuses,
+          row.platform ?? "meta",
+        ),
       );
     }
 
@@ -2872,7 +3063,7 @@ function buildAdNamePlacementMap(
 
   for (const campaign of rows) {
     for (const ad of campaign.ads) {
-      const key = normalizeAdName(ad.adName);
+      const key = buildAdNamePlacementKey(campaign, ad);
 
       if (!key) {
         continue;
@@ -2903,8 +3094,28 @@ function buildAdNamePlacementMap(
 function getAdNamePlacementCount(
   placements: Map<string, AdNamePlacement[]>,
   ad: CampaignHealthAdRow,
+  campaign: CampaignHealthRow,
 ): number {
-  return placements.get(normalizeAdName(ad.adName))?.length ?? 0;
+  return placements.get(buildAdNamePlacementKey(campaign, ad))?.length ?? 0;
+}
+
+function buildAdNamePlacementKey(
+  campaign: CampaignHealthRow,
+  ad: CampaignHealthAdRow,
+): string {
+  const normalizedAdName = normalizeAdName(ad.adName);
+
+  if (!normalizedAdName) {
+    return "";
+  }
+
+  return `${campaign.platform ?? "meta"}::${normalizedAdName}`;
+}
+
+function getAdReusePlacementPlatform(
+  placements: AdNamePlacement[],
+): CampaignPlatform {
+  return placements[0]?.campaign.platform ?? "meta";
 }
 
 function buildAdMediaTargets(placements: AdNamePlacement[]): AdMediaTarget[] {
@@ -3085,6 +3296,24 @@ function getAdMetaStatus(ad: CampaignHealthAdRow): CampaignMetaStatus {
   );
 }
 
+function getAdDeliveryStatus(
+  ad: CampaignHealthAdRow,
+  platform: CampaignPlatform,
+): CampaignMetaStatus {
+  return platform === "tiktok" ? getAdsetMetaStatus(ad) : getAdMetaStatus(ad);
+}
+
+function getAdsetMetaStatus(ad: CampaignHealthAdRow): CampaignMetaStatus {
+  return (
+    ad.adsetStatus ?? {
+      configuredStatus: null,
+      effectiveStatus: null,
+      id: "unknown",
+      label: "Unknown",
+    }
+  );
+}
+
 function countGrades(rows: CampaignHealthRow[]) {
   return rows.reduce(
     (counts, row) => {
@@ -3106,6 +3335,32 @@ function summarizeBrands(selectedBrands: string[]): string {
   }
 
   return `${selectedBrands.length} brands selected`;
+}
+
+function summarizePlatformSelection(platforms: CampaignPlatform[]): string {
+  if (platforms.length !== 1) {
+    return "All platforms";
+  }
+
+  return platformLabel(platforms[0]);
+}
+
+function platformLabel(platform: CampaignPlatform): string {
+  return platform === "tiktok" ? "TikTok" : "Meta";
+}
+
+function mergePlatformOptions(
+  backendOptions: Array<{ id: string; label: string }> | undefined,
+): Array<{ id: CampaignPlatform; label: string }> {
+  const optionIds = new Set(
+    backendOptions
+      ?.map((option) => normalizePlatformParam(option.id))
+      .filter((id): id is CampaignPlatform => id !== "all") ?? [],
+  );
+
+  return ALL_PLATFORM_OPTIONS.filter(
+    (option) => optionIds.size === 0 || optionIds.has(option.id),
+  );
 }
 
 function summarizeSelection(
@@ -3169,6 +3424,42 @@ function normalizeGradeParams(values: string[]): CampaignHealthGrade[] {
   }
 
   return ALL_GRADES.filter((grade) => selected.has(grade));
+}
+
+function normalizePlatformParam(
+  value: string | null | undefined,
+): HealthDashboardPlatform {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (!normalized || normalized === "all" || normalized === "all platforms") {
+    return "all";
+  }
+
+  if (normalized === "meta" || normalized === "facebook") {
+    return "meta";
+  }
+
+  if (normalized === "tiktok" || normalized === "tik tok") {
+    return "tiktok";
+  }
+
+  return "all";
+}
+
+function normalizePlatformIds(values: string[]): CampaignPlatform[] {
+  const selected = new Set<CampaignPlatform>();
+
+  for (const value of values) {
+    const normalized = normalizePlatformParam(value);
+
+    if (normalized !== "all") {
+      selected.add(normalized);
+    }
+  }
+
+  return ALL_PLATFORM_OPTIONS.map((option) => option.id).filter((platform) =>
+    selected.has(platform),
+  );
 }
 
 function isCampaignHealthGrade(value: string): value is CampaignHealthGrade {

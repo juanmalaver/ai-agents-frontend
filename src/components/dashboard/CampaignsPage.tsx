@@ -42,11 +42,11 @@ import {
   resolveAgentEndpointUrl,
   resolveCampaignsDashboardSectionApiUrl,
 } from "@/src/utils/runtimeApiUrls";
+import { getYesterdayDateRange } from "@/src/utils/dateRangeDefaults";
 import { AgentBriefPanel } from "./AgentBriefPanel";
 import { BrandFilter } from "./BrandFilter";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
-import { DateRangeFilter } from "./DateRangeFilter";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 const scorecardClasses: Record<CampaignScorecard["status"], string> = {
@@ -109,13 +109,16 @@ export function CampaignsPage({
   const [pendingAgentRun, setPendingAgentRun] =
     useState<PendingAgentRun | null>(null);
   const [rerunStatus, setRerunStatus] = useState<string | null>(null);
-  const {
-    dashboardQuery,
-    dateRange,
-    selectedBrand,
-    setDateRange,
-    setSelectedBrand,
-  } = useDashboardQueryParams();
+  const { selectedBrand, setSelectedBrand } = useDashboardQueryParams();
+  const dailyBriefDateRange = useMemo(() => getYesterdayDateRange(), []);
+  const dashboardQuery = useMemo(
+    () => ({
+      brand: selectedBrand,
+      from: dailyBriefDateRange.from,
+      to: dailyBriefDateRange.to,
+    }),
+    [dailyBriefDateRange.from, dailyBriefDateRange.to, selectedBrand],
+  );
   const brandLabel = selectedBrand ?? "All brands";
 
   const resolvedAgentLatestUrl = useMemo(
@@ -140,8 +143,15 @@ export function CampaignsPage({
     () =>
       appendDashboardQueryParams(resolvedAgentLatestUrl, {
         brand: briefBrand,
+        from: dailyBriefDateRange.from,
+        to: dailyBriefDateRange.to,
       }),
-    [briefBrand, resolvedAgentLatestUrl],
+    [
+      briefBrand,
+      dailyBriefDateRange.from,
+      dailyBriefDateRange.to,
+      resolvedAgentLatestUrl,
+    ],
   );
   const summaryUrl = useMemo(
     () =>
@@ -276,9 +286,9 @@ export function CampaignsPage({
   const queueAgentRun = useCallback(
     async ({
       brand = briefBrand,
-      from = null,
+      from = dailyBriefDateRange.from,
       queuedMessage = "Brief request sent. AI is preparing the update.",
-      to = null,
+      to = dailyBriefDateRange.to,
     }: {
       brand?: string | null;
       from?: string | null;
@@ -331,17 +341,16 @@ export function CampaignsPage({
         setIsRerunning(false);
       }
     },
-    [briefBrand, loadAgentLatest, resolvedAgentRerunUrl],
+    [
+      briefBrand,
+      dailyBriefDateRange.from,
+      dailyBriefDateRange.to,
+      resolvedAgentRerunUrl,
+    ],
   );
   const handleRunAgain = useCallback(() => {
     void queueAgentRun();
   }, [queueAgentRun]);
-  const handleDateRangeChange = useCallback(
-    (nextDateRange: { from: string | null; to: string | null }) => {
-      setDateRange(nextDateRange);
-    },
-    [setDateRange],
-  );
   const handleBriefBrandChange = useCallback((brand: string | null) => {
     setBriefBrand(brand);
     setPendingAgentRun(null);
@@ -486,14 +495,21 @@ export function CampaignsPage({
             <div className="grid gap-3 xl:grid-cols-[minmax(14rem,0.75fr)_minmax(0,1.65fr)] xl:items-start">
               <BrandFilter
                 apiUrl={apiUrl}
-                dateRange={dateRange}
+                dateRange={dailyBriefDateRange}
                 onBrandChange={setSelectedBrand}
                 selectedBrand={selectedBrand}
               />
-              <DateRangeFilter
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
-              />
+              <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-700">
+                  Daily brief date
+                </p>
+                <p className="mt-1 text-sm font-medium text-slate-950">
+                  {dailyBriefDateRange.to}
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Yesterday's completed data
+                </p>
+              </div>
             </div>
           </section>
           <CampaignSectionStatus

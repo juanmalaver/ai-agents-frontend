@@ -223,14 +223,13 @@ export function CampaignStateTable({
         sortingFn: nullableNumberSortingFn,
       },
       {
-        accessorFn: (row) => calculateMtdGoal(row.slGoal, monthPacing),
+        accessorFn: (row) => row.slGoal,
         cell: ({ getValue }) => formatNumber(getValue<number | null>()),
-        footer: () =>
-          formatNumber(calculateMtdGoal(totalRow?.slGoal, monthPacing)),
+        footer: () => formatNumber(totalRow?.slGoal ?? null),
         header: "MTD SL Goal",
         id: "mtdSlGoal",
         meta: {
-          info: "Meaning: signed-lead goal expected by the selected date. Formula: EOM SL Goal / days in month x elapsed days.",
+          info: "Meaning: signed-lead goal for the selected month.",
         },
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
@@ -248,19 +247,14 @@ export function CampaignStateTable({
       },
       {
         accessorFn: (row) =>
-          safeDivide(row.mtdSl, calculateMtdGoal(row.slGoal, monthPacing)),
+          safeDivide(row.mtdSl, row.slGoal),
         cell: ({ getValue }) => formatPercentage(getValue<number | null>()),
         footer: () =>
-          formatPercentage(
-            safeDivide(
-              totalRow?.mtdSl,
-              calculateMtdGoal(totalRow?.slGoal, monthPacing),
-            ),
-          ),
+          formatPercentage(safeDivide(totalRow?.mtdSl, totalRow?.slGoal)),
         header: "% to MTD SL Goal",
         id: "mtdSlGoalPct",
         meta: {
-          info: "Meaning: signed-lead pacing against the month-to-date target. Formula: MTD SL / MTD SL Goal.",
+          info: "Meaning: signed-lead pacing against the selected month's target. Formula: MTD SL / MTD SL Goal.",
         },
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
@@ -357,7 +351,7 @@ export function CampaignStateTable({
                 table.getRowModel().rows.map((row) => {
                   const mtdSlGoalPct = safeDivide(
                     row.original.mtdSl,
-                    calculateMtdGoal(row.original.slGoal, monthPacing),
+                    row.original.slGoal,
                   );
 
                   return (
