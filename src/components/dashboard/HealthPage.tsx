@@ -111,6 +111,7 @@ interface AdNamePlacement {
 interface AdMediaTarget {
   adId: string;
   campaignLabel: string;
+  platform: CampaignPlatform;
 }
 
 interface AdMediaState {
@@ -1677,8 +1678,8 @@ function AdReuseModal({
     [isMetaPlacement, placements, selectedMetaStatuses],
   );
   const mediaTargets = useMemo(
-    () => (isMetaPlacement ? buildAdMediaTargets(visiblePlacements) : []),
-    [isMetaPlacement, visiblePlacements],
+    () => buildAdMediaTargets(visiblePlacements),
+    [visiblePlacements],
   );
   const [mediaByAdId, setMediaByAdId] = useState<Record<string, AdMediaState>>(
     {},
@@ -1731,10 +1732,7 @@ function AdReuseModal({
       const results = await Promise.all(
         mediaTargets.map(async (target) => {
           try {
-            const media = await fetchAdMedia(
-              adMediaApiUrl as string,
-              target.adId,
-            );
+            const media = await fetchAdMedia(adMediaApiUrl as string, target);
 
             return {
               state: { error: null, isLoading: false, media },
@@ -1825,13 +1823,12 @@ function AdReuseModal({
               value={formatNumber(totals.signedLeads)}
             />
           </div>
-          {isMetaPlacement ? (
-            <AdMediaPreviewPanel
-              isConfigured={Boolean(adMediaApiUrl)}
-              mediaByAdId={mediaByAdId}
-              targets={mediaTargets}
-            />
-          ) : null}
+          <AdMediaPreviewPanel
+            isConfigured={Boolean(adMediaApiUrl)}
+            mediaByAdId={mediaByAdId}
+            platform={placementPlatform}
+            targets={mediaTargets}
+          />
           <AdReusePlacementList
             onClearMetaStatuses={() => setSelectedMetaStatuses([])}
             onToggleMetaStatus={(status) =>
@@ -1855,19 +1852,22 @@ function AdReuseModal({
 function AdMediaPreviewPanel({
   isConfigured,
   mediaByAdId,
+  platform,
   targets,
 }: {
   isConfigured: boolean;
   mediaByAdId: Record<string, AdMediaState>;
+  platform: CampaignPlatform;
   targets: AdMediaTarget[];
 }) {
   const bestState = getBestAdMediaState(targets, mediaByAdId);
+  const platformName = platformLabel(platform);
 
   if (targets.length === 0) {
     return (
       <div className="border-b border-slate-200 px-5 py-4 text-sm text-slate-500">
-        No Meta ad ID is available for this ad name, so creative media cannot be
-        loaded.
+        No {platformName} ad ID is available for this ad name, so creative
+        media cannot be loaded.
       </div>
     );
   }
@@ -1902,7 +1902,9 @@ function AdMediaPreviewCard({
 }) {
   const media = state.media;
   const primaryTarget = targets[0];
-  const watchUrl = getAdMediaWatchUrl(media);
+  const watchUrl = getAdMediaWatchUrl(media, primaryTarget.platform);
+  const watchLabel = getAdMediaWatchLabel(media, primaryTarget.platform);
+  const platformName = platformLabel(primaryTarget.platform);
 
   return (
     <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white p-3">
@@ -1965,7 +1967,7 @@ function AdMediaPreviewCard({
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span>{media?.mediaType ?? "unknown"}</span>
           <span>
-            {formatNumber(targets.length)} Meta ad
+            {formatNumber(targets.length)} {platformName} ad
             {targets.length === 1 ? "" : "s"} matched
           </span>
           <span className="truncate">Ad ID: {primaryTarget.adId}</span>
@@ -1978,7 +1980,7 @@ function AdMediaPreviewCard({
           rel="noreferrer"
           target="_blank"
         >
-          Watch on Meta
+          {watchLabel}
         </a>
       ) : null}
     </div>
@@ -3131,6 +3133,7 @@ function buildAdMediaTargets(placements: AdNamePlacement[]): AdMediaTarget[] {
     targets.set(adId, {
       adId,
       campaignLabel: `${placement.campaign.brand} / ${placement.campaign.campaignName}`,
+      platform: placement.campaign.platform ?? "meta",
     });
   }
 
@@ -3150,7 +3153,7 @@ function getBestAdMediaState(
       media: null,
     };
 
-    if (!bestState || isBetterAdMediaState(state, bestState)) {
+    if (!bestState || isBetterAdMediaState(state, bestState, target.platform)) {
       bestState = state;
       continue;
     }
@@ -3168,15 +3171,20 @@ function getBestAdMediaState(
 function isBetterAdMediaState(
   candidate: AdMediaState,
   current: AdMediaState,
+  platform: CampaignPlatform,
 ): boolean {
   return (
-    getAdMediaAvailabilityRank(candidate) > getAdMediaAvailabilityRank(current)
+    getAdMediaAvailabilityRank(candidate, platform) >
+    getAdMediaAvailabilityRank(current, platform)
   );
 }
 
-function getAdMediaAvailabilityRank(state: AdMediaState): number {
+function getAdMediaAvailabilityRank(
+  state: AdMediaState,
+  platform: CampaignPlatform,
+): number {
   const media = state.media;
-  const watchUrl = getAdMediaWatchUrl(media);
+  const watchUrl = getAdMediaWatchUrl(media, platform);
 
   if (media?.thumbnailUrl && watchUrl) {
     return 5;
@@ -3203,13 +3211,20 @@ function getAdMediaAvailabilityRank(state: AdMediaState): number {
 
 function getAdMediaWatchUrl(
   media: CampaignHealthAdMedia | null | undefined,
+  platform: CampaignPlatform,
 ): string | null {
   if (!media) {
     return null;
   }
 
-  if (media.permalinkUrl) {
-    return media.permalinkUrl;
+  if (platform === "tiktok") {
+    return media.permalinkUrl ?? media.videoUrl;
+  }
+
+  const metaPermalinkUrl = normalizeFacebookUrl(media.permalinkUrl);
+
+  if (metaPermalinkUrl) {
+    return metaPermalinkUrl;
   }
 
   if (media.videoId) {
@@ -3224,7 +3239,9 @@ function getAdMediaWatchUrl(
 
   if (media.embedUrl) {
     try {
-      return new URL(media.embedUrl).searchParams.get("href");
+      return normalizeFacebookUrl(
+        new URL(media.embedUrl).searchParams.get("href"),
+      );
     } catch {
       return null;
     }
@@ -3233,13 +3250,45 @@ function getAdMediaWatchUrl(
   return media.videoUrl;
 }
 
+function normalizeFacebookUrl(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return new URL(normalized).toString();
+  } catch {
+    return new URL(
+      normalized.replace(/^\/+/, ""),
+      "https://www.facebook.com/",
+    ).toString();
+  }
+}
+
+function getAdMediaWatchLabel(
+  media: CampaignHealthAdMedia | null | undefined,
+  platform: CampaignPlatform,
+): string {
+  if (platform === "meta") {
+    return "Watch on Meta";
+  }
+
+  return media?.permalinkUrl ? "Open in TikTok" : "Open video";
+}
+
 async function fetchAdMedia(
   adMediaApiUrl: string,
-  adId: string,
+  target: AdMediaTarget,
 ): Promise<CampaignHealthAdMedia> {
   const separator = adMediaApiUrl.includes("?") ? "&" : "?";
+  const params = new URLSearchParams({
+    adId: target.adId,
+    platform: target.platform,
+  });
   const response = await fetch(
-    `${adMediaApiUrl}${separator}adId=${encodeURIComponent(adId)}`,
+    `${adMediaApiUrl}${separator}${params.toString()}`,
     {
       cache: "no-store",
       credentials: "include",
