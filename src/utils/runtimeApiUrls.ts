@@ -88,6 +88,10 @@ export function resolveHealthDashboardApiUrl(
     return `${trimmed.slice(0, -"/campaigns".length)}/health`;
   }
 
+  if (trimmed.endsWith("/marketing-dashboard/combined")) {
+    return `${trimmed.slice(0, -"/combined".length)}/health`;
+  }
+
   if (trimmed.endsWith("/marketing-dashboard/health")) {
     return trimmed;
   }
@@ -95,6 +99,70 @@ export function resolveHealthDashboardApiUrl(
   return trimmed.endsWith("/marketing-dashboard")
     ? `${trimmed}/health`
     : `${trimmed}/marketing-dashboard/health`;
+}
+
+export function resolveTikTokDashboardApiUrl(
+  explicitDashboardApiUrl?: string | null,
+): string | undefined {
+  const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
+
+  if (!dashboardUrl) {
+    return undefined;
+  }
+
+  const trimmed = dashboardUrl.replace(/\/+$/, "");
+
+  if (trimmed.endsWith("/marketing-dashboard/tiktok")) {
+    return trimmed;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/campaigns")) {
+    return `${trimmed.slice(0, -"/campaigns".length)}/tiktok`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/combined")) {
+    return `${trimmed.slice(0, -"/combined".length)}/tiktok`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/health")) {
+    return `${trimmed.slice(0, -"/health".length)}/tiktok`;
+  }
+
+  return trimmed.endsWith("/marketing-dashboard")
+    ? `${trimmed}/tiktok`
+    : `${trimmed}/marketing-dashboard/tiktok`;
+}
+
+export function resolveCombinedDashboardApiUrl(
+  explicitDashboardApiUrl?: string | null,
+): string | undefined {
+  const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
+
+  if (!dashboardUrl) {
+    return undefined;
+  }
+
+  const trimmed = dashboardUrl.replace(/\/+$/, "");
+
+  if (trimmed.endsWith("/marketing-dashboard/combined")) {
+    return trimmed;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/campaigns")) {
+    return `${trimmed.slice(0, -"/campaigns".length)}/combined`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/health")) {
+    return `${trimmed.slice(0, -"/health".length)}/combined`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/tiktok")) {
+    return `${trimmed.slice(0, -"/tiktok".length)}/combined`;
+  }
+
+  return trimmed.endsWith("/marketing-dashboard")
+    ? `${trimmed}/combined`
+    : `${trimmed}/marketing-dashboard/combined`;
 }
 
 export function resolveDashboardAdMediaApiUrl(
@@ -110,6 +178,10 @@ export function resolveDashboardAdMediaApiUrl(
 
   if (trimmed.endsWith("/marketing-dashboard/campaigns")) {
     return `${trimmed.slice(0, -"/campaigns".length)}/ad-media`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/combined")) {
+    return `${trimmed.slice(0, -"/combined".length)}/ad-media`;
   }
 
   if (trimmed.endsWith("/marketing-dashboard/health")) {
@@ -170,6 +242,14 @@ export function resolveDashboardBrandsApiUrl(
 
   if (trimmed.endsWith("/marketing-dashboard/campaigns")) {
     return `${trimmed.slice(0, -"/campaigns".length)}/brands`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/tiktok")) {
+    return `${trimmed}/brands`;
+  }
+
+  if (trimmed.endsWith("/marketing-dashboard/combined")) {
+    return `${trimmed}/brands`;
   }
 
   return trimmed.endsWith("/marketing-dashboard")
@@ -267,6 +347,7 @@ export function appendHealthDashboardQueryParams(
   query?: {
     brands?: string[] | null;
     from?: string | null;
+    platform?: string | null;
     to?: string | null;
   } | null,
 ): string | undefined {
@@ -276,6 +357,7 @@ export function appendHealthDashboardQueryParams(
 
   const params = new URLSearchParams();
   const normalizedFrom = normalizeDateParam(query?.from);
+  const normalizedPlatform = normalizeHealthPlatformParam(query?.platform);
   const normalizedTo = normalizeDateParam(query?.to);
 
   for (const brand of query?.brands ?? []) {
@@ -291,6 +373,10 @@ export function appendHealthDashboardQueryParams(
     params.set("to", normalizedTo);
   }
 
+  if (normalizedPlatform) {
+    params.set("platform", normalizedPlatform);
+  }
+
   const queryString = params.toString();
 
   if (!queryString) {
@@ -300,6 +386,26 @@ export function appendHealthDashboardQueryParams(
   const separator = url.includes("?") ? "&" : "?";
 
   return `${url}${separator}${queryString}`;
+}
+
+function normalizeHealthPlatformParam(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (!normalized || normalized === "all" || normalized === "all platforms") {
+    return "all";
+  }
+
+  if (normalized === "meta" || normalized === "facebook") {
+    return "meta";
+  }
+
+  if (normalized === "tiktok" || normalized === "tik tok") {
+    return "tiktok";
+  }
+
+  return null;
 }
 
 export function resolveCampaignsDashboardSectionApiUrl({

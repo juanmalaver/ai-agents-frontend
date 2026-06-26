@@ -24,21 +24,25 @@ export interface DashboardSectionState<TData> {
 
 const STALE_SECTION_REFRESH_RETRY_MS = 60_000;
 
+interface DashboardSectionInternalState<TData>
+  extends Omit<DashboardSectionState<TData>, "retry"> {
+  sourceUrl: string | null;
+}
+
 export function useDashboardSection<TResponse, TData = TResponse>({
   errorMessage,
   normalize,
   url,
 }: UseDashboardSectionOptions<TResponse, TData>): DashboardSectionState<TData> {
   const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState<
-    Omit<DashboardSectionState<TData>, "retry">
-  >({
+  const [state, setState] = useState<DashboardSectionInternalState<TData>>({
     cache: null,
     data: null,
     error: null,
     generatedAt: null,
     isLoading: true,
     isRefreshing: false,
+    sourceUrl: null,
   });
 
   const retry = useCallback(() => {
@@ -52,6 +56,7 @@ export function useDashboardSection<TResponse, TData = TResponse>({
         error: "Dashboard API URL is not configured.",
         isLoading: false,
         isRefreshing: false,
+        sourceUrl: null,
       }));
       return;
     }
@@ -63,7 +68,9 @@ export function useDashboardSection<TResponse, TData = TResponse>({
       ...current,
       error: null,
       isLoading: !current.data,
-      isRefreshing: Boolean(current.data),
+      isRefreshing:
+        Boolean(current.data) &&
+        (current.sourceUrl === url ? current.isRefreshing : true),
     }));
 
     async function loadSection() {
@@ -95,6 +102,7 @@ export function useDashboardSection<TResponse, TData = TResponse>({
           generatedAt: response.generatedAt,
           isLoading: false,
           isRefreshing: response.cache.status === "stale",
+          sourceUrl: url as string,
         });
 
         if (response.cache.status === "stale") {
@@ -134,7 +142,12 @@ export function useDashboardSection<TResponse, TData = TResponse>({
   ]);
 
   return {
-    ...state,
+    cache: state.cache,
+    data: state.data,
+    error: state.error,
+    generatedAt: state.generatedAt,
+    isLoading: state.isLoading,
+    isRefreshing: state.isRefreshing,
     retry,
   };
 }

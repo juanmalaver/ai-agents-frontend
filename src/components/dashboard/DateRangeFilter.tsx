@@ -3,20 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DashboardDateRange } from "@/src/types/dashboard";
 import {
+  addDaysToDateInputValue,
+  constrainDateRangeDays,
   getCurrentMonthDateRange,
+  getInclusiveDateRangeDays,
   isSameDateRange,
 } from "@/src/utils/dateRangeDefaults";
 
 interface DateRangeFilterProps {
   dateRange: DashboardDateRange;
+  maxRangeDays?: number;
   onDateRangeChange: (dateRange: DashboardDateRange) => void;
 }
 
 export function DateRangeFilter({
   dateRange,
+  maxRangeDays,
   onDateRangeChange,
 }: DateRangeFilterProps) {
-  const defaultDateRange = getCurrentMonthDateRange();
+  const defaultDateRange = constrainDateRangeDays(
+    getCurrentMonthDateRange(),
+    maxRangeDays,
+  );
   const effectiveDateRange =
     dateRange.from && dateRange.to ? dateRange : defaultDateRange;
   const [draftRange, setDraftRange] = useState({
@@ -36,8 +44,15 @@ export function DateRangeFilter({
       return "Start date must be on or before end date.";
     }
 
+    if (
+      maxRangeDays &&
+      getInclusiveDateRangeDays(draftRange.from, draftRange.to) > maxRangeDays
+    ) {
+      return `Choose a range of ${maxRangeDays} days or less.`;
+    }
+
     return null;
-  }, [draftRange.from, draftRange.to]);
+  }, [draftRange.from, draftRange.to, maxRangeDays]);
   const hasChanges =
     draftRange.from !== (effectiveDateRange.from ?? "") ||
     draftRange.to !== (effectiveDateRange.to ?? "");
@@ -52,6 +67,13 @@ export function DateRangeFilter({
       to: effectiveDateRange.to ?? "",
     });
   }, [effectiveDateRange.from, effectiveDateRange.to]);
+
+  const fromMinimum = maxRangeDays
+    ? getRangeBoundary(draftRange.to, -(maxRangeDays - 1))
+    : undefined;
+  const toMaximum = maxRangeDays
+    ? getRangeBoundary(draftRange.from, maxRangeDays - 1)
+    : undefined;
 
   return (
     <form
@@ -71,12 +93,14 @@ export function DateRangeFilter({
     >
       <DateInput
         label="From"
+        min={fromMinimum}
         max={draftRange.to || undefined}
         onChange={(from) => setDraftRange((current) => ({ ...current, from }))}
         value={draftRange.from}
       />
       <DateInput
         label="To"
+        max={toMaximum}
         min={draftRange.from || undefined}
         onChange={(to) => setDraftRange((current) => ({ ...current, to }))}
         value={draftRange.to}
@@ -114,6 +138,10 @@ export function DateRangeFilter({
       ) : null}
     </form>
   );
+}
+
+function getRangeBoundary(value: string, days: number): string | undefined {
+  return value ? addDaysToDateInputValue(value, days) : undefined;
 }
 
 function DateInput({

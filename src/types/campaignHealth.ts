@@ -6,6 +6,10 @@ export type CampaignHealthGrade = "A" | "B" | "C" | "D" | "F";
 
 export type CampaignMetaDeliveryStatus = "on" | "off" | "unknown";
 
+export type CampaignPlatform = "meta" | "tiktok";
+
+export type HealthDashboardPlatform = CampaignPlatform | "all";
+
 export type CampaignHealthConfidence =
   | "High"
   | "Medium"
@@ -34,6 +38,9 @@ export interface CampaignHealthQualitySignal extends CampaignHealthMetric {
 export interface CampaignHealthAdRow {
   adId: string | null;
   adName: string;
+  adsetId: string | null;
+  adsetName: string | null;
+  adsetStatus: CampaignMetaStatus;
   confidence: CampaignHealthConfidence;
   cpl: number | null;
   cpsl: number | null;
@@ -79,6 +86,9 @@ export interface CampaignMetaStatus {
 export interface CampaignHealthRow {
   accountId: string;
   accountName: string;
+  activeDays: number | null;
+  activeEndDate: string | null;
+  activeStartDate: string | null;
   ads: CampaignHealthAdRow[];
   brand: string;
   campaignAgeDays: number | null;
@@ -102,6 +112,7 @@ export interface CampaignHealthRow {
     volume: CampaignHealthMetric;
   };
   noAccidentRate: number | null;
+  platform: CampaignPlatform;
   qualitySignals: {
     callNotAnswered: CampaignHealthQualitySignal;
     commercial: CampaignHealthQualitySignal;
@@ -121,6 +132,7 @@ export interface CampaignHealthFilterOption {
   brand?: string;
   id: string;
   label: string;
+  platform?: CampaignPlatform;
 }
 
 export interface CampaignHealthFilterOptions {
@@ -129,6 +141,7 @@ export interface CampaignHealthFilterOptions {
   campaigns: CampaignHealthFilterOption[];
   grades: CampaignHealthGrade[];
   metaStatuses: CampaignHealthFilterOption[];
+  platforms: CampaignHealthFilterOption[];
   states: CampaignHealthFilterOption[];
 }
 
@@ -145,7 +158,7 @@ export interface CampaignHealthThresholds {
   };
   intake: {
     greenMin: number;
-    minimumMetaLeadActions: number;
+    minimumLeads: number;
     yellowMin: number;
   };
   quality: {
@@ -169,6 +182,7 @@ export interface MarketingDashboardHealthResponse {
   campaignRows: CampaignHealthRow[];
   filterOptions: CampaignHealthFilterOptions;
   generatedAt: string;
+  platform: HealthDashboardPlatform;
   scope: "all_brands" | "selected_brands";
   selectedBrands: string[];
   thresholds: CampaignHealthThresholds;

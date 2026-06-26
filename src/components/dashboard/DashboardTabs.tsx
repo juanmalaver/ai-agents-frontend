@@ -6,7 +6,21 @@ import type {
 import { appendDashboardQueryParams } from "@/src/utils/runtimeApiUrls";
 
 const tabs: Array<{ href: string; id: DashboardTabId; label: string }> = [
-  { href: "/marketing-dashboard", id: "overview", label: "Ad Performance" },
+  {
+    href: "/marketing-dashboard/combined",
+    id: "combined",
+    label: "Ad Performance",
+  },
+  {
+    href: "/marketing-dashboard",
+    id: "overview",
+    label: "Meta",
+  },
+  {
+    href: "/marketing-dashboard/tiktok",
+    id: "tiktok",
+    label: "TikTok",
+  },
   {
     href: "/marketing-dashboard/health",
     id: "health",

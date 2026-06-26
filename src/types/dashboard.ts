@@ -187,7 +187,12 @@ export type MetricFormat = "currency" | "number" | "percentage";
 
 export type MetricStatus = "on-track" | "alert" | "critical" | "unavailable";
 
-export type DashboardTabId = "overview" | "campaigns" | "health";
+export type DashboardTabId =
+  | "overview"
+  | "combined"
+  | "tiktok"
+  | "campaigns"
+  | "health";
 
 export type RowHealth = "met" | "near" | "critical" | "neutral";
 

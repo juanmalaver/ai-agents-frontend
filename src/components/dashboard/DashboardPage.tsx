@@ -31,16 +31,35 @@ import { DateRangeFilter } from "./DateRangeFilter";
 import { KpiCardsGrid } from "./KpiCardsGrid";
 import { LoadingSpinner } from "./LoadingSpinner";
 
-const dashboardSubtitle = "Campaign pacing and cost efficiency by state.";
+const dashboardCopy = {
+  overview: {
+    subtitle: "Campaign pacing and cost efficiency by state.",
+    title: "Meta",
+  },
+  combined: {
+    subtitle: "Meta and TikTok campaign pacing and cost efficiency by state.",
+    title: "Ad Performance",
+  },
+  tiktok: {
+    subtitle: "TikTok campaign pacing and cost efficiency by state.",
+    title: "TikTok",
+  },
+} as const;
+
+const TIKTOK_MAX_DATE_RANGE_DAYS = 30;
 
 export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
+  const maxRangeDays =
+    activeTab === "combined" || activeTab === "tiktok"
+      ? TIKTOK_MAX_DATE_RANGE_DAYS
+      : undefined;
   const {
     dashboardQuery,
     dateRange,
     selectedBrand,
     setDateRange,
     setSelectedBrand,
-  } = useDashboardQueryParams();
+  } = useDashboardQueryParams({ maxRangeDays });
   const kpisUrl = useMemo(
     () =>
       appendDashboardQueryParams(
@@ -107,14 +126,38 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
       stateCampaignsSection.generatedAt,
     ],
   );
+  const copy =
+    activeTab === "combined"
+      ? dashboardCopy.combined
+      : activeTab === "tiktok"
+        ? dashboardCopy.tiktok
+        : dashboardCopy.overview;
+  const dashboardStatusErrors = [
+    kpisSection.data ? kpisSection.error : null,
+    stateCampaignsSection.data ? stateCampaignsSection.error : null,
+    monthlyPerformanceSection.data ? monthlyPerformanceSection.error : null,
+  ].filter((error): error is string => Boolean(error));
+  const retryDashboardSections = () => {
+    if (kpisSection.data && kpisSection.error) {
+      kpisSection.retry();
+    }
+
+    if (stateCampaignsSection.data && stateCampaignsSection.error) {
+      stateCampaignsSection.retry();
+    }
+
+    if (monthlyPerformanceSection.data && monthlyPerformanceSection.error) {
+      monthlyPerformanceSection.retry();
+    }
+  };
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
         <DashboardHeader
           lastUpdated={lastUpdated}
-          subtitle={dashboardSubtitle}
-          title="Ad Performance"
+          subtitle={copy.subtitle}
+          title={copy.title}
         />
         {activeTab ? (
           <DashboardTabs activeTab={activeTab} query={dashboardQuery} />
@@ -132,14 +175,14 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             />
             <DateRangeFilter
               dateRange={dateRange}
+              maxRangeDays={maxRangeDays}
               onDateRangeChange={setDateRange}
             />
           </div>
         </section>
         <SectionStatus
-          error={kpisSection.data ? kpisSection.error : null}
-          isRefreshing={kpisSection.isRefreshing}
-          onRetry={kpisSection.retry}
+          errors={dashboardStatusErrors}
+          onRetry={retryDashboardSections}
         />
         {kpisSection.data ? (
           <KpiCardsGrid items={kpiCards} />
@@ -151,13 +194,6 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             onRetry={kpisSection.retry}
           />
         )}
-        <SectionStatus
-          error={
-            stateCampaignsSection.data ? stateCampaignsSection.error : null
-          }
-          isRefreshing={stateCampaignsSection.isRefreshing}
-          onRetry={stateCampaignsSection.retry}
-        />
         {stateCampaignsSection.data ? (
           <CampaignStateTable
             apiUrl={apiUrl}
@@ -175,15 +211,6 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             onRetry={stateCampaignsSection.retry}
           />
         )}
-        <SectionStatus
-          error={
-            monthlyPerformanceSection.data
-              ? monthlyPerformanceSection.error
-              : null
-          }
-          isRefreshing={monthlyPerformanceSection.isRefreshing}
-          onRetry={monthlyPerformanceSection.retry}
-        />
         {monthlyPerformanceSection.error &&
         !monthlyPerformanceSection.data &&
         !monthlyPerformanceSection.isLoading ? (
@@ -284,6 +311,11 @@ function buildKpiCards(
   return [
     {
       format: "currency",
+      helperText: formatCostEfficiencyHelper({
+        denominator: intakeConversion.mtdSl,
+        denominatorLabel: "SL",
+        spent: kpis.mtdSpent,
+      }),
       id: "cpsl",
       label: "CPSL",
       status: getCostStatus(kpis.cpsl),
@@ -291,6 +323,11 @@ function buildKpiCards(
     },
     {
       format: "currency",
+      helperText: formatCostEfficiencyHelper({
+        denominator: intakeConversion.leads,
+        denominatorLabel: "Leads",
+        spent: kpis.mtdSpent,
+      }),
       id: "cpl",
       label: "CPL",
       status: getCostStatus(kpis.finalCpl),
@@ -411,6 +448,24 @@ function formatMtdBudgetGoalHelper({
   return `Spent ${formatCurrency(spent)} · EOM ${formatCurrency(
     monthlyBudget,
   )} · ${monthPacing.daysElapsed}/${monthPacing.daysInMonth} days`;
+}
+
+function formatCostEfficiencyHelper({
+  denominator,
+  denominatorLabel,
+  spent,
+}: {
+  denominator: number | null;
+  denominatorLabel: string;
+  spent: number | null;
+}): string | undefined {
+  if (spent == null && denominator == null) {
+    return undefined;
+  }
+
+  return `Spend ${formatCurrency(spent)} · ${denominatorLabel} ${formatNumber(
+    denominator,
+  )}`;
 }
 
 interface SlGoalCompletion {
@@ -596,37 +651,33 @@ function formatLatestGeneratedAt(
 }
 
 function SectionStatus({
-  error,
-  isRefreshing,
+  errors,
   onRetry,
 }: {
-  error: string | null;
-  isRefreshing: boolean;
+  errors: string[];
   onRetry: () => void;
 }) {
-  if (!error && !isRefreshing) {
+  if (errors.length === 0) {
     return null;
   }
 
+  const message =
+    errors.length === 1
+      ? errors[0]
+      : `${errors.length} dashboard sections could not refresh. Showing cached data.`;
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-      <p
-        className={`flex items-center gap-2 ${
-          error ? "font-medium text-rose-700" : "font-medium text-slate-600"
-        }`}
-      >
-        {!error ? <LoadingSpinner label="Refreshing dashboard data" /> : null}
-        <span>{error ?? "Showing cached data while fresh data loads."}</span>
+      <p className="flex items-center gap-2 font-medium text-rose-700">
+        <span>{message}</span>
       </p>
-      {error ? (
-        <button
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-          onClick={onRetry}
-          type="button"
-        >
-          Retry
-        </button>
-      ) : null}
+      <button
+        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+        onClick={onRetry}
+        type="button"
+      >
+        Retry
+      </button>
     </div>
   );
 }
