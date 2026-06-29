@@ -348,24 +348,13 @@ function buildKpiCards(
       format: "percentage",
       helperText: formatBudgetProgressHelper({
         goal: mtdBudgetGoal,
+        monthPacing,
         spent: kpis.mtdSpent,
       }),
       id: "monthly-budget-mtd",
       label: "Monthly Budget MTD",
       status: getCompletionStatus(mtdBudgetCompletionPct),
       value: mtdBudgetCompletionPct,
-    },
-    {
-      format: "currency",
-      helperText: formatMtdBudgetGoalHelper({
-        monthlyBudget: kpis.budget,
-        monthPacing,
-        spent: kpis.mtdSpent,
-      }),
-      id: "mtd-budget-goal",
-      label: "MTD Budget Goal",
-      status: getCompletionStatus(mtdBudgetCompletionPct),
-      value: mtdBudgetGoal,
     },
     {
       format: "percentage",
@@ -420,34 +409,27 @@ function getCostStatus(value: number | null): MetricStatus {
 
 function formatBudgetProgressHelper({
   goal,
+  monthPacing,
   spent,
 }: {
   goal: number | null;
+  monthPacing?: MonthPacing;
   spent: number | null;
 }): string | undefined {
   if (goal == null && spent == null) {
     return undefined;
   }
 
-  return `Goal ${formatCurrency(goal)} · Spent ${formatCurrency(spent)}`;
-}
+  const parts = [
+    `Goal ${formatCurrency(goal)}`,
+    `Spent ${formatCurrency(spent)}`,
+  ];
 
-function formatMtdBudgetGoalHelper({
-  monthlyBudget,
-  monthPacing,
-  spent,
-}: {
-  monthlyBudget: number | null;
-  monthPacing: MonthPacing;
-  spent: number | null;
-}): string | undefined {
-  if (monthlyBudget == null && spent == null) {
-    return undefined;
+  if (monthPacing) {
+    parts.push(`${monthPacing.daysElapsed}/${monthPacing.daysInMonth} days`);
   }
 
-  return `Spent ${formatCurrency(spent)} · EOM ${formatCurrency(
-    monthlyBudget,
-  )} · ${monthPacing.daysElapsed}/${monthPacing.daysInMonth} days`;
+  return parts.join(" · ");
 }
 
 function formatCostEfficiencyHelper({

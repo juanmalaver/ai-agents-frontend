@@ -56,7 +56,11 @@ export type CampaignGradeCounts = Record<CampaignGrade, number>;
 export type CampaignGradeCountsStatus = "available" | "unavailable";
 
 export interface StateLawFirmCampaignRow {
+  adGradeCounts?: CampaignGradeCounts;
+  adGradeCountsStatus?: CampaignGradeCountsStatus;
   campaignName: string;
+  campaignGradeCounts?: CampaignGradeCounts;
+  campaignGradeCountsStatus?: CampaignGradeCountsStatus;
   id: string;
   leads: number;
   signedLeads: number;

@@ -93,6 +93,7 @@ const ALL_PLATFORM_OPTIONS: Array<{
   { id: "meta", label: "Meta" },
   { id: "tiktok", label: "TikTok" },
 ];
+const MAX_META_CREATIVE_FALLBACK_TARGETS = 3;
 
 interface HealthPageProps {
   apiUrl?: string;
@@ -100,6 +101,7 @@ interface HealthPageProps {
 
 interface SelectedAdReuse {
   label: string;
+  mediaPlacements: AdNamePlacement[];
   placements: AdNamePlacement[];
 }
 
@@ -118,6 +120,11 @@ interface AdMediaState {
   error: string | null;
   isLoading: boolean;
   media: CampaignHealthAdMedia | null;
+}
+
+interface AdMediaSelection {
+  state: AdMediaState;
+  target: AdMediaTarget;
 }
 
 export function HealthPage({ apiUrl }: HealthPageProps) {
@@ -167,9 +174,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   const [selectedRecommendations, setSelectedRecommendations] = useState<
     CampaignHealthRecommendation[]
   >([]);
-  const [selectedMetaStatuses, setSelectedMetaStatuses] = useState<
-    CampaignMetaDeliveryStatus[]
-  >([]);
+  const selectedCampaignMetaStatuses = useMemo(
+    () => normalizeMetaStatusParams(searchParams.getAll("campaignStatuses")),
+    [searchParams],
+  );
+  const selectedAdMetaStatuses = useMemo(
+    () => normalizeMetaStatusParams(searchParams.getAll("adStatuses")),
+    [searchParams],
+  );
   const selectedStates = useMemo(
     () =>
       searchParams
@@ -229,9 +241,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       filterHealthRows(data?.campaignRows ?? [], {
         selectedAdIds,
         selectedAdGrades,
+        selectedAdMetaStatuses,
         selectedCampaignIds,
         selectedGrades: [],
-        selectedMetaStatuses,
+        selectedCampaignMetaStatuses,
         selectedRecommendations,
         selectedStates,
       }),
@@ -239,8 +252,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       data,
       selectedAdIds,
       selectedAdGrades,
+      selectedAdMetaStatuses,
       selectedCampaignIds,
-      selectedMetaStatuses,
+      selectedCampaignMetaStatuses,
       selectedRecommendations,
       selectedStates,
     ],
@@ -250,9 +264,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       filterHealthRows(rowsBeforeGradeFilter, {
         selectedAdIds,
         selectedAdGrades,
+        selectedAdMetaStatuses,
         selectedCampaignIds,
         selectedGrades,
-        selectedMetaStatuses,
+        selectedCampaignMetaStatuses,
         selectedRecommendations,
         selectedStates,
       }),
@@ -260,15 +275,20 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       rowsBeforeGradeFilter,
       selectedAdIds,
       selectedAdGrades,
+      selectedAdMetaStatuses,
       selectedCampaignIds,
       selectedGrades,
-      selectedMetaStatuses,
+      selectedCampaignMetaStatuses,
       selectedRecommendations,
       selectedStates,
     ],
   );
   const adNamePlacements = useMemo(
     () => buildAdNamePlacementMap(data?.campaignRows ?? []),
+    [data],
+  );
+  const creativePlacements = useMemo(
+    () => buildCreativePlacementMap(data?.campaignRows ?? []),
     [data],
   );
   useEffect(() => {
@@ -360,6 +380,22 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [replaceParams],
   );
+  const handleCampaignMetaStatusesChange = useCallback(
+    (statuses: string[]) => {
+      replaceParams((nextParams) => {
+        setRepeatedQueryValues(nextParams, "campaignStatuses", statuses);
+      });
+    },
+    [replaceParams],
+  );
+  const handleAdMetaStatusesChange = useCallback(
+    (statuses: string[]) => {
+      replaceParams((nextParams) => {
+        setRepeatedQueryValues(nextParams, "adStatuses", statuses);
+      });
+    },
+    [replaceParams],
+  );
   const handlePlatformChange = useCallback(
     (platforms: string[]) => {
       const selectedPlatforms = normalizePlatformIds(platforms);
@@ -370,11 +406,13 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         } else {
           nextParams.delete("platform");
         }
+
+        nextParams.delete("campaignStatuses");
+        nextParams.delete("adStatuses");
       });
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
-      setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
@@ -387,6 +425,8 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         nextParams.delete("states");
         nextParams.delete("grades");
         nextParams.delete("adGrades");
+        nextParams.delete("campaignStatuses");
+        nextParams.delete("adStatuses");
 
         for (const brand of brands) {
           nextParams.append("brands", brand);
@@ -395,7 +435,6 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
-      setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
@@ -416,11 +455,12 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         nextParams.delete("states");
         nextParams.delete("grades");
         nextParams.delete("adGrades");
+        nextParams.delete("campaignStatuses");
+        nextParams.delete("adStatuses");
       });
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
-      setSelectedMetaStatuses([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
@@ -453,12 +493,18 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         setSelectedRecommendations(values as CampaignHealthRecommendation[]),
     );
     pruneSelection(
-      selectedMetaStatuses,
+      selectedCampaignMetaStatuses,
       (data?.filterOptions.metaStatuses ?? ALL_META_STATUSES).map(
         (option) => option.id,
       ),
-      (values) =>
-        setSelectedMetaStatuses(values as CampaignMetaDeliveryStatus[]),
+      handleCampaignMetaStatusesChange,
+    );
+    pruneSelection(
+      selectedAdMetaStatuses,
+      (data?.filterOptions.metaStatuses ?? ALL_META_STATUSES).map(
+        (option) => option.id,
+      ),
+      handleAdMetaStatusesChange,
     );
 
     const allowedStateIds = (data?.filterOptions.states ?? []).map(
@@ -475,14 +521,17 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     data?.filterOptions.metaStatuses,
     data?.filterOptions.states,
     handleAdGradesChange,
+    handleAdMetaStatusesChange,
+    handleCampaignMetaStatusesChange,
     handleGradesChange,
     handleStatesChange,
     selectedAdIds,
     selectedAdGrades,
+    selectedAdMetaStatuses,
     selectedCampaignIds,
+    selectedCampaignMetaStatuses,
     selectedGrades,
     selectedRecommendations,
-    selectedMetaStatuses,
     selectedStates,
   ]);
   const toggleExpandedRow = useCallback((id: string) => {
@@ -517,10 +566,15 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
 
       setSelectedAdReuse({
         label: ad.adName,
+        mediaPlacements: buildAdReuseMediaPlacements({
+          creativePlacements,
+          placements: adNamePlacements.get(key) ?? [{ ad, campaign }],
+          source: { ad, campaign },
+        }),
         placements: adNamePlacements.get(key) ?? [{ ad, campaign }],
       });
     },
-    [adNamePlacements],
+    [adNamePlacements, creativePlacements],
   );
 
   return (
@@ -630,22 +684,36 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
               )}
               withSearch={false}
             />
-            <MultiSelectFilter
-              disabled={dependentFiltersDisabled}
-              label="Delivery status"
-              loading={isRefreshingHealth}
-              onChange={(values) =>
-                setSelectedMetaStatuses(values as CampaignMetaDeliveryStatus[])
-              }
-              options={metaStatusOptions}
-              selectedIds={selectedMetaStatuses}
-              summary={summarizeSelection(
-                selectedMetaStatuses,
-                "All statuses",
-                "statuses selected",
-              )}
-              withSearch={false}
-            />
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Campaign status"
+                loading={isRefreshingHealth}
+                onChange={handleCampaignMetaStatusesChange}
+                options={metaStatusOptions}
+                selectedIds={selectedCampaignMetaStatuses}
+                summary={summarizeSelection(
+                  selectedCampaignMetaStatuses,
+                  "All campaign statuses",
+                  "campaign statuses selected",
+                )}
+                withSearch={false}
+              />
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Ad status"
+                loading={isRefreshingHealth}
+                onChange={handleAdMetaStatusesChange}
+                options={metaStatusOptions}
+                selectedIds={selectedAdMetaStatuses}
+                summary={summarizeSelection(
+                  selectedAdMetaStatuses,
+                  "All ad statuses",
+                  "ad statuses selected",
+                )}
+                withSearch={false}
+              />
+            </div>
             <MultiSelectFilter
               disabled={dependentFiltersDisabled}
               label="States"
@@ -697,8 +765,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 rows={filteredRows}
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
-                selectedMetaStatuses={selectedMetaStatuses}
-                selectedStates={selectedStates}
+                selectedAdMetaStatuses={selectedAdMetaStatuses}
               />
             </RefreshingRegion>
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
@@ -708,6 +775,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
               <AdReuseModal
                 adMediaApiUrl={adMediaApiUrl}
                 adName={selectedAdReuse.label}
+                mediaPlacements={selectedAdReuse.mediaPlacements}
                 onClose={() => setSelectedAdReuse(null)}
                 placements={selectedAdReuse.placements}
               />
@@ -942,8 +1010,7 @@ function HealthTable({
   rows,
   selectedAdIds,
   selectedAdGrades,
-  selectedMetaStatuses,
-  selectedStates,
+  selectedAdMetaStatuses,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   expandedRows: string[];
@@ -954,14 +1021,12 @@ function HealthTable({
   rows: CampaignHealthRow[];
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
-  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
-  selectedStates: string[];
+  selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
 }) {
   const expandedSet = new Set(expandedRows);
   const selectedAdSet = new Set(selectedAdIds);
   const selectedAdGradeSet = new Set(selectedAdGrades);
-  const selectedMetaStatusSet = new Set(selectedMetaStatuses);
-  const selectedStateSet = new Set(selectedStates);
+  const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
   const [sorting, setSorting] = useState<SortingState>([]);
   const columns = useMemo<ColumnDef<CampaignHealthRow>[]>(
     () => [
@@ -1144,7 +1209,9 @@ function HealthTable({
               table.getRowModel().rows.map((tableRow) => {
                 const row = tableRow.original;
                 const hasAdScopedFilter =
-                  selectedAdSet.size > 0 || selectedAdGradeSet.size > 0;
+                  selectedAdSet.size > 0 ||
+                  selectedAdGradeSet.size > 0 ||
+                  selectedAdMetaStatusSet.size > 0;
                 const autoExpanded =
                   hasAdScopedFilter &&
                   row.ads.some(
@@ -1154,10 +1221,9 @@ function HealthTable({
                       adMatchesSelectedGrade(ad, selectedAdGradeSet) &&
                       adMatchesSelectedMetaStatus(
                         ad,
-                        selectedMetaStatusSet,
+                        selectedAdMetaStatusSet,
                         row.platform ?? "meta",
-                      ) &&
-                      adMatchesSelectedStates(ad, selectedStateSet),
+                      ),
                   );
                 const isExpanded = expandedSet.has(row.id) || autoExpanded;
 
@@ -1173,8 +1239,7 @@ function HealthTable({
                     row={row}
                     selectedAdIds={selectedAdIds}
                     selectedAdGrades={selectedAdGrades}
-                    selectedMetaStatuses={selectedMetaStatuses}
-                    selectedStates={selectedStates}
+                    selectedAdMetaStatuses={selectedAdMetaStatuses}
                   />
                 );
               })
@@ -1205,8 +1270,7 @@ function HealthTableRow({
   row,
   selectedAdIds,
   selectedAdGrades,
-  selectedMetaStatuses,
-  selectedStates,
+  selectedAdMetaStatuses,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   isExpanded: boolean;
@@ -1217,8 +1281,7 @@ function HealthTableRow({
   row: CampaignHealthRow;
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
-  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
-  selectedStates: string[];
+  selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
 }) {
   const activePeriod = formatActivePeriod(row);
   const activePeriodTitle = activePeriod === "-" ? undefined : activePeriod;
@@ -1313,8 +1376,7 @@ function HealthTableRow({
                 onOpenAdReuse={onOpenAdReuse}
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
-                selectedMetaStatuses={selectedMetaStatuses}
-                selectedStates={selectedStates}
+                selectedAdMetaStatuses={selectedAdMetaStatuses}
               />
             </div>
           </td>
@@ -1369,8 +1431,7 @@ function AdDetailTable({
   onOpenAdReuse,
   selectedAdIds,
   selectedAdGrades,
-  selectedMetaStatuses,
-  selectedStates,
+  selectedAdMetaStatuses,
 }: {
   adNamePlacements: Map<string, AdNamePlacement[]>;
   ads: CampaignHealthAdRow[];
@@ -1378,14 +1439,12 @@ function AdDetailTable({
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
-  selectedMetaStatuses: CampaignMetaDeliveryStatus[];
-  selectedStates: string[];
+  selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
 }) {
   const visibleAds = useMemo(() => {
     const selectedAdIdSet = new Set(selectedAdIds);
     const selectedAdGradeSet = new Set(selectedAdGrades);
-    const selectedMetaStatusSet = new Set(selectedMetaStatuses);
-    const selectedStateSet = new Set(selectedStates);
+    const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
 
     return ads.filter((ad) => {
       if (
@@ -1402,22 +1461,21 @@ function AdDetailTable({
       if (
         !adMatchesSelectedMetaStatus(
           ad,
-          selectedMetaStatusSet,
+          selectedAdMetaStatusSet,
           campaign.platform ?? "meta",
         )
       ) {
         return false;
       }
 
-      return adMatchesSelectedStates(ad, selectedStateSet);
+      return true;
     });
   }, [
     ads,
     campaign,
     selectedAdIds,
     selectedAdGrades,
-    selectedMetaStatuses,
-    selectedStates,
+    selectedAdMetaStatuses,
   ]);
   const [sorting, setSorting] = useState<SortingState>([]);
   const isTikTokCampaign = campaign.platform === "tiktok";
@@ -1576,78 +1634,89 @@ function AdDetailTable({
             ))}
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {table.getRowModel().rows.map((tableRow) => {
-              const ad = tableRow.original;
-              const placementCount = getAdNamePlacementCount(
-                adNamePlacements,
-                ad,
-                campaign,
-              );
-              const isClickable = Boolean(normalizeAdName(ad.adName));
+            {table.getRowModel().rows.length > 0 ? (
+              table.getRowModel().rows.map((tableRow) => {
+                const ad = tableRow.original;
+                const placementCount = getAdNamePlacementCount(
+                  adNamePlacements,
+                  ad,
+                  campaign,
+                );
+                const isClickable = Boolean(normalizeAdName(ad.adName));
 
-              return (
-                <tr key={ad.id}>
-                  <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
-                    {isClickable ? (
-                      <button
-                        className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-                        onClick={() => onOpenAdReuse(ad, campaign)}
-                        title={ad.adName}
-                        type="button"
-                      >
-                        {ad.adName}
-                      </button>
-                    ) : (
-                      <span
-                        className="block max-w-full break-words [overflow-wrap:anywhere]"
-                        title={ad.adName || undefined}
-                      >
-                        {ad.adName}
-                      </span>
-                    )}
-                    {placementCount > 1 ? (
-                      <div className="mt-1 text-xs font-medium text-slate-500">
-                        {formatNumber(placementCount)} placements
-                      </div>
+                return (
+                  <tr key={ad.id}>
+                    <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
+                      {isClickable ? (
+                        <button
+                          className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                          onClick={() => onOpenAdReuse(ad, campaign)}
+                          title={ad.adName}
+                          type="button"
+                        >
+                          {ad.adName}
+                        </button>
+                      ) : (
+                        <span
+                          className="block max-w-full break-words [overflow-wrap:anywhere]"
+                          title={ad.adName || undefined}
+                        >
+                          {ad.adName}
+                        </span>
+                      )}
+                      {placementCount > 1 ? (
+                        <div className="mt-1 text-xs font-medium text-slate-500">
+                          {formatNumber(placementCount)} placements
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
+                      <GradeChip grade={ad.grade} />
+                    </td>
+                    {showAdGroupColumn ? (
+                      <td className="px-3 py-2">
+                        <MetaStatusChip
+                          status={getAdsetMetaStatus(ad)}
+                          unknownLabel="-"
+                        />
+                      </td>
                     ) : null}
-                  </td>
-                  <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
-                    <GradeChip grade={ad.grade} />
-                  </td>
-                  {showAdGroupColumn ? (
-                    <td className="px-3 py-2">
-                      <MetaStatusChip
-                        status={getAdsetMetaStatus(ad)}
-                        unknownLabel="-"
-                      />
+                    {showAdStatusColumn ? (
+                      <td className="px-3 py-2">
+                        <MetaStatusChip status={getAdMetaStatus(ad)} />
+                      </td>
+                    ) : null}
+                    <td className="break-words px-3 py-2 text-slate-500">
+                      {ad.adId ?? "-"}
                     </td>
-                  ) : null}
-                  {showAdStatusColumn ? (
-                    <td className="px-3 py-2">
-                      <MetaStatusChip status={getAdMetaStatus(ad)} />
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(ad.spend)}
                     </td>
-                  ) : null}
-                  <td className="break-words px-3 py-2 text-slate-500">
-                    {ad.adId ?? "-"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatCurrency(ad.spend)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatNumber(ad.leads)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatNumber(ad.signedLeads)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatCurrency(ad.cpl)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatCurrency(ad.cpsl)}
-                  </td>
-                </tr>
-              );
-            })}
+                    <td className="px-3 py-2 text-right">
+                      {formatNumber(ad.leads)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatNumber(ad.signedLeads)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(ad.cpl)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(ad.cpsl)}
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  className="px-3 py-6 text-center text-sm font-medium text-slate-500"
+                  colSpan={columns.length}
+                >
+                  No ads match the selected ad filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
     </div>
@@ -1657,11 +1726,13 @@ function AdDetailTable({
 function AdReuseModal({
   adMediaApiUrl,
   adName,
+  mediaPlacements,
   onClose,
   placements,
 }: {
   adMediaApiUrl?: string;
   adName: string;
+  mediaPlacements: AdNamePlacement[];
   onClose: () => void;
   placements: AdNamePlacement[];
 }) {
@@ -1678,12 +1749,12 @@ function AdReuseModal({
     [isMetaPlacement, placements, selectedMetaStatuses],
   );
   const mediaTargets = useMemo(
-    () => buildAdMediaTargets(visiblePlacements),
-    [visiblePlacements],
+    () => buildAdMediaTargets(mediaPlacements),
+    [mediaPlacements],
   );
-  const [mediaByAdId, setMediaByAdId] = useState<Record<string, AdMediaState>>(
-    {},
-  );
+  const [mediaByTargetKey, setMediaByTargetKey] = useState<
+    Record<string, AdMediaState>
+  >({});
   const totals = visiblePlacements.reduce(
     (sum, placement) => ({
       leads: sum.leads + placement.ad.leads,
@@ -1713,16 +1784,16 @@ function AdReuseModal({
 
   useEffect(() => {
     if (!adMediaApiUrl || mediaTargets.length === 0) {
-      setMediaByAdId({});
+      setMediaByTargetKey({});
       return;
     }
 
     let isActive = true;
 
-    setMediaByAdId(
+    setMediaByTargetKey(
       Object.fromEntries(
         mediaTargets.map((target) => [
-          target.adId,
+          buildAdMediaTargetKey(target),
           { error: null, isLoading: true, media: null },
         ]),
       ),
@@ -1758,9 +1829,12 @@ function AdReuseModal({
         return;
       }
 
-      setMediaByAdId(
+      setMediaByTargetKey(
         Object.fromEntries(
-          results.map((result) => [result.target.adId, result.state]),
+          results.map((result) => [
+            buildAdMediaTargetKey(result.target),
+            result.state,
+          ]),
         ),
       );
     }
@@ -1825,7 +1899,7 @@ function AdReuseModal({
           </div>
           <AdMediaPreviewPanel
             isConfigured={Boolean(adMediaApiUrl)}
-            mediaByAdId={mediaByAdId}
+            mediaByTargetKey={mediaByTargetKey}
             platform={placementPlatform}
             targets={mediaTargets}
           />
@@ -1851,16 +1925,20 @@ function AdReuseModal({
 
 function AdMediaPreviewPanel({
   isConfigured,
-  mediaByAdId,
+  mediaByTargetKey,
   platform,
   targets,
 }: {
   isConfigured: boolean;
-  mediaByAdId: Record<string, AdMediaState>;
+  mediaByTargetKey: Record<string, AdMediaState>;
   platform: CampaignPlatform;
   targets: AdMediaTarget[];
 }) {
-  const bestState = getBestAdMediaState(targets, mediaByAdId);
+  const bestSelection = getBestAdMediaSelection(
+    targets,
+    mediaByTargetKey,
+    platform,
+  );
   const platformName = platformLabel(platform);
 
   if (targets.length === 0) {
@@ -1888,23 +1966,46 @@ function AdMediaPreviewPanel({
           Creative preview
         </h3>
       </div>
-      <AdMediaPreviewCard state={bestState} targets={targets} />
+      <AdMediaPreviewCard
+        mediaByTargetKey={mediaByTargetKey}
+        selection={bestSelection}
+        sourcePlatform={platform}
+        targets={targets}
+      />
     </div>
   );
 }
 
 function AdMediaPreviewCard({
-  state,
+  mediaByTargetKey,
+  selection,
+  sourcePlatform,
   targets,
 }: {
-  state: AdMediaState;
+  mediaByTargetKey: Record<string, AdMediaState>;
+  selection: AdMediaSelection | null;
+  sourcePlatform: CampaignPlatform;
   targets: AdMediaTarget[];
 }) {
+  const state =
+    selection?.state ?? { error: null, isLoading: false, media: null };
   const media = state.media;
-  const primaryTarget = targets[0];
-  const watchUrl = getAdMediaWatchUrl(media, primaryTarget.platform);
-  const watchLabel = getAdMediaWatchLabel(media, primaryTarget.platform);
-  const platformName = platformLabel(primaryTarget.platform);
+  const primaryTarget = selection?.target ?? targets[0];
+  const watchUrl = getAdMediaWatchUrl(media, primaryTarget?.platform ?? "meta");
+  const watchLabel = getAdMediaWatchLabel(
+    media,
+    primaryTarget?.platform ?? "meta",
+  );
+  const sourcePlatformName = platformLabel(sourcePlatform);
+  const previewPlatformName = platformLabel(primaryTarget?.platform ?? "meta");
+  const secondaryWatch = getSecondaryAdMediaWatchAction({
+    mediaByTargetKey,
+    primaryTarget,
+    sourcePlatform,
+    targets,
+  });
+  const isFallbackPreview =
+    Boolean(primaryTarget) && primaryTarget.platform !== sourcePlatform;
 
   return (
     <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white p-3">
@@ -1961,28 +2062,46 @@ function AdMediaPreviewCard({
       <div className="min-w-0 flex-1">
         <div>
           <div className="truncate text-sm font-semibold text-slate-950">
-            {media?.adName ?? primaryTarget.campaignLabel}
+            {media?.adName ?? primaryTarget?.campaignLabel ?? "Ad creative"}
           </div>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span>{media?.mediaType ?? "unknown"}</span>
           <span>
-            {formatNumber(targets.length)} {platformName} ad
+            {formatNumber(targets.length)} creative candidate
             {targets.length === 1 ? "" : "s"} matched
           </span>
-          <span className="truncate">Ad ID: {primaryTarget.adId}</span>
+          <span>{previewPlatformName} preview</span>
+          {isFallbackPreview ? (
+            <span>Fallback for {sourcePlatformName}</span>
+          ) : null}
+          {primaryTarget ? (
+            <span className="truncate">Ad ID: {primaryTarget.adId}</span>
+          ) : null}
         </div>
       </div>
-      {watchUrl ? (
-        <a
-          className="shrink-0 rounded-md border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900"
-          href={watchUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          {watchLabel}
-        </a>
-      ) : null}
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {watchUrl ? (
+          <a
+            className="rounded-md border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900"
+            href={watchUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {watchLabel}
+          </a>
+        ) : null}
+        {secondaryWatch ? (
+          <a
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            href={secondaryWatch.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {secondaryWatch.label}
+          </a>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -2458,7 +2577,7 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-base font-semibold text-slate-950">
-        Health formulas
+        Audit formulas
       </h2>
       <p className="mt-2 text-sm text-slate-600">
         Campaign grades use CPSL, volume, quality, and Int. Conv. CPSL is the
@@ -2967,9 +3086,10 @@ function filterHealthRows(
   filters: {
     selectedAdIds: string[];
     selectedAdGrades: CampaignHealthGrade[];
+    selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
     selectedCampaignIds: string[];
+    selectedCampaignMetaStatuses: CampaignMetaDeliveryStatus[];
     selectedGrades: CampaignHealthGrade[];
-    selectedMetaStatuses: CampaignMetaDeliveryStatus[];
     selectedRecommendations: CampaignHealthRecommendation[];
     selectedStates: string[];
   },
@@ -2977,8 +3097,11 @@ function filterHealthRows(
   const selectedCampaignIds = new Set(filters.selectedCampaignIds);
   const selectedAdIds = new Set(filters.selectedAdIds);
   const selectedAdGrades = new Set(filters.selectedAdGrades);
+  const selectedAdMetaStatuses = new Set(filters.selectedAdMetaStatuses);
+  const selectedCampaignMetaStatuses = new Set(
+    filters.selectedCampaignMetaStatuses,
+  );
   const selectedGrades = new Set(filters.selectedGrades);
-  const selectedMetaStatuses = new Set(filters.selectedMetaStatuses);
   const selectedRecommendations = new Set(filters.selectedRecommendations);
   const selectedStates = new Set(filters.selectedStates);
 
@@ -2988,7 +3111,9 @@ function filterHealthRows(
     }
 
     const hasAdScopedFilter =
-      selectedAdIds.size > 0 || selectedAdGrades.size > 0;
+      selectedAdIds.size > 0 ||
+      selectedAdGrades.size > 0 ||
+      selectedAdMetaStatuses.size > 0;
     let selectedRowAds = hasAdScopedFilter ? row.ads : [];
 
     if (selectedAdIds.size > 0) {
@@ -3003,19 +3128,13 @@ function filterHealthRows(
       );
     }
 
-    if (selectedMetaStatuses.size > 0 && hasAdScopedFilter) {
+    if (selectedAdMetaStatuses.size > 0) {
       selectedRowAds = selectedRowAds.filter((ad) =>
         adMatchesSelectedMetaStatus(
           ad,
-          selectedMetaStatuses,
+          selectedAdMetaStatuses,
           row.platform ?? "meta",
         ),
-      );
-    }
-
-    if (selectedStates.size > 0 && hasAdScopedFilter) {
-      selectedRowAds = selectedRowAds.filter((ad) =>
-        adMatchesSelectedStates(ad, selectedStates),
       );
     }
 
@@ -3024,16 +3143,14 @@ function filterHealthRows(
     }
 
     if (
-      selectedMetaStatuses.size > 0 &&
-      !hasAdScopedFilter &&
-      !selectedMetaStatuses.has(getRowMetaStatus(row).id)
+      selectedCampaignMetaStatuses.size > 0 &&
+      !selectedCampaignMetaStatuses.has(getRowMetaStatus(row).id)
     ) {
       return false;
     }
 
     if (
       selectedStates.size > 0 &&
-      !hasAdScopedFilter &&
       !rowMatchesSelectedStates(row, selectedStates)
     ) {
       return false;
@@ -3093,6 +3210,189 @@ function buildAdNamePlacementMap(
   return placements;
 }
 
+function buildCreativePlacementMap(
+  rows: CampaignHealthRow[],
+): Map<string, AdNamePlacement[]> {
+  const placements = new Map<string, AdNamePlacement[]>();
+
+  for (const campaign of rows) {
+    for (const ad of campaign.ads) {
+      for (const key of buildCreativePlacementKeys(ad.adName)) {
+        const current = placements.get(key) ?? [];
+
+        current.push({ ad, campaign });
+        placements.set(key, current);
+      }
+    }
+  }
+
+  for (const current of placements.values()) {
+    current.sort(
+      (first, second) =>
+        Number(isMetaFallbackCandidate(first)) -
+          Number(isMetaFallbackCandidate(second)) ||
+        second.ad.spend - first.ad.spend ||
+        first.campaign.brand.localeCompare(second.campaign.brand) ||
+        first.campaign.campaignName.localeCompare(
+          second.campaign.campaignName,
+        ) ||
+        first.ad.id.localeCompare(second.ad.id),
+    );
+  }
+
+  return placements;
+}
+
+function buildAdReuseMediaPlacements({
+  creativePlacements,
+  placements,
+  source,
+}: {
+  creativePlacements: Map<string, AdNamePlacement[]>;
+  placements: AdNamePlacement[];
+  source: AdNamePlacement;
+}): AdNamePlacement[] {
+  if ((source.campaign.platform ?? "meta") !== "tiktok") {
+    return placements;
+  }
+
+  const fallbackPlacements = dedupeAdNamePlacements(
+    buildCreativePlacementKeys(source.ad.adName)
+      .flatMap((key) => creativePlacements.get(key) ?? [])
+      .filter((placement) =>
+        isMetaCreativeFallbackPlacement(source, placement),
+      ),
+  )
+    .sort((first, second) =>
+      sortCreativeFallbackPlacements(source, first, second),
+    )
+    .slice(0, MAX_META_CREATIVE_FALLBACK_TARGETS);
+
+  return dedupeAdNamePlacements([...placements, ...fallbackPlacements]);
+}
+
+function sortCreativeFallbackPlacements(
+  source: AdNamePlacement,
+  first: AdNamePlacement,
+  second: AdNamePlacement,
+): number {
+  return (
+    Number(isBrandCompatibleCreativeFallback(source, second)) -
+      Number(isBrandCompatibleCreativeFallback(source, first)) ||
+    second.ad.spend - first.ad.spend ||
+    second.ad.leads - first.ad.leads ||
+    first.campaign.brand.localeCompare(second.campaign.brand) ||
+    first.campaign.campaignName.localeCompare(second.campaign.campaignName) ||
+    first.ad.id.localeCompare(second.ad.id)
+  );
+}
+
+function isMetaCreativeFallbackPlacement(
+  source: AdNamePlacement,
+  placement: AdNamePlacement,
+): boolean {
+  if ((placement.campaign.platform ?? "meta") !== "meta") {
+    return false;
+  }
+
+  if (!placement.ad.adId?.trim()) {
+    return false;
+  }
+
+  if (!hasSharedCreativePlacementKey(source.ad.adName, placement.ad.adName)) {
+    return false;
+  }
+
+  return isBrandCompatibleCreativeFallback(source, placement);
+}
+
+function isBrandCompatibleCreativeFallback(
+  source: AdNamePlacement,
+  placement: AdNamePlacement,
+): boolean {
+  const sourceBrand = normalizeCreativeBrand(source.campaign.brand);
+  const placementBrand = normalizeCreativeBrand(placement.campaign.brand);
+
+  if (!sourceBrand || sourceBrand === "unattributed" || !placementBrand) {
+    return true;
+  }
+
+  return (
+    sourceBrand === placementBrand ||
+    sourceBrand.includes(placementBrand) ||
+    placementBrand.includes(sourceBrand)
+  );
+}
+
+function dedupeAdNamePlacements(
+  placements: AdNamePlacement[],
+): AdNamePlacement[] {
+  const seen = new Set<string>();
+  const deduped: AdNamePlacement[] = [];
+
+  for (const placement of placements) {
+    const key = `${placement.campaign.platform ?? "meta"}:${
+      placement.ad.adId ?? placement.ad.id
+    }`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(placement);
+  }
+
+  return deduped;
+}
+
+function hasSharedCreativePlacementKey(
+  first: string | null | undefined,
+  second: string | null | undefined,
+): boolean {
+  const secondKeys = new Set(buildCreativePlacementKeys(second));
+
+  return buildCreativePlacementKeys(first).some((key) => secondKeys.has(key));
+}
+
+function buildCreativePlacementKeys(
+  value: string | null | undefined,
+): string[] {
+  const normalized = normalizeAdName(value);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const keys = new Set<string>([normalized]);
+  const extensionSuffix = normalized.match(/\.(?:mp4|mov|m4v|avi|webm)_(.+)$/);
+  const creativeCode = normalized.match(/\b(veo_[a-z0-9]+_[a-z0-9]+)\b/);
+
+  if (extensionSuffix?.[1]) {
+    keys.add(extensionSuffix[1].trim());
+  }
+
+  if (creativeCode?.[1]) {
+    keys.add(creativeCode[1]);
+  }
+
+  return [...keys].filter(Boolean);
+}
+
+function normalizeCreativeBrand(value: string | null | undefined): string {
+  return (
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/\b\d+(?:\.\d+)?\b/g, "")
+      .replace(/[^a-z0-9]+/g, "") ?? ""
+  );
+}
+
+function isMetaFallbackCandidate(placement: AdNamePlacement): boolean {
+  return (placement.campaign.platform ?? "meta") === "meta";
+}
+
 function getAdNamePlacementCount(
   placements: Map<string, AdNamePlacement[]>,
   ad: CampaignHealthAdRow,
@@ -3125,58 +3425,90 @@ function buildAdMediaTargets(placements: AdNamePlacement[]): AdMediaTarget[] {
 
   for (const placement of placements) {
     const adId = placement.ad.adId?.trim();
+    const platform = placement.campaign.platform ?? "meta";
+    const targetKey = `${platform}:${adId}`;
 
-    if (!adId || targets.has(adId)) {
+    if (!adId || targets.has(targetKey)) {
       continue;
     }
 
-    targets.set(adId, {
+    targets.set(targetKey, {
       adId,
       campaignLabel: `${placement.campaign.brand} / ${placement.campaign.campaignName}`,
-      platform: placement.campaign.platform ?? "meta",
+      platform,
     });
   }
 
   return Array.from(targets.values());
 }
 
-function getBestAdMediaState(
+function buildAdMediaTargetKey(target: AdMediaTarget): string {
+  return `${target.platform}:${target.adId}`;
+}
+
+function getBestAdMediaSelection(
   targets: AdMediaTarget[],
-  mediaByAdId: Record<string, AdMediaState>,
-): AdMediaState {
-  let bestState: AdMediaState | null = null;
+  mediaByTargetKey: Record<string, AdMediaState>,
+  sourcePlatform: CampaignPlatform,
+): AdMediaSelection | null {
+  let bestSelection: AdMediaSelection | null = null;
 
   for (const target of targets) {
-    const state = mediaByAdId[target.adId] ?? {
+    const state = mediaByTargetKey[buildAdMediaTargetKey(target)] ?? {
       error: null,
       isLoading: true,
       media: null,
     };
+    const selection = { state, target };
 
-    if (!bestState || isBetterAdMediaState(state, bestState, target.platform)) {
-      bestState = state;
+    if (
+      !bestSelection ||
+      isBetterAdMediaSelection(selection, bestSelection, sourcePlatform)
+    ) {
+      bestSelection = selection;
       continue;
     }
   }
 
-  return (
-    bestState ?? {
-      error: null,
-      isLoading: false,
-      media: null,
-    }
-  );
+  return bestSelection;
 }
 
-function isBetterAdMediaState(
-  candidate: AdMediaState,
-  current: AdMediaState,
-  platform: CampaignPlatform,
+function isBetterAdMediaSelection(
+  candidate: AdMediaSelection,
+  current: AdMediaSelection,
+  sourcePlatform: CampaignPlatform,
 ): boolean {
-  return (
-    getAdMediaAvailabilityRank(candidate, platform) >
-    getAdMediaAvailabilityRank(current, platform)
+  const candidateRank = getAdMediaAvailabilityRank(
+    candidate.state,
+    candidate.target.platform,
   );
+  const currentRank = getAdMediaAvailabilityRank(
+    current.state,
+    current.target.platform,
+  );
+
+  if (candidateRank !== currentRank) {
+    return candidateRank > currentRank;
+  }
+
+  if (
+    sourcePlatform === "tiktok" &&
+    candidate.target.platform === "meta" &&
+    current.target.platform === "tiktok" &&
+    currentRank <= 3 &&
+    getAdMediaWatchUrl(candidate.state.media, candidate.target.platform)
+  ) {
+    return true;
+  }
+
+  if (
+    candidate.target.platform === sourcePlatform &&
+    current.target.platform !== sourcePlatform
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function getAdMediaAvailabilityRank(
@@ -3207,6 +3539,43 @@ function getAdMediaAvailabilityRank(
   }
 
   return 0;
+}
+
+function getSecondaryAdMediaWatchAction({
+  mediaByTargetKey,
+  primaryTarget,
+  sourcePlatform,
+  targets,
+}: {
+  mediaByTargetKey: Record<string, AdMediaState>;
+  primaryTarget: AdMediaTarget | undefined;
+  sourcePlatform: CampaignPlatform;
+  targets: AdMediaTarget[];
+}): { label: string; url: string } | null {
+  if (!primaryTarget || primaryTarget.platform === sourcePlatform) {
+    return null;
+  }
+
+  for (const target of targets) {
+    if (
+      target.platform !== sourcePlatform ||
+      buildAdMediaTargetKey(target) === buildAdMediaTargetKey(primaryTarget)
+    ) {
+      continue;
+    }
+
+    const media = mediaByTargetKey[buildAdMediaTargetKey(target)]?.media;
+    const url = getAdMediaWatchUrl(media, target.platform);
+
+    if (url) {
+      return {
+        label: getAdMediaWatchLabel(media, target.platform),
+        url,
+      };
+    }
+  }
+
+  return null;
 }
 
 function getAdMediaWatchUrl(
@@ -3473,6 +3842,27 @@ function normalizeGradeParams(values: string[]): CampaignHealthGrade[] {
   }
 
   return ALL_GRADES.filter((grade) => selected.has(grade));
+}
+
+function normalizeMetaStatusParams(
+  values: string[],
+): CampaignMetaDeliveryStatus[] {
+  const allowedStatuses = new Set<CampaignMetaDeliveryStatus>(
+    ALL_META_STATUSES.map((status) => status.id),
+  );
+  const selected = new Set<CampaignMetaDeliveryStatus>();
+
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase();
+
+    if (allowedStatuses.has(normalized as CampaignMetaDeliveryStatus)) {
+      selected.add(normalized as CampaignMetaDeliveryStatus);
+    }
+  }
+
+  return ALL_META_STATUSES.map((status) => status.id).filter((status) =>
+    selected.has(status),
+  );
 }
 
 function normalizePlatformParam(

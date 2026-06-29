@@ -1,4 +1,5 @@
 import type { DashboardQueryParams } from "@/src/types/dashboard";
+import type { HealthDashboardPlatform } from "@/src/types/campaignHealth";
 
 const LOCAL_BACKEND_ORIGIN = "http://localhost:3002";
 const FRONTEND_SERVICE_NAME = "ai-agents-frontend";
@@ -294,12 +295,17 @@ export function buildHealthPageUrl(
   query?: Partial<DashboardQueryParams> & {
     adGrades?: string[] | null;
     grades?: string[] | null;
+    platform?: HealthDashboardPlatform | string | null;
     states?: string[] | null;
   },
 ): string {
   const params = new URLSearchParams();
   const normalizedBrand = normalizeBrandParam(query?.brand);
   const normalizedFrom = normalizeDateParam(query?.from);
+  const normalizedPlatform =
+    query?.platform == null
+      ? null
+      : normalizeHealthPlatformParam(query.platform);
   const normalizedTo = normalizeDateParam(query?.to);
 
   if (normalizedBrand) {
@@ -309,6 +315,10 @@ export function buildHealthPageUrl(
   if (normalizedFrom && normalizedTo && normalizedFrom <= normalizedTo) {
     params.set("from", normalizedFrom);
     params.set("to", normalizedTo);
+  }
+
+  if (normalizedPlatform) {
+    params.set("platform", normalizedPlatform);
   }
 
   for (const state of query?.states ?? []) {

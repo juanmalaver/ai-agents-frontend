@@ -118,7 +118,11 @@ export function useDashboardSection<TResponse, TData = TResponse>({
         setState((current) => ({
           ...current,
           error:
-            caughtError instanceof Error ? caughtError.message : errorMessage,
+            current.data && !isAuthenticationError(caughtError)
+              ? null
+              : caughtError instanceof Error
+                ? caughtError.message
+                : errorMessage,
           isLoading: false,
           isRefreshing: false,
         }));
@@ -167,6 +171,13 @@ async function buildDashboardFetchError(
   }
 
   return `${fallbackMessage} (${response.status})`;
+}
+
+function isAuthenticationError(caughtError: unknown): boolean {
+  return (
+    caughtError instanceof Error &&
+    caughtError.message.toLowerCase().includes("authentication expired")
+  );
 }
 
 async function readResponseMessage(response: Response): Promise<string | null> {

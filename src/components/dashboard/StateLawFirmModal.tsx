@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-table";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { HealthDashboardPlatform } from "@/src/types/campaignHealth";
 import type {
   CampaignGrade,
   CampaignGradeCounts,
@@ -84,6 +85,7 @@ export function StateLawFirmModal({
     () => buildStateLawFirmSummaryItems(rows, monthPacing),
     [monthPacing, rows],
   );
+  const auditPlatform = useMemo(() => inferAuditPlatform(apiUrl), [apiUrl]);
   const lawFirmUrl = useMemo(
     () =>
       appendStateLawFirmsQueryParams(
@@ -196,6 +198,7 @@ export function StateLawFirmModal({
                 href={buildHealthPageUrl({
                   brand: query.brand,
                   from: query.from,
+                  platform: auditPlatform,
                   states: [stateRow.state],
                   to: query.to,
                 })}
@@ -249,6 +252,7 @@ export function StateLawFirmModal({
               <CampaignGradeSummary
                 adGradeCounts={adGradeCounts}
                 adStatus={adGradeCountsStatus}
+                auditPlatform={auditPlatform}
                 gradeCounts={gradeCounts}
                 query={query}
                 status={gradeCountsStatus}
@@ -505,6 +509,22 @@ const nullableCampaignNumberSortingFn: SortingFn<StateLawFirmCampaignRow> = (
   normalizeSortableNumber(first.getValue<number | null>(columnId)) -
   normalizeSortableNumber(second.getValue<number | null>(columnId));
 
+const GRADE_SORT_RANKS: Record<CampaignGrade, number> = {
+  A: 0,
+  B: 1,
+  C: 2,
+  D: 3,
+  F: 4,
+};
+
+const campaignGradeBreakdownSortingFn: SortingFn<StateLawFirmCampaignRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  getGradeBreakdownSortValue(first.original, columnId) -
+  getGradeBreakdownSortValue(second.original, columnId);
+
 function renderSortableHeader<TData>(header: Header<TData, unknown>) {
   if (header.isPlaceholder) {
     return null;
@@ -548,16 +568,18 @@ function getHeaderInfo<TData>(header: Header<TData, unknown>): string | null {
 
 function getColumnWidth(columnId: string): string {
   const widths: Record<string, string> = {
-    campaignName: "70%",
+    adGradeCounts: "22%",
+    campaignGradeCounts: "16%",
+    campaignName: "42%",
     eomSlGoal: "11%",
     lawFirm: "22%",
     leadGoalPct: "10%",
-    leads: "9%",
+    leads: "10%",
     leadsGoal: "9%",
     mtdLeadsGoal: "10%",
     mtdSl: "9%",
     mtdSlGoal: "10%",
-    signedLeads: "15%",
+    signedLeads: "10%",
     slPacingPct: "10%",
   };
 
@@ -785,6 +807,18 @@ function renderNumberCell(value: string) {
   return <span className="block text-right tabular-nums">{value}</span>;
 }
 
+function renderCampaignMetricCell(value: number) {
+  return (
+    <span
+      className={`block font-semibold tabular-nums ${
+        value > 0 ? "text-slate-950" : "text-slate-400"
+      }`}
+    >
+      {formatNumber(value)}
+    </span>
+  );
+}
+
 function renderSlPacingCell(value: number | null) {
   return (
     <span
@@ -821,24 +855,78 @@ function LawFirmCampaignTable({
   lawFirm: string;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [selectedAdGrades, setSelectedAdGrades] = useState<CampaignGrade[]>([]);
+  const [selectedCampaignGrades, setSelectedCampaignGrades] = useState<
+    CampaignGrade[]
+  >([]);
+  const campaignGradeFilterCounts = useMemo(
+    () => countCampaignRowsByGrade(campaigns, "campaignGradeCounts"),
+    [campaigns],
+  );
+  const adGradeFilterCounts = useMemo(
+    () => countCampaignRowsByGrade(campaigns, "adGradeCounts"),
+    [campaigns],
+  );
+  const filteredCampaigns = useMemo(
+    () =>
+      campaigns.filter(
+        (campaign) =>
+          gradeCountsMatchSelection(
+            campaign.campaignGradeCounts,
+            selectedCampaignGrades,
+          ) &&
+          gradeCountsMatchSelection(campaign.adGradeCounts, selectedAdGrades),
+      ),
+    [campaigns, selectedAdGrades, selectedCampaignGrades],
+  );
+  const hasActiveGradeFilters =
+    selectedAdGrades.length > 0 || selectedCampaignGrades.length > 0;
+  const stats = useMemo(
+    () => buildCampaignDrilldownStats(campaigns, filteredCampaigns),
+    [campaigns, filteredCampaigns],
+  );
   const columns = useMemo<ColumnDef<StateLawFirmCampaignRow>[]>(
     () => [
       {
         accessorKey: "campaignName",
-        cell: ({ getValue }) => (
-          <span className="font-medium text-slate-900">
-            {getValue<string>()}
-          </span>
-        ),
+        cell: ({ row }) => <CampaignNameCell campaign={row.original} />,
         header: "Campaign",
         meta: {
           info: "The campaign grouped under this law firm.",
         },
       },
       {
+        cell: ({ row }) => (
+          <CampaignGradeCell
+            counts={row.original.campaignGradeCounts}
+            status={row.original.campaignGradeCountsStatus}
+          />
+        ),
+        header: "Campaign grade",
+        id: "campaignGradeCounts",
+        meta: {
+          info: "Campaign health grade for this campaign in the selected state.",
+        },
+        sortingFn: campaignGradeBreakdownSortingFn,
+      },
+      {
+        cell: ({ row }) => (
+          <GradeBreakdownChips
+            counts={row.original.adGradeCounts}
+            status={row.original.adGradeCountsStatus}
+          />
+        ),
+        header: "Ad grade mix",
+        id: "adGradeCounts",
+        meta: {
+          info: "Ad health grade mix for this campaign in the selected state.",
+        },
+        sortingFn: campaignGradeBreakdownSortingFn,
+      },
+      {
         accessorKey: "leads",
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number>())),
+          renderCampaignMetricCell(getValue<number>()),
         header: "Leads",
         meta: {
           info: "Leads generated by this campaign in the selected month.",
@@ -849,7 +937,7 @@ function LawFirmCampaignTable({
       {
         accessorKey: "signedLeads",
         cell: ({ getValue }) =>
-          renderNumberCell(formatNumber(getValue<number>())),
+          renderCampaignMetricCell(getValue<number>()),
         header: "SL",
         meta: {
           info: "Signed leads generated by this campaign in the selected month.",
@@ -862,7 +950,7 @@ function LawFirmCampaignTable({
   );
   const table = useReactTable({
     columns,
-    data: campaigns,
+    data: filteredCampaigns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     onSortingChange: setSorting,
@@ -872,44 +960,409 @@ function LawFirmCampaignTable({
   });
 
   return (
-    <div>
-      <h3 className="mb-2 text-sm font-semibold text-slate-900">
-        Campaign drilldown for {lawFirm}
-      </h3>
-      <table className="w-full table-fixed border-collapse text-left text-xs">
-        <thead className="text-[0.68rem] leading-tight text-slate-500">
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th
-                  className="px-2 py-2 font-semibold"
-                  key={header.id}
-                  scope="col"
-                  style={{ width: getColumnWidth(header.column.id) }}
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">
+              Campaign drilldown
+            </p>
+            <h3 className="mt-0.5 truncate text-base font-semibold text-slate-950">
+              {lawFirm}
+            </h3>
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+            <CampaignDrilldownStat
+              label="Campaigns"
+              value={`${formatNumber(filteredCampaigns.length)} / ${formatNumber(
+                campaigns.length,
+              )}`}
+            />
+            <CampaignDrilldownStat
+              label="Leads"
+              value={
+                stats.filteredLeads === stats.totalLeads
+                  ? formatNumber(stats.totalLeads)
+                  : `${formatNumber(stats.filteredLeads)} / ${formatNumber(
+                      stats.totalLeads,
+                    )}`
+              }
+            />
+            <CampaignDrilldownStat
+              label="SL"
+              value={
+                stats.filteredSignedLeads === stats.totalSignedLeads
+                  ? formatNumber(stats.totalSignedLeads)
+                  : `${formatNumber(
+                      stats.filteredSignedLeads,
+                    )} / ${formatNumber(stats.totalSignedLeads)}`
+              }
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <GradeToggleGroup
+              counts={campaignGradeFilterCounts}
+              label="Campaign grades"
+              onToggle={(grade) =>
+                setSelectedCampaignGrades((current) =>
+                  toggleSelectedGrade(current, grade),
+                )
+              }
+              selectedGrades={selectedCampaignGrades}
+            />
+            <GradeToggleGroup
+              counts={adGradeFilterCounts}
+              label="Ad grades"
+              onToggle={(grade) =>
+                setSelectedAdGrades((current) =>
+                  toggleSelectedGrade(current, grade),
+                )
+              }
+              selectedGrades={selectedAdGrades}
+            />
+          </div>
+          {hasActiveGradeFilters ? (
+            <button
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              onClick={() => {
+                setSelectedAdGrades([]);
+                setSelectedCampaignGrades([]);
+              }}
+              type="button"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="max-h-[34rem] overflow-auto">
+        <table className="w-full min-w-[880px] table-fixed border-collapse text-left text-xs">
+          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-[0.68rem] uppercase leading-tight tracking-wide text-slate-500">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    className={`px-4 py-2.5 font-semibold ${
+                      isNumericCampaignColumn(header.column.id)
+                        ? "text-right"
+                        : "text-left"
+                    }`}
+                    key={header.id}
+                    scope="col"
+                    style={{ width: getColumnWidth(header.column.id) }}
+                  >
+                    {renderSortableHeader(header)}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {table.getRowModel().rows.length > 0 ? (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  className="bg-white transition hover:bg-slate-50/80"
+                  key={row.id}
                 >
-                  {renderSortableHeader(header)}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => (
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      className={`overflow-hidden px-4 py-3 align-middle text-slate-700 ${
+                        isNumericCampaignColumn(cell.column.id)
+                          ? "text-right"
+                          : ""
+                      }`}
+                      key={cell.id}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
                 <td
-                  className="overflow-hidden px-2 py-2 text-slate-700"
-                  key={cell.id}
+                  className="px-3 py-8 text-center text-xs font-medium text-slate-500"
+                  colSpan={columns.length}
                 >
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  No campaigns match the selected grades.
                 </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+type CampaignGradeCountsKey = "adGradeCounts" | "campaignGradeCounts";
+
+function CampaignDrilldownStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-16 text-right">
+      <div className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-950">
+        {value}
+      </div>
     </div>
   );
+}
+
+function GradeToggleGroup({
+  counts,
+  label,
+  onToggle,
+  selectedGrades,
+}: {
+  counts: CampaignGradeCounts;
+  label: string;
+  onToggle: (grade: CampaignGrade) => void;
+  selectedGrades: CampaignGrade[];
+}) {
+  const selectedGradeSet = new Set(selectedGrades);
+  const activeCount = selectedGrades.length;
+
+  return (
+    <fieldset className="min-w-0">
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <legend className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </legend>
+        <span className="shrink-0 text-[0.68rem] font-medium text-slate-500">
+          {activeCount > 0
+            ? `${formatNumber(activeCount)} selected`
+            : "All grades"}
+        </span>
+      </div>
+      <div className="grid min-w-0 grid-cols-5 overflow-hidden rounded-md border border-slate-200 bg-white">
+        {CAMPAIGN_GRADES.map((grade) => {
+          const count = counts[grade] ?? 0;
+          const checked = selectedGradeSet.has(grade);
+          const disabled = count === 0 && !checked;
+
+          return (
+            <button
+              aria-pressed={checked}
+              className={`flex h-9 min-w-0 items-center justify-center gap-1.5 border-r border-slate-200 px-2 text-xs font-bold tabular-nums transition last:border-r-0 focus:relative focus:z-10 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
+                checked
+                  ? GRADE_CLASSES[grade]
+                  : disabled
+                    ? "cursor-not-allowed bg-slate-50 text-slate-300"
+                    : "bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
+              disabled={disabled}
+              key={grade}
+              onClick={() => onToggle(grade)}
+              type="button"
+            >
+              <span>{grade}</span>
+              <span className={checked ? "text-current" : "text-slate-500"}>
+                {formatNumber(count)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function CampaignNameCell({
+  campaign,
+}: {
+  campaign: StateLawFirmCampaignRow;
+}) {
+  return (
+    <div className="min-w-0">
+      <div
+        className="truncate font-semibold text-slate-950"
+        title={campaign.campaignName}
+      >
+        {campaign.campaignName}
+      </div>
+      <div className="mt-0.5 text-[0.68rem] font-medium text-slate-500">
+        {formatNumber(campaign.leads)} leads ·{" "}
+        {formatNumber(campaign.signedLeads)} SL
+      </div>
+    </div>
+  );
+}
+
+function CampaignGradeCell({
+  counts,
+  status,
+}: {
+  counts: CampaignGradeCounts | null | undefined;
+  status: CampaignGradeCountsStatus | null | undefined;
+}) {
+  if (status !== "available" || !counts || sumGradeCounts(counts) <= 0) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  const grade = getPrimaryCampaignGrade(counts);
+
+  return (
+    <span
+      className={`inline-flex h-7 min-w-8 items-center justify-center rounded-md border px-2 text-xs font-bold ${GRADE_CLASSES[grade]}`}
+      title={formatGradeBreakdownTitle(counts)}
+    >
+      {grade}
+    </span>
+  );
+}
+
+function GradeBreakdownChips({
+  counts,
+  status,
+}: {
+  counts: CampaignGradeCounts | null | undefined;
+  status: CampaignGradeCountsStatus | null | undefined;
+}) {
+  if (status !== "available" || !counts || sumGradeCounts(counts) <= 0) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1">
+      {CAMPAIGN_GRADES.filter((grade) => (counts[grade] ?? 0) > 0).map(
+        (grade) => {
+          const count = counts[grade] ?? 0;
+
+          return (
+            <span
+              className={`inline-flex h-6 min-w-7 items-center justify-center gap-1 rounded-md border px-1.5 text-[0.68rem] font-bold tabular-nums ${GRADE_CLASSES[grade]}`}
+              key={grade}
+              title={`${grade}: ${formatNumber(count)}`}
+            >
+              <span>{grade}</span>
+              {count > 1 ? (
+                <span className="font-semibold tabular-nums">{count}</span>
+              ) : null}
+            </span>
+          );
+        },
+      )}
+    </div>
+  );
+}
+
+function toggleSelectedGrade(
+  selectedGrades: CampaignGrade[],
+  grade: CampaignGrade,
+): CampaignGrade[] {
+  const next = selectedGrades.includes(grade)
+    ? selectedGrades.filter((currentGrade) => currentGrade !== grade)
+    : [...selectedGrades, grade];
+  const nextSet = new Set(next);
+
+  return CAMPAIGN_GRADES.filter((currentGrade) => nextSet.has(currentGrade));
+}
+
+function countCampaignRowsByGrade(
+  campaigns: StateLawFirmCampaignRow[],
+  key: CampaignGradeCountsKey,
+): CampaignGradeCounts {
+  return campaigns.reduce((counts, campaign) => {
+    const gradeCounts = campaign[key];
+
+    for (const grade of CAMPAIGN_GRADES) {
+      if ((gradeCounts?.[grade] ?? 0) > 0) {
+        counts[grade] += 1;
+      }
+    }
+
+    return counts;
+  }, buildEmptyGradeCounts());
+}
+
+function isNumericCampaignColumn(columnId: string): boolean {
+  return columnId === "leads" || columnId === "signedLeads";
+}
+
+function gradeCountsMatchSelection(
+  counts: CampaignGradeCounts | null | undefined,
+  selectedGrades: CampaignGrade[],
+): boolean {
+  if (selectedGrades.length === 0) {
+    return true;
+  }
+
+  return selectedGrades.some((grade) => (counts?.[grade] ?? 0) > 0);
+}
+
+function getGradeBreakdownSortValue(
+  row: StateLawFirmCampaignRow,
+  columnId: string,
+): number {
+  const counts =
+    columnId === "adGradeCounts" ? row.adGradeCounts : row.campaignGradeCounts;
+  const presentGrades = CAMPAIGN_GRADES.filter(
+    (grade) => (counts?.[grade] ?? 0) > 0,
+  );
+
+  if (presentGrades.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(...presentGrades.map((grade) => GRADE_SORT_RANKS[grade]));
+}
+
+function getPrimaryCampaignGrade(counts: CampaignGradeCounts): CampaignGrade {
+  return CAMPAIGN_GRADES.reduce((selectedGrade, grade) => {
+    if ((counts[grade] ?? 0) <= 0) {
+      return selectedGrade;
+    }
+
+    return GRADE_SORT_RANKS[grade] > GRADE_SORT_RANKS[selectedGrade]
+      ? grade
+      : selectedGrade;
+  }, "A" as CampaignGrade);
+}
+
+function buildEmptyGradeCounts(): CampaignGradeCounts {
+  return CAMPAIGN_GRADES.reduce((counts, grade) => {
+    counts[grade] = 0;
+
+    return counts;
+  }, {} as CampaignGradeCounts);
+}
+
+function buildCampaignDrilldownStats(
+  campaigns: StateLawFirmCampaignRow[],
+  filteredCampaigns: StateLawFirmCampaignRow[],
+) {
+  const totalLeads = sumCampaignMetric(campaigns, "leads");
+  const totalSignedLeads = sumCampaignMetric(campaigns, "signedLeads");
+  const filteredLeads = sumCampaignMetric(filteredCampaigns, "leads");
+  const filteredSignedLeads = sumCampaignMetric(
+    filteredCampaigns,
+    "signedLeads",
+  );
+
+  return {
+    filteredLeads,
+    filteredSignedLeads,
+    totalLeads,
+    totalSignedLeads,
+  };
+}
+
+function sumCampaignMetric(
+  campaigns: StateLawFirmCampaignRow[],
+  key: "leads" | "signedLeads",
+): number {
+  return campaigns.reduce((total, campaign) => total + campaign[key], 0);
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
@@ -926,6 +1379,7 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
 function CampaignGradeSummary({
   adGradeCounts,
   adStatus,
+  auditPlatform,
   gradeCounts,
   query,
   stateName,
@@ -933,6 +1387,7 @@ function CampaignGradeSummary({
 }: {
   adGradeCounts: CampaignGradeCounts;
   adStatus: CampaignGradeCountsStatus;
+  auditPlatform: HealthDashboardPlatform;
   gradeCounts: CampaignGradeCounts;
   query: DashboardQueryParams;
   stateName: string;
@@ -961,6 +1416,7 @@ function CampaignGradeSummary({
             counts={gradeCounts}
             kind="campaign"
             label="Campaigns"
+            platform={auditPlatform}
             query={query}
             stateName={stateName}
             total={campaignTotal}
@@ -971,6 +1427,7 @@ function CampaignGradeSummary({
             counts={adGradeCounts}
             kind="ad"
             label="Ads"
+            platform={auditPlatform}
             query={query}
             stateName={stateName}
             total={adTotal}
@@ -985,6 +1442,7 @@ function GradeCountRow({
   counts,
   kind,
   label,
+  platform,
   query,
   stateName,
   total,
@@ -992,6 +1450,7 @@ function GradeCountRow({
   counts: Partial<CampaignGradeCounts> | null | undefined;
   kind: "ad" | "campaign";
   label: string;
+  platform: HealthDashboardPlatform;
   query: DashboardQueryParams;
   stateName: string;
   total: number;
@@ -1013,6 +1472,7 @@ function GradeCountRow({
             grade={grade}
             kind={kind}
             key={grade}
+            platform={platform}
             query={query}
             stateName={stateName}
           />
@@ -1026,12 +1486,14 @@ function GradeCountTile({
   count,
   grade,
   kind,
+  platform,
   query,
   stateName,
 }: {
   count: number;
   grade: CampaignGrade;
   kind: "ad" | "campaign";
+  platform: HealthDashboardPlatform;
   query: DashboardQueryParams;
   stateName: string;
 }) {
@@ -1057,6 +1519,7 @@ function GradeCountTile({
         adGrades: kind === "ad" ? [grade] : null,
         brand: query.brand,
         from: query.from,
+        platform,
         grades: kind === "campaign" ? [grade] : null,
         states: [stateName],
         to: query.to,
@@ -1065,6 +1528,22 @@ function GradeCountTile({
       {content}
     </Link>
   );
+}
+
+function inferAuditPlatform(
+  apiUrl: string | null | undefined,
+): HealthDashboardPlatform {
+  const normalized = apiUrl?.trim().toLowerCase().replace(/\/+$/, "") ?? "";
+
+  if (normalized.endsWith("/marketing-dashboard/tiktok")) {
+    return "tiktok";
+  }
+
+  if (normalized.endsWith("/marketing-dashboard/combined")) {
+    return "all";
+  }
+
+  return "meta";
 }
 
 function normalizeStateLawFirmsPayload(
@@ -1098,6 +1577,18 @@ function sumGradeCounts(
     (sum, grade) => sum + (counts?.[grade] ?? 0),
     0,
   );
+}
+
+function formatGradeBreakdownTitle(
+  counts: Partial<CampaignGradeCounts> | null | undefined,
+): string {
+  if (!counts) {
+    return "";
+  }
+
+  return CAMPAIGN_GRADES.filter((grade) => (counts[grade] ?? 0) > 0)
+    .map((grade) => `${grade}: ${formatNumber(counts[grade] ?? 0)}`)
+    .join(" · ");
 }
 
 function normalizeGradeCounts(

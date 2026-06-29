@@ -30,8 +30,6 @@ const kpiInfo: Record<string, string> = {
     "Meaning: month-to-date budget progress. Formula: MTD Spend / MTD Budget Goal.",
   "mtd-sl-goal-completion":
     "Meaning: signed-lead progress against the month-to-date target. Formula: MTD SL / MTD SL Goal.",
-  "mtd-budget-goal":
-    "Meaning: expected budget spend by the selected date. Formula: Monthly Budget / days in month x elapsed days.",
 };
 
 const kpiDisplay: Record<string, { context?: string; title: string }> = {
@@ -40,7 +38,6 @@ const kpiDisplay: Record<string, { context?: string; title: string }> = {
   "intake-conversion": { context: "Conversion", title: "Intake" },
   "monthly-budget-eom": { context: "EOM progress", title: "Monthly Budget" },
   "monthly-budget-mtd": { context: "MTD progress", title: "Monthly Budget" },
-  "mtd-budget-goal": { context: "Goal", title: "MTD Budget" },
   "mtd-sl-goal-completion": { context: "Completion", title: "SL Goal" },
 };
 
