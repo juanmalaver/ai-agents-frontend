@@ -26,6 +26,7 @@ import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
 import { DashboardHeader } from "./DashboardHeader";
+import { DashboardShell } from "./DashboardShell";
 import { DashboardTabs } from "./DashboardTabs";
 import { DateRangeFilter } from "./DateRangeFilter";
 import { KpiCardsGrid } from "./KpiCardsGrid";
@@ -152,8 +153,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   };
 
   return (
-    <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
+    <DashboardShell activeItem="dashboard">
         <DashboardHeader
           lastUpdated={lastUpdated}
           subtitle={copy.subtitle}
@@ -227,8 +227,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
             }
           />
         )}
-      </div>
-    </main>
+    </DashboardShell>
   );
 }
 
