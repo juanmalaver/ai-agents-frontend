@@ -4,6 +4,7 @@ import type { HealthDashboardPlatform } from "@/src/types/campaignHealth";
 const LOCAL_BACKEND_ORIGIN = "http://localhost:3002";
 const FRONTEND_SERVICE_NAME = "ai-agents-frontend";
 const BACKEND_SERVICE_NAME = "ai-agents-backend";
+const VIDEO_PRODUCTION_API_PATH = "/api/video-production";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const GRADE_PATTERN = /^(A|B|C|D|F)$/i;
 
@@ -46,6 +47,25 @@ export function resolveDashboardApiUrl(
   return runtimeBackendOrigin
     ? `${runtimeBackendOrigin}/marketing-dashboard`
     : undefined;
+}
+
+export function resolveVideoProductionApiUrl(requestPath: string): string {
+  const trimmedPath = requestPath.trim();
+
+  if (/^https?:\/\//i.test(trimmedPath)) {
+    return trimmedPath;
+  }
+
+  const baseUrl = resolveVideoProductionApiBaseUrl();
+  const apiPath = trimmedPath.startsWith(VIDEO_PRODUCTION_API_PATH)
+    ? trimmedPath.slice(VIDEO_PRODUCTION_API_PATH.length)
+    : trimmedPath;
+
+  if (!apiPath) {
+    return baseUrl;
+  }
+
+  return `${baseUrl}${apiPath.startsWith("/") ? "" : "/"}${apiPath}`;
 }
 
 export function resolveCampaignsDashboardApiUrl({
@@ -480,6 +500,47 @@ function normalizeAuthBaseUrl(value: string): string {
   const normalized = value.replace(/\/+$/, "");
 
   return normalized.endsWith("/auth") ? normalized : `${normalized}/auth`;
+}
+
+function resolveVideoProductionApiBaseUrl(): string {
+  const explicit =
+    process.env.NEXT_PUBLIC_VIDEO_PRODUCTION_BACKEND_API_URL?.trim();
+
+  if (explicit) {
+    return normalizeVideoProductionApiBaseUrl(explicit);
+  }
+
+  const dashboardOrigin = resolveUrlOrigin(
+    process.env.NEXT_PUBLIC_DASHBOARD_API_URL?.trim(),
+  );
+
+  if (dashboardOrigin) {
+    return `${dashboardOrigin}${VIDEO_PRODUCTION_API_PATH}`;
+  }
+
+  const runtimeBackendOrigin = getRuntimeBackendOrigin();
+
+  return `${runtimeBackendOrigin ?? LOCAL_BACKEND_ORIGIN}${VIDEO_PRODUCTION_API_PATH}`;
+}
+
+function normalizeVideoProductionApiBaseUrl(value: string): string {
+  const normalized = value.replace(/\/+$/, "");
+
+  return normalized.endsWith(VIDEO_PRODUCTION_API_PATH)
+    ? normalized
+    : `${normalized}${VIDEO_PRODUCTION_API_PATH}`;
+}
+
+function resolveUrlOrigin(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
 }
 
 function appendSectionPath(

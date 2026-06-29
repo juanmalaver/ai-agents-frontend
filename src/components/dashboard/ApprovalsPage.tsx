@@ -22,6 +22,7 @@ import type {
 } from "@/src/types/videoApprovals";
 import { useAuthUser } from "@/src/components/auth/AuthGate";
 import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
+import { resolveVideoProductionApiUrl } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardShell } from "./DashboardShell";
 
@@ -2960,7 +2961,7 @@ function InlineError({ message }: { message: string }) {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(resolveVideoProductionApiUrl(url), {
     cache: "no-store",
     credentials: "include",
     ...init,
