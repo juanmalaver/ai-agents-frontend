@@ -1,6 +1,26 @@
+import type {
+  CampaignHealthAdRow,
+  CampaignPlatform,
+} from "./campaignHealth";
+
 export interface DashboardPageProps {
   apiUrl?: string;
   activeTab?: DashboardTabId;
+}
+
+export interface MarketingDashboardBrand {
+  accountId: string | null;
+  id: string;
+  name: string | null;
+}
+
+export interface DashboardDateRange {
+  from: string | null;
+  to: string | null;
+}
+
+export interface DashboardQueryParams extends DashboardDateRange {
+  brand: string | null;
 }
 
 export interface DashboardPageState {
@@ -29,7 +49,57 @@ export interface CampaignPerformanceChartProps {
 }
 
 export interface CampaignStateTableProps {
+  apiUrl?: string;
+  query: DashboardQueryParams;
   rows: CampaignStateRow[];
+}
+
+export type CampaignGrade = "A" | "B" | "C" | "D" | "F";
+
+export type CampaignGradeCounts = Record<CampaignGrade, number>;
+
+export type CampaignGradeCountsStatus = "available" | "unavailable";
+
+export interface StateLawFirmCampaignAdRow extends CampaignHealthAdRow {
+  brand: string;
+  campaignId: string | null;
+  campaignName: string;
+  platform: CampaignPlatform;
+}
+
+export interface StateLawFirmCampaignRow {
+  adGradeCounts?: CampaignGradeCounts;
+  adGradeCountsStatus?: CampaignGradeCountsStatus;
+  ads?: StateLawFirmCampaignAdRow[];
+  adsStatus?: CampaignGradeCountsStatus;
+  campaignName: string;
+  campaignGradeCounts?: CampaignGradeCounts;
+  campaignGradeCountsStatus?: CampaignGradeCountsStatus;
+  id: string;
+  leads: number;
+  signedLeads: number;
+}
+
+export interface StateLawFirmRow {
+  campaigns: StateLawFirmCampaignRow[];
+  conversionRate: number | null;
+  cpl: number | null;
+  cpsl: number | null;
+  goalPct: number | null;
+  id: string;
+  lawFirm: string;
+  leads: number;
+  leadsGoal: number;
+  mtdSl: number;
+  slGoal: number;
+}
+
+export interface StateLawFirmsSection {
+  adGradeCounts: CampaignGradeCounts;
+  adGradeCountsStatus: CampaignGradeCountsStatus;
+  gradeCounts: CampaignGradeCounts;
+  gradeCountsStatus: CampaignGradeCountsStatus;
+  rows: StateLawFirmRow[];
 }
 
 export interface RecommendationPanelProps {
@@ -62,6 +132,8 @@ export interface AggregatedKpis {
   finalCpl: number | null;
   cpsl: number | null;
   cpql: number | null;
+  budget: number | null;
+  mtdSpent: number | null;
   budgetSpentCompletionPct: number | null;
   slGoalCompletionPct: number | null;
   leadGoalCompletionPct: number | null;
@@ -133,7 +205,12 @@ export type MetricFormat = "currency" | "number" | "percentage";
 
 export type MetricStatus = "on-track" | "alert" | "critical" | "unavailable";
 
-export type DashboardTabId = "overview" | "campaigns";
+export type DashboardTabId =
+  | "overview"
+  | "combined"
+  | "tiktok"
+  | "campaigns"
+  | "health";
 
 export type RowHealth = "met" | "near" | "critical" | "neutral";
 
@@ -155,12 +232,13 @@ export interface RecommendationPanelViewModel {
 
 export type NullableNumber = number | null | undefined;
 
-
 export interface A1AgentLatestResponse {
   agent_id: string;
+  brand?: string | null;
   run_id: string | null;
   run_date: string | null;
   generated_at: string | null;
+  scope?: "all_brands" | "brand";
   status: "empty" | "success";
   payload: A1DashboardAgentPayload | null;
 }

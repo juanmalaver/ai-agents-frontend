@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { campaignsMock } from "@/src/mocks/campaignsMock";
+import { useDashboardQueryParams } from "@/src/hooks/useDashboardQueryParams";
 import { useDashboardSection } from "@/src/hooks/useDashboardSection";
 import type {
   CampaignInsight,
@@ -38,13 +38,17 @@ import {
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
 import {
+  appendDashboardQueryParams,
   resolveAgentEndpointUrl,
   resolveCampaignsDashboardSectionApiUrl,
 } from "@/src/utils/runtimeApiUrls";
+import { getYesterdayDateRange } from "@/src/utils/dateRangeDefaults";
 import { AgentBriefPanel } from "./AgentBriefPanel";
+import { BrandFilter } from "./BrandFilter";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardShell } from "./DashboardShell";
 import { DashboardTabs } from "./DashboardTabs";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 const scorecardClasses: Record<CampaignScorecard["status"], string> = {
   critical: "border-rose-200 bg-rose-50 text-rose-950",
@@ -53,6 +57,25 @@ const scorecardClasses: Record<CampaignScorecard["status"], string> = {
 };
 
 const PANEL_ROW_LIMIT = 8;
+const AGENT_RUN_POLL_INTERVAL_MS = 5000;
+const AGENT_RUN_TIMEOUT_MS = 180000;
+const A1_BRIEF_BRANDS = [
+  {
+    accountId: null,
+    id: "american-compensation-4",
+    name: "American Compensation 4.0",
+  },
+  {
+    accountId: null,
+    id: "la-ayuda-latina-3",
+    name: "La Ayuda Latina 3.0",
+  },
+  {
+    accountId: null,
+    id: "los-abogados-latinos-1",
+    name: "Los Abogados Latinos 1.0",
+  },
+];
 
 type CampaignDetailModalView = "campaigns" | "states" | null;
 
@@ -66,6 +89,12 @@ interface CampaignsPageProps {
   apiUrl?: string;
 }
 
+interface PendingAgentRun {
+  brand: string | null;
+  queuedAt: number;
+  timeoutAt: number;
+}
+
 export function CampaignsPage({
   agentLatestUrl,
   agentRerunUrl,
@@ -77,7 +106,21 @@ export function CampaignsPage({
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isAgentLoading, setIsAgentLoading] = useState(false);
   const [isRerunning, setIsRerunning] = useState(false);
+  const [briefBrand, setBriefBrand] = useState<string | null>(null);
+  const [pendingAgentRun, setPendingAgentRun] =
+    useState<PendingAgentRun | null>(null);
   const [rerunStatus, setRerunStatus] = useState<string | null>(null);
+  const { selectedBrand, setSelectedBrand } = useDashboardQueryParams();
+  const dailyBriefDateRange = useMemo(() => getYesterdayDateRange(), []);
+  const dashboardQuery = useMemo(
+    () => ({
+      brand: selectedBrand,
+      from: dailyBriefDateRange.from,
+      to: dailyBriefDateRange.to,
+    }),
+    [dailyBriefDateRange.from, dailyBriefDateRange.to, selectedBrand],
+  );
+  const brandLabel = selectedBrand ?? "All brands";
 
   const resolvedAgentLatestUrl = useMemo(
     () =>
@@ -97,124 +140,116 @@ export function CampaignsPage({
       }),
     [agentRerunUrl, apiUrl],
   );
+  const agentLatestScopedUrl = useMemo(
+    () =>
+      appendDashboardQueryParams(resolvedAgentLatestUrl, {
+        brand: briefBrand,
+        from: dailyBriefDateRange.from,
+        to: dailyBriefDateRange.to,
+      }),
+    [
+      briefBrand,
+      dailyBriefDateRange.from,
+      dailyBriefDateRange.to,
+      resolvedAgentLatestUrl,
+    ],
+  );
   const summaryUrl = useMemo(
     () =>
-      resolveCampaignsDashboardSectionApiUrl({
-        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-        explicitCampaignsApiUrl: apiUrl,
-        section: "summary",
-      }),
-    [apiUrl],
+      appendDashboardQueryParams(
+        resolveCampaignsDashboardSectionApiUrl({
+          dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+          explicitCampaignsApiUrl: apiUrl,
+          section: "summary",
+        }),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const stateCompletionUrl = useMemo(
     () =>
-      resolveCampaignsDashboardSectionApiUrl({
-        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-        explicitCampaignsApiUrl: apiUrl,
-        section: "state-completion",
-      }),
-    [apiUrl],
+      appendDashboardQueryParams(
+        resolveCampaignsDashboardSectionApiUrl({
+          dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+          explicitCampaignsApiUrl: apiUrl,
+          section: "state-completion",
+        }),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const leadBehaviorUrl = useMemo(
     () =>
-      resolveCampaignsDashboardSectionApiUrl({
-        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-        explicitCampaignsApiUrl: apiUrl,
-        section: "lead-behavior",
-      }),
-    [apiUrl],
+      appendDashboardQueryParams(
+        resolveCampaignsDashboardSectionApiUrl({
+          dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+          explicitCampaignsApiUrl: apiUrl,
+          section: "lead-behavior",
+        }),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const resultsUrl = useMemo(
     () =>
-      resolveCampaignsDashboardSectionApiUrl({
-        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-        explicitCampaignsApiUrl: apiUrl,
-        section: "results",
-      }),
-    [apiUrl],
+      appendDashboardQueryParams(
+        resolveCampaignsDashboardSectionApiUrl({
+          dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+          explicitCampaignsApiUrl: apiUrl,
+          section: "results",
+        }),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const lowerDetailUrl = useMemo(
     () =>
-      resolveCampaignsDashboardSectionApiUrl({
-        dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
-        explicitCampaignsApiUrl: apiUrl,
-        section: "lower-detail",
-      }),
-    [apiUrl],
-  );
-  const mockSummary = useMemo<CampaignsSummarySection>(
-    () => ({
-      alert: campaignsMock.alert,
-      lowestPerformer: campaignsMock.lowestPerformer,
-      scorecards: campaignsMock.scorecards,
-      topPerformer: campaignsMock.topPerformer,
-    }),
-    [],
-  );
-  const mockResults = useMemo<CampaignsResultsSection>(
-    () => ({
-      campaignRows: campaignsMock.campaignRows,
-      cplLimit: campaignsMock.alert.cplLimit,
-    }),
-    [],
-  );
-  const mockLowerDetail = useMemo<CampaignsLowerDetailSection>(
-    () => ({
-      cplLimit: campaignsMock.alert.cplLimit,
-      lowerSnapshotRows: campaignsMock.lowerSnapshotRows,
-      spendRows: campaignsMock.spendRows,
-      statusDistributionRows: campaignsMock.statusDistributionRows,
-    }),
-    [],
+      appendDashboardQueryParams(
+        resolveCampaignsDashboardSectionApiUrl({
+          dashboardApiUrl: process.env.NEXT_PUBLIC_DASHBOARD_API_URL,
+          explicitCampaignsApiUrl: apiUrl,
+          section: "lower-detail",
+        }),
+        dashboardQuery,
+      ),
+    [apiUrl, dashboardQuery],
   );
   const summarySection = useDashboardSection<CampaignsSummarySection>({
     errorMessage: "Unable to load campaign summary.",
-    mockData: mockSummary,
-    mockGeneratedAt: campaignsMock.generatedAt,
     url: summaryUrl,
   });
   const stateCompletionSection = useDashboardSection<
     CampaignStateCompletionRow[]
   >({
     errorMessage: "Unable to load state completion.",
-    mockData: campaignsMock.stateCompletionRows,
-    mockGeneratedAt: campaignsMock.generatedAt,
     url: stateCompletionUrl,
   });
   const leadBehaviorSection = useDashboardSection<CampaignLeadTrendRow[]>({
     errorMessage: "Unable to load lead behaviour trends.",
-    mockData: campaignsMock.leadTrendRows,
-    mockGeneratedAt: campaignsMock.generatedAt,
     url: leadBehaviorUrl,
   });
   const resultsSection = useDashboardSection<CampaignsResultsSection>({
     errorMessage: "Unable to load campaign results.",
-    mockData: mockResults,
-    mockGeneratedAt: campaignsMock.generatedAt,
     url: resultsUrl,
   });
   const lowerDetailSection = useDashboardSection<CampaignsLowerDetailSection>({
     errorMessage: "Unable to load lower campaign detail.",
-    mockData: mockLowerDetail,
-    mockGeneratedAt: campaignsMock.generatedAt,
     url: lowerDetailUrl,
   });
 
   const loadAgentLatest = useCallback(
     async (signal?: AbortSignal) => {
-      if (
-        process.env.NEXT_PUBLIC_USE_MOCK === "true" ||
-        !resolvedAgentLatestUrl
-      ) {
+      if (!agentLatestScopedUrl) {
         setAgentRun(null);
-        return;
+        setAgentError("A1 campaign brief URL is not configured.");
+        return null;
       }
 
       setIsAgentLoading(true);
       setAgentError(null);
 
       try {
-        const response = await fetch(resolvedAgentLatestUrl, {
+        const response = await fetch(agentLatestScopedUrl, {
           credentials: "include",
           signal,
         });
@@ -228,6 +263,8 @@ export function CampaignsPage({
         if (!signal?.aborted) {
           setAgentRun(latestRun);
         }
+
+        return latestRun;
       } catch (caughtError) {
         if (!signal?.aborted) {
           setAgentError(
@@ -236,55 +273,90 @@ export function CampaignsPage({
               : "Unable to load A1 campaign brief.",
           );
         }
+
+        return null;
       } finally {
         if (!signal?.aborted) {
           setIsAgentLoading(false);
         }
       }
     },
-    [resolvedAgentLatestUrl],
+    [agentLatestScopedUrl],
   );
 
-  const handleRunAgain = useCallback(async () => {
-    if (!resolvedAgentRerunUrl) {
-      setRerunStatus("Run again endpoint is not configured.");
-      return;
-    }
-
-    setIsRerunning(true);
-    setRerunStatus(null);
-
-    try {
-      const response = await fetch(resolvedAgentRerunUrl, {
-        body: JSON.stringify({
-          reason: "manual_dashboard_rerun",
-          requested_by: "dashboard",
-        }),
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to queue A1 campaign brief.");
+  const queueAgentRun = useCallback(
+    async ({
+      brand = briefBrand,
+      from = dailyBriefDateRange.from,
+      queuedMessage = "Brief request sent. AI is preparing the update.",
+      to = dailyBriefDateRange.to,
+    }: {
+      brand?: string | null;
+      from?: string | null;
+      queuedMessage?: string;
+      to?: string | null;
+    } = {}) => {
+      if (!resolvedAgentRerunUrl) {
+        setRerunStatus("Brief generation is not configured yet.");
+        return;
       }
 
-      setRerunStatus("Run queued. Waiting for n8n output.");
-      window.setTimeout(() => {
-        void loadAgentLatest();
-      }, 3000);
-    } catch (caughtError) {
-      setRerunStatus(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to queue A1 campaign brief.",
-      );
-    } finally {
-      setIsRerunning(false);
-    }
-  }, [loadAgentLatest, resolvedAgentRerunUrl]);
+      const queuedAt = Date.now();
+      setIsRerunning(true);
+      setRerunStatus(null);
+
+      try {
+        const response = await fetch(resolvedAgentRerunUrl, {
+          body: JSON.stringify({
+            brand,
+            from,
+            reason: "manual_dashboard_rerun",
+            requested_by: "dashboard",
+            to,
+          }),
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to start the A1 campaign brief.");
+        }
+
+        setPendingAgentRun({
+          brand,
+          queuedAt,
+          timeoutAt: queuedAt + AGENT_RUN_TIMEOUT_MS,
+        });
+        setRerunStatus(queuedMessage);
+      } catch (caughtError) {
+        setPendingAgentRun(null);
+        setRerunStatus(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Unable to start the A1 campaign brief.",
+        );
+      } finally {
+        setIsRerunning(false);
+      }
+    },
+    [
+      briefBrand,
+      dailyBriefDateRange.from,
+      dailyBriefDateRange.to,
+      resolvedAgentRerunUrl,
+    ],
+  );
+  const handleRunAgain = useCallback(() => {
+    void queueAgentRun();
+  }, [queueAgentRun]);
+  const handleBriefBrandChange = useCallback((brand: string | null) => {
+    setBriefBrand(brand);
+    setPendingAgentRun(null);
+    setRerunStatus(null);
+  }, []);
 
   const stateChartData = (stateCompletionSection.data ?? []).map((row) => ({
     ...row,
@@ -324,6 +396,59 @@ export function CampaignsPage({
   }, [loadAgentLatest]);
 
   useEffect(() => {
+    if (!pendingAgentRun) {
+      return;
+    }
+
+    const activePendingRun = pendingAgentRun;
+    let cancelled = false;
+    let timeoutId: number | undefined;
+
+    async function pollForAgentOutput() {
+      const latestRun = await loadAgentLatest();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (
+        latestRun &&
+        latestRunMatchesPendingRun(latestRun, activePendingRun)
+      ) {
+        setPendingAgentRun(null);
+        setRerunStatus("Brief updated.");
+        return;
+      }
+
+      if (Date.now() >= activePendingRun.timeoutAt) {
+        setPendingAgentRun(null);
+        setRerunStatus(
+          "The brief is taking longer than usual. Refresh in a moment to check again.",
+        );
+        return;
+      }
+
+      timeoutId = window.setTimeout(
+        pollForAgentOutput,
+        AGENT_RUN_POLL_INTERVAL_MS,
+      );
+    }
+
+    timeoutId = window.setTimeout(
+      pollForAgentOutput,
+      AGENT_RUN_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [loadAgentLatest, pendingAgentRun]);
+
+  useEffect(() => {
     if (!detailModal) {
       return;
     }
@@ -344,10 +469,49 @@ export function CampaignsPage({
       <DashboardShell activeItem="dashboard">
           <DashboardHeader
             lastUpdated={lastUpdated}
-            subtitle="Campaign-level pacing, CPL risk, and lead behavior."
-            title="Campaign Overview"
+            subtitle="AI brief, campaign-level pacing, CPL risk, and lead behavior."
+            title="AI Recommendations"
           />
-          <DashboardTabs activeTab="campaigns" />
+          <DashboardTabs activeTab="campaigns" query={dashboardQuery} />
+          <AgentBriefPanel
+            brandError={null}
+            brandOptions={A1_BRIEF_BRANDS}
+            error={agentError}
+            isBrandLoading={false}
+            isAwaitingRun={Boolean(pendingAgentRun)}
+            isLoading={isAgentLoading}
+            isRerunning={isRerunning}
+            latestRun={agentRun}
+            onBrandChange={handleBriefBrandChange}
+            onRefresh={() => void loadAgentLatest()}
+            onRunAgain={resolvedAgentRerunUrl ? handleRunAgain : undefined}
+            rerunStatus={rerunStatus}
+            selectedBrand={briefBrand}
+          />
+          <section
+            aria-label="Dashboard filters"
+            className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+          >
+            <div className="grid gap-3 xl:grid-cols-[minmax(14rem,0.75fr)_minmax(0,1.65fr)] xl:items-start">
+              <BrandFilter
+                apiUrl={apiUrl}
+                dateRange={dailyBriefDateRange}
+                onBrandChange={setSelectedBrand}
+                selectedBrand={selectedBrand}
+              />
+              <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-700">
+                  Daily brief date
+                </p>
+                <p className="mt-1 text-sm font-medium text-slate-950">
+                  {dailyBriefDateRange.to}
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Yesterday's completed data
+                </p>
+              </div>
+            </div>
+          </section>
           <CampaignSectionStatus
             error={summarySection.data ? summarySection.error : null}
             isRefreshing={summarySection.isRefreshing}
@@ -370,15 +534,6 @@ export function CampaignsPage({
               title="Campaign summary could not be loaded"
             />
           )}
-          <AgentBriefPanel
-            error={agentError}
-            isLoading={isAgentLoading}
-            isRerunning={isRerunning}
-            latestRun={agentRun}
-            onRefresh={() => void loadAgentLatest()}
-            onRunAgain={resolvedAgentRerunUrl ? handleRunAgain : undefined}
-            rerunStatus={rerunStatus}
-          />
           {summarySection.data ? (
             <section className="grid gap-3 md:grid-cols-3">
               {summarySection.data.scorecards.map((scorecard) => (
@@ -474,7 +629,9 @@ export function CampaignsPage({
             <CampaignPanelSkeleton className="h-80" />
           ) : (
             <CampaignSectionError
-              message={resultsSection.error ?? "Unable to load campaign results."}
+              message={
+                resultsSection.error ?? "Unable to load campaign results."
+              }
               onRetry={resultsSection.retry}
               title="Campaign results could not be loaded"
             />
@@ -486,6 +643,7 @@ export function CampaignsPage({
           />
           {lowerDetailSection.data ? (
             <CampaignLowerDetailSection
+              brandLabel={brandLabel}
               chartsReady={chartsReady}
               cplLimit={lowerDetailSection.data.cplLimit}
               snapshotRows={lowerDetailSection.data.lowerSnapshotRows}
@@ -521,8 +679,12 @@ export function CampaignsPage({
 function CampaignPanelSkeleton({ className = "h-80" }: { className?: string }) {
   return (
     <section
-      className={`animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}
-    />
+      className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm ${className}`}
+    >
+      <div className="flex h-full min-h-12 items-center justify-center rounded-md bg-slate-50">
+        <LoadingNotice label="Loading campaign data..." />
+      </div>
+    </section>
   );
 }
 
@@ -575,11 +737,12 @@ function CampaignSectionStatus({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
       <p
-        className={
+        className={`flex items-center gap-2 ${
           error ? "font-medium text-rose-700" : "font-medium text-slate-600"
-        }
+        }`}
       >
-        {error ?? "Refreshing cached data..."}
+        {!error ? <LoadingSpinner label="Refreshing campaign data" /> : null}
+        <span>{error ?? "Showing cached data while fresh data loads."}</span>
       </p>
       {error ? (
         <button
@@ -590,6 +753,15 @@ function CampaignSectionStatus({
           Retry
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function LoadingNotice({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+      <LoadingSpinner label={label} />
+      <span>{label}</span>
     </div>
   );
 }
@@ -867,10 +1039,7 @@ function LeadBehaviorPanel({
         />
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(22rem,0.72fr)_minmax(0,1.28fr)]">
-        <CompactCampaignSummary
-          rows={visibleRows}
-          totalCount={rows.length}
-        />
+        <CompactCampaignSummary rows={visibleRows} totalCount={rows.length} />
         <div className="h-96 min-w-0 overflow-hidden">
           {chartsReady ? (
             <ResponsiveContainer height="100%" width="100%">
@@ -1225,11 +1394,7 @@ function DetailedStateCompletionChart({
   );
 }
 
-function DetailedLeadBehaviorTable({
-  rows,
-}: {
-  rows: CampaignLeadTrendRow[];
-}) {
+function DetailedLeadBehaviorTable({ rows }: { rows: CampaignLeadTrendRow[] }) {
   return (
     <>
       <div className="hidden overflow-hidden rounded-lg border border-slate-200 lg:block">
@@ -1530,7 +1695,7 @@ function CampaignResultsTable({
                 SL Goal
               </th>
               <th className="px-3 py-3 font-semibold" scope="col">
-                Q. Leads Goal
+                Leads Goal
               </th>
               <th className="px-3 py-3 font-semibold" scope="col">
                 Leads
@@ -1545,7 +1710,7 @@ function CampaignResultsTable({
                 Conversion
               </th>
               <th className="px-3 py-3 font-semibold" scope="col">
-                MQL
+                Active Leads
               </th>
             </tr>
           </thead>
@@ -1595,7 +1760,7 @@ function CampaignResultsTable({
                   {formatNumber(row.slGoal)}
                 </td>
                 <td className="px-3 py-3 text-slate-700">
-                  {formatNumber(row.qLeadsGoal)}
+                  {formatNumber(row.leadsGoal)}
                 </td>
                 <td className="px-3 py-3 text-slate-700">
                   {formatNumber(row.leads)}
@@ -1641,12 +1806,12 @@ function exportCampaignResultsCsv(rows: CampaignResultRow[]): void {
       "CPSL (USD)",
       "SL",
       "SL Goal",
-      "Q. Leads Goal",
+      "Leads Goal",
       "Leads",
       "Drops",
       "Drop rate (%)",
       "Conversion (%)",
-      "MQL",
+      "Active Leads",
     ],
     ...rows.map((row) => [
       row.campaign,
@@ -1657,7 +1822,7 @@ function exportCampaignResultsCsv(rows: CampaignResultRow[]): void {
       row.cpsl,
       row.sl,
       row.slGoal,
-      row.qLeadsGoal,
+      row.leadsGoal,
       row.leads,
       row.drops,
       toCsvPercentage(row.dropRate),
@@ -1739,7 +1904,7 @@ function CampaignResultCard({
         <MetricItem label="CPSL" value={formatCurrency(row.cpsl)} />
         <MetricItem label="SL" value={formatNumber(row.sl)} />
         <MetricItem label="SL Goal" value={formatNumber(row.slGoal)} />
-        <MetricItem label="Q. Leads Goal" value={formatNumber(row.qLeadsGoal)} />
+        <MetricItem label="Leads Goal" value={formatNumber(row.leadsGoal)} />
         <MetricItem label="Leads" value={formatNumber(row.leads)} />
         <MetricItem label="Drops" value={formatNumber(row.drops)} />
         <MetricItem label="Drop rate" value={formatPercentage(row.dropRate)} />
@@ -1747,7 +1912,7 @@ function CampaignResultCard({
           label="Conversion"
           value={formatPercentage(row.conversionRate)}
         />
-        <MetricItem label="MQL" value={formatNumber(row.mql)} />
+        <MetricItem label="Active Leads" value={formatNumber(row.mql)} />
       </dl>
     </article>
   );
@@ -1763,12 +1928,14 @@ function MetricItem({ label, value }: { label: string; value: string }) {
 }
 
 function CampaignLowerDetailSection({
+  brandLabel,
   chartsReady,
   cplLimit,
   snapshotRows,
   spendRows,
   statusDistributionRows,
 }: {
+  brandLabel: string;
   chartsReady: boolean;
   cplLimit: number;
   snapshotRows: CampaignStateSnapshotRow[];
@@ -1777,11 +1944,17 @@ function CampaignLowerDetailSection({
 }) {
   return (
     <section className="grid gap-5">
-      <CampaignSnapshotTable cplLimit={cplLimit} rows={snapshotRows} />
+      <CampaignSnapshotTable
+        brandLabel={brandLabel}
+        cplLimit={cplLimit}
+        rows={snapshotRows}
+      />
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">MQL</h2>
+            <h2 className="text-base font-semibold text-slate-950">
+              Active Leads
+            </h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Conditional formatting reference for CPL and campaign quality
               checks.
@@ -1795,10 +1968,7 @@ function CampaignLowerDetailSection({
         </div>
       </div>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
-        <SpendByCampaignPanel
-          chartsReady={chartsReady}
-          rows={spendRows}
-        />
+        <SpendByCampaignPanel chartsReady={chartsReady} rows={spendRows} />
         <LeadStatusDistributionPanel
           chartsReady={chartsReady}
           rows={statusDistributionRows}
@@ -1809,9 +1979,11 @@ function CampaignLowerDetailSection({
 }
 
 function CampaignSnapshotTable({
+  brandLabel,
   cplLimit,
   rows,
 }: {
+  brandLabel: string;
   cplLimit: number;
   rows: CampaignStateSnapshotRow[];
 }) {
@@ -1823,7 +1995,7 @@ function CampaignSnapshotTable({
             Results table by campaign
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            All brands state snapshot with conditional CPL formatting.
+            State snapshot with conditional CPL formatting.
           </p>
         </div>
         <div className="flex items-center gap-3 text-sm">
@@ -1855,7 +2027,9 @@ function CampaignSnapshotTable({
           <thead>
             <tr className="bg-slate-950 text-white">
               <th className="px-2 py-2 text-amber-200" scope="col">
-                All brands
+                <span className="block truncate" title={brandLabel}>
+                  {brandLabel}
+                </span>
               </th>
               <th className="px-2 py-2" scope="col">
                 Budget
@@ -1864,7 +2038,7 @@ function CampaignSnapshotTable({
                 SL Goal
               </th>
               <th className="px-2 py-2" scope="col">
-                Q. Leads Goal
+                Leads Goal
               </th>
               <th className="px-2 py-2" scope="col">
                 MTD Spent
@@ -1879,7 +2053,7 @@ function CampaignSnapshotTable({
                 CPSL
               </th>
               <th className="px-2 py-2" scope="col">
-                CPQL
+                Cost / Active Lead
               </th>
               <th className="px-2 py-2" scope="col">
                 MTD SL
@@ -1910,9 +2084,7 @@ function CampaignSnapshotTable({
                   </td>
                   <td className="px-2 py-2">{formatCurrency(row.budget)}</td>
                   <td className="px-2 py-2">{formatNumber(row.slGoal)}</td>
-                  <td className="px-2 py-2">
-                    {formatNumber(row.qLeadsGoal)}
-                  </td>
+                  <td className="px-2 py-2">{formatNumber(row.leadsGoal)}</td>
                   <td className="px-2 py-2">{formatCurrency(row.mtdSpent)}</td>
                   <td className="px-2 py-2">{formatPercentage(spentPct)}</td>
                   <td className="px-2 py-2">{formatPercentage(goalPct)}</td>
@@ -1942,11 +2114,7 @@ function CampaignSnapshotTable({
       </div>
       <div className="grid gap-3 p-3 xl:hidden">
         {rows.map((row) => (
-          <CampaignSnapshotCard
-            cplLimit={cplLimit}
-            key={row.state}
-            row={row}
-          />
+          <CampaignSnapshotCard cplLimit={cplLimit} key={row.state} row={row} />
         ))}
       </div>
     </section>
@@ -1983,16 +2151,25 @@ function CampaignSnapshotCard({
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <SnapshotMetricItem label="Budget" value={formatCurrency(row.budget)} />
-        <SnapshotMetricItem label="MTD Spent" value={formatCurrency(row.mtdSpent)} />
-        <SnapshotMetricItem label="% Spent" value={formatPercentage(spentPct)} />
+        <SnapshotMetricItem
+          label="MTD Spent"
+          value={formatCurrency(row.mtdSpent)}
+        />
+        <SnapshotMetricItem
+          label="% Spent"
+          value={formatPercentage(spentPct)}
+        />
         <SnapshotMetricItem label="SL Goal" value={formatNumber(row.slGoal)} />
         <SnapshotMetricItem
-          label="Q. Leads Goal"
-          value={formatNumber(row.qLeadsGoal)}
+          label="Leads Goal"
+          value={formatNumber(row.leadsGoal)}
         />
         <SnapshotMetricItem label="% Goal" value={formatPercentage(goalPct)} />
         <SnapshotMetricItem label="CPSL" value={formatCurrency(row.cpsl)} />
-        <SnapshotMetricItem label="CPQL" value={formatCurrency(row.cpql)} />
+        <SnapshotMetricItem
+          label="Cost / Active Lead"
+          value={formatCurrency(row.cpql)}
+        />
         <SnapshotMetricItem label="MTD SL" value={formatNumber(row.mtdSl)} />
         <SnapshotMetricItem label="Leads" value={formatNumber(row.leads)} />
         <SnapshotMetricItem
@@ -2200,6 +2377,66 @@ function hasStateCompletionData(row: StateCompletionChartRow): boolean {
   return row.sl > 0 || (row.slGoal ?? 0) > 0;
 }
 
+function latestRunMatchesPendingRun(
+  run: A1AgentLatestResponse,
+  pendingRun: PendingAgentRun,
+): boolean {
+  if (run.status !== "success" || !run.generated_at || !run.payload) {
+    return false;
+  }
+
+  const generatedAt = Date.parse(run.generated_at);
+
+  if (
+    !Number.isFinite(generatedAt) ||
+    generatedAt + AGENT_RUN_POLL_INTERVAL_MS < pendingRun.queuedAt
+  ) {
+    return false;
+  }
+
+  const expectedBrand = normalizeLatestRunBrand(pendingRun.brand);
+  const payloadScopeBrand = getLatestRunPayloadScopeBrand(run.payload);
+  const actualBrand = normalizeLatestRunBrand(run.brand) ?? payloadScopeBrand;
+  const actualScope =
+    run.scope ?? (actualBrand ? "brand" : ("all_brands" as const));
+
+  if (expectedBrand) {
+    return actualScope === "brand" && actualBrand === expectedBrand;
+  }
+
+  return actualScope === "all_brands" && actualBrand === null;
+}
+
+function getLatestRunPayloadScopeBrand(
+  payload: A1AgentLatestResponse["payload"],
+): string | null {
+  const crmOutput = payload?.crm_output;
+  const scope = isRecord(crmOutput) ? crmOutput.scope : null;
+  const brand = isRecord(scope) ? scope.brand : null;
+
+  return normalizeLatestRunBrand(typeof brand === "string" ? brand : null);
+}
+
+function normalizeLatestRunBrand(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  if (
+    !normalized ||
+    normalized.toLowerCase() === "all" ||
+    normalized.toLowerCase() === "all brands"
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function hasVisibleStateCompletionBar(row: StateCompletionChartRow): boolean {
   return row.completionPct > 0;
 }
@@ -2216,7 +2453,9 @@ function getStateCompletionColor(completionPct: number): string {
   return "#e11d48";
 }
 
-function formatLatestGeneratedAt(values: Array<string | null>): string | undefined {
+function formatLatestGeneratedAt(
+  values: Array<string | null>,
+): string | undefined {
   const latest = values.reduce<Date | null>((currentLatest, value) => {
     if (!value) {
       return currentLatest;

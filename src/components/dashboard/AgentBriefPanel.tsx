@@ -2,6 +2,7 @@ import type {
   A1AgentLatestResponse,
   A1AgentOutput,
   A1DashboardAgentPayload,
+  MarketingDashboardBrand,
 } from "@/src/types/dashboard";
 import {
   formatCurrency,
@@ -9,15 +10,22 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 interface AgentBriefPanelProps {
+  brandError: string | null;
+  brandOptions: MarketingDashboardBrand[];
   error: string | null;
+  isBrandLoading: boolean;
+  isAwaitingRun: boolean;
   isLoading: boolean;
   isRerunning: boolean;
   latestRun: A1AgentLatestResponse | null;
+  onBrandChange: (brand: string | null) => void;
   onRefresh: () => void;
   onRunAgain?: () => void;
   rerunStatus: string | null;
+  selectedBrand: string | null;
 }
 
 interface BriefListItem {
@@ -29,18 +37,30 @@ interface BriefListItem {
 type MetricTone = "critical" | "healthy" | "neutral" | "watch";
 
 export function AgentBriefPanel({
+  brandError,
+  brandOptions,
   error,
+  isBrandLoading,
+  isAwaitingRun,
   isLoading,
   isRerunning,
   latestRun,
+  onBrandChange,
   onRefresh,
   onRunAgain,
   rerunStatus,
+  selectedBrand,
 }: AgentBriefPanelProps) {
-  const payload = latestRun?.payload ?? null;
+  const selectedBrandLabel = selectedBrand ?? "All brands";
+  const runMatchesSelectedBrand = runMatchesBriefBrand(
+    latestRun,
+    selectedBrand,
+  );
+  const payload = runMatchesSelectedBrand ? (latestRun?.payload ?? null) : null;
   const agentOutput = payload ? resolveAgentOutput(payload) : null;
   const fleetSummary = agentOutput?.fleet_summary ?? null;
   const summary = payload?.summary ?? null;
+  const visibleStatus = runMatchesSelectedBrand ? latestRun?.status : "empty";
   const health = fleetSummary?.overall_health ?? summary?.overall_health;
   const topCampaigns = agentOutput?.top_campaigns ?? [];
   const underperformers = agentOutput?.underperformers ?? [];
@@ -56,6 +76,12 @@ export function AgentBriefPanel({
     underperformers.length > 0 ||
     anomalies.length > 0 ||
     recommendations.length > 0;
+  const namedBrands = brandOptions.filter((brand) =>
+    Boolean(brand.name?.trim()),
+  );
+  const hasSelectedBrand =
+    Boolean(selectedBrand) &&
+    namedBrands.some((brand) => brand.name?.trim() === selectedBrand);
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -65,11 +91,14 @@ export function AgentBriefPanel({
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
               A1 Campaign Brief
             </p>
-            {latestRun?.generated_at ? (
+            {runMatchesSelectedBrand && latestRun?.generated_at ? (
               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
                 {formatTimestamp(latestRun.generated_at)}
               </span>
             ) : null}
+            <span className="rounded-md bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-800">
+              {selectedBrandLabel}
+            </span>
           </div>
           <h2 className="mt-2 text-lg font-semibold text-slate-950">
             {agentOutput?.report_date
@@ -80,41 +109,125 @@ export function AgentBriefPanel({
             <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
               {agentOutput.summary}
             </p>
+          ) : isAwaitingRun ? (
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              AI is preparing the {selectedBrandLabel} brief. This usually takes
+              about a minute.
+            </p>
+          ) : isLoading ? (
+            <p className="mt-2 flex items-center gap-2 text-sm leading-6 text-slate-600">
+              <LoadingSpinner label="Loading A1 campaign brief" />
+              Loading A1 campaign brief for {selectedBrandLabel}...
+            </p>
           ) : (
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {isLoading
-                ? "Loading A1 campaign brief..."
-                : latestRun?.status === "success"
-                  ? "A1 output was received, but no readable brief is available yet."
-                  : "No A1 campaign brief received yet."}
+              {visibleStatus === "success"
+                ? "A1 output was received, but no readable brief is available yet."
+                : selectedBrand
+                  ? `No stored A1 campaign brief for ${selectedBrand} yet. Run again to generate it.`
+                  : "No stored A1 campaign brief for all brands yet. Run again to generate it."}
             </p>
           )}
           {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
-          {rerunStatus ? (
+          {rerunStatus && !isAwaitingRun ? (
             <p className="mt-2 text-sm text-slate-500">{rerunStatus}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-[14rem]">
+            <label
+              className="mb-1 block text-xs font-semibold uppercase tracking-normal text-slate-500"
+              htmlFor="a1-campaign-brief-brand"
+            >
+              Brief brand
+            </label>
+            <select
+              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+              disabled={isBrandLoading && namedBrands.length === 0}
+              id="a1-campaign-brief-brand"
+              onChange={(event) => onBrandChange(event.target.value || null)}
+              value={selectedBrand ?? ""}
+            >
+              <option value="">All brands</option>
+              {selectedBrand && !hasSelectedBrand ? (
+                <option value={selectedBrand}>{selectedBrand}</option>
+              ) : null}
+              {namedBrands.map((brand) => (
+                <option key={brand.id} value={brand.name ?? ""}>
+                  {brand.name}
+                </option>
+              ))}
+            </select>
+            {brandError ? (
+              <p className="mt-1 text-xs font-medium text-rose-700">
+                {brandError}
+              </p>
+            ) : isBrandLoading ? (
+              <p className="mt-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                <LoadingSpinner
+                  className="h-3.5 w-3.5 text-teal-600"
+                  label="Loading brief brands"
+                />
+                Loading brands...
+              </p>
+            ) : null}
+          </div>
           <button
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}
             onClick={onRefresh}
             type="button"
           >
-            Refresh
+            {isLoading ? (
+              <LoadingSpinner
+                className="h-3.5 w-3.5 text-slate-500"
+                label="Refreshing A1 campaign brief"
+              />
+            ) : null}
+            {isLoading ? "Refreshing" : "Refresh"}
           </button>
           {onRunAgain ? (
             <button
-              className="rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-              disabled={isRerunning}
+              className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              disabled={isRerunning || isAwaitingRun}
               onClick={onRunAgain}
               type="button"
             >
-              {isRerunning ? "Running..." : "Run again"}
+              {isRerunning || isAwaitingRun ? (
+                <LoadingSpinner
+                  className="h-3.5 w-3.5 text-white"
+                  label={
+                    isAwaitingRun
+                      ? "Preparing A1 campaign brief"
+                      : "Queueing A1 campaign brief"
+                  }
+                />
+              ) : null}
+              {isAwaitingRun
+                ? "Preparing..."
+                : isRerunning
+                  ? "Running..."
+                  : "Run again"}
             </button>
           ) : null}
         </div>
       </div>
+
+      {isAwaitingRun ? (
+        <div className="mt-4 flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+          <LoadingSpinner
+            className="mt-0.5 h-4 w-4 text-sky-700"
+            label="Preparing A1 campaign brief"
+          />
+          <div>
+            <p className="font-semibold">AI is preparing your brief.</p>
+            <p className="mt-1 text-sky-800">
+              Analysis is running for {selectedBrandLabel}. This panel will
+              refresh automatically when the brief is ready.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <BriefMetric
@@ -321,14 +434,59 @@ function getDataQualityWarnings(
   payload: A1DashboardAgentPayload | null,
 ): string[] {
   const crmOutput = payload?.crm_output;
-  const dataQuality = isRecord(crmOutput)
-    ? crmOutput.data_quality
-    : undefined;
+  const dataQuality = isRecord(crmOutput) ? crmOutput.data_quality : undefined;
   const warnings = isRecord(dataQuality) ? dataQuality.warnings : undefined;
 
   return Array.isArray(warnings)
-    ? warnings.filter((warning): warning is string => typeof warning === "string")
+    ? warnings.filter(
+        (warning): warning is string => typeof warning === "string",
+      )
     : [];
+}
+
+function runMatchesBriefBrand(
+  run: A1AgentLatestResponse | null,
+  selectedBrand: string | null,
+): boolean {
+  if (!run || run.status !== "success") {
+    return true;
+  }
+
+  const expectedBrand = normalizeBriefBrand(selectedBrand);
+  const payloadScopeBrand = getPayloadScopeBrand(run.payload);
+  const actualBrand = normalizeBriefBrand(run.brand) ?? payloadScopeBrand;
+  const actualScope =
+    run.scope ?? (actualBrand ? "brand" : ("all_brands" as const));
+
+  if (expectedBrand) {
+    return actualScope === "brand" && actualBrand === expectedBrand;
+  }
+
+  return actualScope === "all_brands" && actualBrand === null;
+}
+
+function getPayloadScopeBrand(
+  payload: A1DashboardAgentPayload | null,
+): string | null {
+  const crmOutput = payload?.crm_output;
+  const scope = isRecord(crmOutput) ? crmOutput.scope : null;
+  const brand = isRecord(scope) ? scope.brand : null;
+
+  return normalizeBriefBrand(typeof brand === "string" ? brand : null);
+}
+
+function normalizeBriefBrand(value: string | null | undefined): string | null {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  if (
+    !normalized ||
+    normalized.toLowerCase() === "all" ||
+    normalized.toLowerCase() === "all brands"
+  ) {
+    return null;
+  }
+
+  return normalized;
 }
 
 function formatIssue(value: string | null | undefined): string | null {
@@ -339,7 +497,9 @@ function compactMeta(items: Array<string | null | undefined>): string {
   return items.filter(Boolean).join(" / ");
 }
 
-function formatOptionalCurrency(value: number | null | undefined): string | null {
+function formatOptionalCurrency(
+  value: number | null | undefined,
+): string | null {
   return typeof value === "number" && Number.isFinite(value)
     ? formatCurrency(value)
     : null;

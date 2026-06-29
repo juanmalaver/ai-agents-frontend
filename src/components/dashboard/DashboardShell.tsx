@@ -94,7 +94,7 @@ export function DashboardShell({ activeItem, children }: DashboardShellProps) {
             </button>
           </div>
           <div className="px-4 py-6 md:px-6 lg:px-8">
-            <div className="mx-auto flex max-w-7xl flex-col gap-5">
+            <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
               {children}
             </div>
           </div>

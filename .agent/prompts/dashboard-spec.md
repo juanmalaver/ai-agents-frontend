@@ -648,7 +648,6 @@ Suggested Tailwind color semantics:
 - `src/components/dashboard/CampaignStateTable.tsx` - Renders the TanStack Table state rows, row health coloring, and expandable recommendation rows.
 - `src/components/dashboard/DashboardHeader.tsx` - Renders the dashboard title, subtitle, and optional last updated timestamp.
 - `src/components/dashboard/BrandFilter.tsx` - Renders the static brand selector and calls the brand change callback.
-- `src/components/dashboard/DashboardPage.tsx` - Fetches or loads mock data, normalizes metrics, builds KPI card data, and composes the dashboard sections.
-- `src/mocks/dashboardMock.ts` - Provides realistic mock dashboard data for all seven required states and six months of chart data.
+- `src/components/dashboard/DashboardPage.tsx` - Fetches live dashboard API data, normalizes metrics, builds KPI card data, and composes the dashboard sections.
 - `tailwind.config.ts` - Configures Tailwind content scanning for the app and dashboard source files.
 - `postcss.config.mjs` - Enables Tailwind and Autoprefixer processing for the Next.js app.
