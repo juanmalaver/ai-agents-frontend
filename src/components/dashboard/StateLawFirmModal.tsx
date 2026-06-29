@@ -21,11 +21,13 @@ import type {
   CampaignGradeCountsStatus,
   CampaignStateRow,
   DashboardQueryParams,
+  StateLawFirmCampaignAdRow,
   StateLawFirmCampaignRow,
   StateLawFirmRow,
   StateLawFirmsSection,
 } from "@/src/types/dashboard";
 import {
+  formatCurrency,
   formatNumber,
   formatPercentage,
   safeDivide,
@@ -46,6 +48,52 @@ const GRADE_CLASSES: Record<CampaignGrade, string> = {
   D: "border-orange-200 bg-orange-50 text-orange-800",
   F: "border-rose-200 bg-rose-50 text-rose-800",
 };
+
+const META_STATUS_CLASSES = {
+  off: "border-slate-300 bg-slate-100 text-slate-700",
+  on: "border-teal-200 bg-teal-50 text-teal-800",
+  unknown: "border-amber-200 bg-amber-50 text-amber-800",
+} satisfies Record<StateLawFirmCampaignAdRow["metaStatus"]["id"], string>;
+
+const CONFIDENCE_CLASSES = {
+  High: "border-teal-200 bg-teal-50 text-teal-800",
+  Learning: "border-slate-200 bg-slate-50 text-slate-600",
+  Limited: "border-orange-200 bg-orange-50 text-orange-800",
+  Medium: "border-sky-200 bg-sky-50 text-sky-800",
+} satisfies Record<StateLawFirmCampaignAdRow["confidence"], string>;
+
+const RECOMMENDATION_CLASSES = {
+  "KEEP / WATCH": "border-sky-200 bg-sky-50 text-sky-800",
+  "PAUSE / SHUTDOWN REVIEW": "border-rose-200 bg-rose-50 text-rose-800",
+  "REDUCE / REBUILD REVIEW": "border-orange-200 bg-orange-50 text-orange-800",
+  "WATCH / DIAGNOSE": "border-amber-200 bg-amber-50 text-amber-800",
+  "WINNER / REPLICATE / SCALE REVIEW":
+    "border-teal-200 bg-teal-50 text-teal-800",
+} satisfies Record<StateLawFirmCampaignAdRow["recommendation"], string>;
+
+const PLATFORM_CLASSES = {
+  meta: "border-sky-200 bg-sky-50 text-sky-700",
+  tiktok: "border-rose-200 bg-rose-50 text-rose-700",
+} satisfies Record<StateLawFirmCampaignAdRow["platform"], string>;
+
+const HEALTH_STATUS_LABELS = {
+  green: "Good",
+  neutral: "Not scored",
+  red: "Review",
+  yellow: "Watch",
+} satisfies Record<
+  StateLawFirmCampaignAdRow["metricHealth"]["cpsl"]["status"],
+  string
+>;
+
+const UNKNOWN_META_STATUS: StateLawFirmCampaignAdRow["metaStatus"] = {
+  configuredStatus: null,
+  effectiveStatus: null,
+  id: "unknown",
+  label: "Unknown",
+};
+
+const LAW_FIRM_FETCH_RETRY_DELAYS_MS = [800, 2_000];
 
 const EMPTY_GRADE_COUNTS = Object.freeze(
   CAMPAIGN_GRADES.reduce((counts, grade) => {
@@ -129,19 +177,10 @@ export function StateLawFirmModal({
 
     async function loadLawFirms() {
       try {
-        const response = await fetch(lawFirmUrl as string, {
-          cache: "no-store",
-          credentials: "include",
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(await readLawFirmResponseMessage(response));
-        }
-
-        const payload = (await response.json()) as {
-          data: StateLawFirmsSection | StateLawFirmRow[];
-        };
+        const payload = await fetchLawFirmBreakdown(
+          lawFirmUrl as string,
+          controller.signal,
+        );
 
         if (!controller.signal.aborted) {
           const section = normalizeStateLawFirmsPayload(payload.data);
@@ -156,7 +195,7 @@ export function StateLawFirmModal({
         if (!controller.signal.aborted) {
           setError(
             caughtError instanceof Error
-              ? caughtError.message
+              ? formatLawFirmLoadError(caughtError)
               : "Unable to load law firm breakdown.",
           );
         }
@@ -258,7 +297,12 @@ export function StateLawFirmModal({
                 status={gradeCountsStatus}
                 stateName={stateRow.state}
               />
-              <StateLawFirmTable query={query} rows={rows} />
+              <StateLawFirmTable
+                auditPlatform={auditPlatform}
+                query={query}
+                rows={rows}
+                stateName={stateRow.state}
+              />
             </>
           )}
         </div>
@@ -268,11 +312,15 @@ export function StateLawFirmModal({
 }
 
 function StateLawFirmTable({
+  auditPlatform,
   query,
   rows,
+  stateName,
 }: {
+  auditPlatform: HealthDashboardPlatform;
   query: DashboardQueryParams;
   rows: StateLawFirmRow[];
+  stateName: string;
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -469,8 +517,11 @@ function StateLawFirmTable({
                       colSpan={columns.length}
                     >
                       <LawFirmCampaignTable
+                        auditPlatform={auditPlatform}
                         campaigns={row.original.campaigns}
                         lawFirm={row.original.lawFirm}
+                        query={query}
+                        stateName={stateName}
                       />
                     </td>
                   </tr>
@@ -517,6 +568,36 @@ const GRADE_SORT_RANKS: Record<CampaignGrade, number> = {
   F: 4,
 };
 
+const AD_STATUS_SORT_RANKS: Record<
+  StateLawFirmCampaignAdRow["metaStatus"]["id"],
+  number
+> = {
+  off: 1,
+  on: 2,
+  unknown: 0,
+};
+
+const AD_CONFIDENCE_SORT_RANKS: Record<
+  StateLawFirmCampaignAdRow["confidence"],
+  number
+> = {
+  High: 4,
+  Learning: 1,
+  Limited: 2,
+  Medium: 3,
+};
+
+const AD_RECOMMENDATION_SORT_RANKS: Record<
+  StateLawFirmCampaignAdRow["recommendation"],
+  number
+> = {
+  "PAUSE / SHUTDOWN REVIEW": 5,
+  "REDUCE / REBUILD REVIEW": 4,
+  "WATCH / DIAGNOSE": 3,
+  "KEEP / WATCH": 2,
+  "WINNER / REPLICATE / SCALE REVIEW": 1,
+};
+
 const campaignGradeBreakdownSortingFn: SortingFn<StateLawFirmCampaignRow> = (
   first,
   second,
@@ -524,6 +605,61 @@ const campaignGradeBreakdownSortingFn: SortingFn<StateLawFirmCampaignRow> = (
 ) =>
   getGradeBreakdownSortValue(first.original, columnId) -
   getGradeBreakdownSortValue(second.original, columnId);
+
+const campaignAdsCountSortingFn: SortingFn<StateLawFirmCampaignRow> = (
+  first,
+  second,
+) => (first.original.ads?.length ?? 0) - (second.original.ads?.length ?? 0);
+
+const campaignAdGradeSortingFn: SortingFn<StateLawFirmCampaignAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignGrade>(columnId),
+    second.getValue<CampaignGrade>(columnId),
+    GRADE_SORT_RANKS,
+  );
+
+const campaignAdStatusSortingFn: SortingFn<StateLawFirmCampaignAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<StateLawFirmCampaignAdRow["metaStatus"]["id"]>(columnId),
+    second.getValue<StateLawFirmCampaignAdRow["metaStatus"]["id"]>(columnId),
+    AD_STATUS_SORT_RANKS,
+  );
+
+const campaignAdConfidenceSortingFn: SortingFn<StateLawFirmCampaignAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<StateLawFirmCampaignAdRow["confidence"]>(columnId),
+    second.getValue<StateLawFirmCampaignAdRow["confidence"]>(columnId),
+    AD_CONFIDENCE_SORT_RANKS,
+  );
+
+const campaignAdRecommendationSortingFn: SortingFn<StateLawFirmCampaignAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<StateLawFirmCampaignAdRow["recommendation"]>(columnId),
+    second.getValue<StateLawFirmCampaignAdRow["recommendation"]>(columnId),
+    AD_RECOMMENDATION_SORT_RANKS,
+  );
+
+const nullableCampaignAdNumberSortingFn: SortingFn<
+  StateLawFirmCampaignAdRow
+> = (first, second, columnId) =>
+  normalizeSortableNumber(first.getValue<number | null>(columnId)) -
+  normalizeSortableNumber(second.getValue<number | null>(columnId));
 
 function renderSortableHeader<TData>(header: Header<TData, unknown>) {
   if (header.isPlaceholder) {
@@ -568,9 +704,10 @@ function getHeaderInfo<TData>(header: Header<TData, unknown>): string | null {
 
 function getColumnWidth(columnId: string): string {
   const widths: Record<string, string> = {
-    adGradeCounts: "22%",
+    adGradeCounts: "20%",
+    ads: "10%",
     campaignGradeCounts: "16%",
-    campaignName: "42%",
+    campaignName: "34%",
     eomSlGoal: "11%",
     lawFirm: "22%",
     leadGoalPct: "10%",
@@ -675,6 +812,14 @@ function normalizeSortableNumber(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : Number.NEGATIVE_INFINITY;
+}
+
+function compareRankedValues<T extends string>(
+  firstValue: T,
+  secondValue: T,
+  ranks: Record<T, number>,
+): number {
+  return (ranks[firstValue] ?? 0) - (ranks[secondValue] ?? 0);
 }
 
 interface MonthPacing {
@@ -848,13 +993,21 @@ function getSlPacingClass(value: number | null): string {
 }
 
 function LawFirmCampaignTable({
+  auditPlatform,
   campaigns,
   lawFirm,
+  query,
+  stateName,
 }: {
+  auditPlatform: HealthDashboardPlatform;
   campaigns: StateLawFirmCampaignRow[];
   lawFirm: string;
+  query: DashboardQueryParams;
+  stateName: string;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [selectedCampaign, setSelectedCampaign] =
+    useState<StateLawFirmCampaignRow | null>(null);
   const [selectedAdGrades, setSelectedAdGrades] = useState<CampaignGrade[]>([]);
   const [selectedCampaignGrades, setSelectedCampaignGrades] = useState<
     CampaignGrade[]
@@ -924,6 +1077,21 @@ function LawFirmCampaignTable({
         sortingFn: campaignGradeBreakdownSortingFn,
       },
       {
+        cell: ({ row }) => (
+          <CampaignAdsAction
+            campaign={row.original}
+            onOpen={() => setSelectedCampaign(row.original)}
+          />
+        ),
+        header: "Ads",
+        id: "ads",
+        meta: {
+          info: "Open the ads inside this campaign with audit grades and performance context.",
+        },
+        sortDescFirst: true,
+        sortingFn: campaignAdsCountSortingFn,
+      },
+      {
         accessorKey: "leads",
         cell: ({ getValue }) =>
           renderCampaignMetricCell(getValue<number>()),
@@ -961,6 +1129,16 @@ function LawFirmCampaignTable({
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      {selectedCampaign ? (
+        <CampaignAdsModal
+          auditPlatform={auditPlatform}
+          campaign={selectedCampaign}
+          lawFirm={lawFirm}
+          onClose={() => setSelectedCampaign(null)}
+          query={query}
+          stateName={stateName}
+        />
+      ) : null}
       <div className="border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1257,6 +1435,376 @@ function GradeBreakdownChips({
   );
 }
 
+function CampaignAdsAction({
+  campaign,
+  onOpen,
+}: {
+  campaign: StateLawFirmCampaignRow;
+  onOpen: () => void;
+}) {
+  const adCount = campaign.ads?.length ?? 0;
+  const canOpen = campaign.adsStatus === "available" && adCount > 0;
+  const label = `Open ${formatNumber(adCount)} ads for ${campaign.campaignName}`;
+
+  if (!canOpen) {
+    return (
+      <span className="block text-right text-xs font-semibold text-slate-400">
+        -
+      </span>
+    );
+  }
+
+  return (
+    <button
+      aria-label={label}
+      className="inline-flex h-8 min-w-16 items-center justify-center rounded-md border border-teal-200 bg-teal-50 px-2.5 text-xs font-bold tabular-nums text-teal-800 transition hover:border-teal-300 hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+      onClick={onOpen}
+      title={label}
+      type="button"
+    >
+      {formatNumber(adCount)}
+    </button>
+  );
+}
+
+function CampaignAdsModal({
+  auditPlatform,
+  campaign,
+  lawFirm,
+  onClose,
+  query,
+  stateName,
+}: {
+  auditPlatform: HealthDashboardPlatform;
+  campaign: StateLawFirmCampaignRow;
+  lawFirm: string;
+  onClose: () => void;
+  query: DashboardQueryParams;
+  stateName: string;
+}) {
+  const ads = campaign.ads ?? [];
+  const [sorting, setSorting] = useState<SortingState>([
+    { desc: true, id: "spend" },
+  ]);
+  const stats = useMemo(() => buildCampaignAdStats(ads), [ads]);
+  const columns = useMemo<ColumnDef<StateLawFirmCampaignAdRow>[]>(
+    () => [
+      {
+        accessorKey: "adName",
+        header: "Ad",
+      },
+      {
+        accessorKey: "grade",
+        header: "Grade",
+        sortDescFirst: true,
+        sortingFn: campaignAdGradeSortingFn,
+      },
+      {
+        accessorKey: "platform",
+        header: "Platform",
+      },
+      {
+        accessorFn: (row) => getCampaignAdStatus(row).id,
+        header: "Status",
+        id: "status",
+        sortingFn: campaignAdStatusSortingFn,
+      },
+      {
+        accessorKey: "spend",
+        header: "Spend",
+        sortDescFirst: true,
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "leads",
+        header: "Leads",
+        sortDescFirst: true,
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "signedLeads",
+        header: "SL",
+        sortDescFirst: true,
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "cpl",
+        header: "CPL",
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "cpsl",
+        header: "CPSL",
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "confidence",
+        header: "Confidence",
+        sortingFn: campaignAdConfidenceSortingFn,
+      },
+      {
+        accessorKey: "recommendation",
+        header: "Recommendation",
+        sortingFn: campaignAdRecommendationSortingFn,
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    columns,
+    data: ads,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  });
+
+  return (
+    <div
+      aria-labelledby="campaign-ads-modal-title"
+      aria-modal="true"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6"
+      role="dialog"
+    >
+      <div className="flex max-h-full w-full max-w-[1280px] flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Campaign ads
+            </p>
+            <h2
+              className="mt-1 truncate text-xl font-bold text-slate-950"
+              id="campaign-ads-modal-title"
+              title={campaign.campaignName}
+            >
+              {campaign.campaignName}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {lawFirm} · {formatNumber(ads.length)} ads · {stateName}{" "}
+              <Link
+                className="font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition hover:text-teal-900"
+                href={buildHealthPageUrl({
+                  brand: query.brand,
+                  from: query.from,
+                  platform: auditPlatform,
+                  states: [stateName],
+                  to: query.to,
+                })}
+              >
+                View in Audit
+              </Link>
+            </p>
+          </div>
+          <button
+            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 md:grid-cols-5">
+          <SummaryItem label="Spend" value={formatCurrency(stats.spend)} />
+          <SummaryItem label="Leads" value={formatNumber(stats.leads)} />
+          <SummaryItem label="SL" value={formatNumber(stats.signedLeads)} />
+          <SummaryItem label="CPL" value={formatCurrency(stats.cpl)} />
+          <SummaryItem label="CPSL" value={formatCurrency(stats.cpsl)} />
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-5">
+          <div className="overflow-hidden rounded-lg border border-slate-200">
+            <table className="w-full min-w-[1120px] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[24%]" />
+                <col className="w-[6%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[6%]" />
+                <col className="w-[6%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[10%]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        className={`px-3 py-2 font-semibold ${
+                          isNumericCampaignAdColumn(header.column.id)
+                            ? "text-right"
+                            : "text-left"
+                        }`}
+                        key={header.id}
+                      >
+                        {renderSortableHeader(header)}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {table.getRowModel().rows.length > 0 ? (
+                  table.getRowModel().rows.map((tableRow) => {
+                    const ad = tableRow.original;
+                    const status = getCampaignAdStatus(ad);
+
+                    return (
+                      <tr
+                        className="bg-white transition hover:bg-slate-50/80"
+                        key={tableRow.id}
+                      >
+                        <td className="min-w-0 px-3 py-3">
+                          <div
+                            className="break-words font-semibold text-slate-950 [overflow-wrap:anywhere]"
+                            title={ad.adName || undefined}
+                          >
+                            {ad.adName || "Unnamed ad"}
+                          </div>
+                          <div className="mt-1 space-y-0.5 text-xs font-medium text-slate-500">
+                            <div>{ad.brand}</div>
+                            <div className="break-words [overflow-wrap:anywhere]">
+                              {formatAdContextLine(ad)}
+                            </div>
+                          </div>
+                        </td>
+                        <td
+                          className="px-3 py-3"
+                          title={formatCampaignAdGradeTitle(ad)}
+                        >
+                          <CampaignAdGradeChip grade={ad.grade} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <CampaignAdPlatformChip platform={ad.platform} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <CampaignAdStatusChip status={status} />
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatCurrency(ad.spend)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatNumber(ad.leads)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatNumber(ad.signedLeads)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatCurrency(ad.cpl)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatCurrency(ad.cpsl)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <CampaignAdConfidenceChip
+                            confidence={ad.confidence}
+                          />
+                        </td>
+                        <td className="px-3 py-3">
+                          <CampaignAdRecommendationChip
+                            recommendation={ad.recommendation}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td
+                      className="px-3 py-8 text-center text-sm font-medium text-slate-500"
+                      colSpan={columns.length}
+                    >
+                      No ad audit data is available for this campaign.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignAdGradeChip({ grade }: { grade: CampaignGrade }) {
+  return (
+    <span
+      className={`inline-flex h-8 min-w-10 items-center justify-center rounded-md border px-2 text-sm font-bold ${GRADE_CLASSES[grade]}`}
+    >
+      {grade}
+    </span>
+  );
+}
+
+function CampaignAdPlatformChip({
+  platform,
+}: {
+  platform: StateLawFirmCampaignAdRow["platform"];
+}) {
+  return (
+    <span
+      className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${PLATFORM_CLASSES[platform]}`}
+    >
+      {platform === "tiktok" ? "TikTok" : "Meta"}
+    </span>
+  );
+}
+
+function CampaignAdStatusChip({
+  status,
+}: {
+  status: StateLawFirmCampaignAdRow["metaStatus"];
+}) {
+  const rawStatus = [status.effectiveStatus, status.configuredStatus]
+    .filter(Boolean)
+    .join(" / ");
+
+  return (
+    <span
+      className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${META_STATUS_CLASSES[status.id]}`}
+      title={
+        rawStatus
+          ? `Effective/configured status: ${rawStatus}`
+          : "Delivery status is unavailable."
+      }
+    >
+      {status.label}
+    </span>
+  );
+}
+
+function CampaignAdConfidenceChip({
+  confidence,
+}: {
+  confidence: StateLawFirmCampaignAdRow["confidence"];
+}) {
+  return (
+    <span
+      className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${CONFIDENCE_CLASSES[confidence]}`}
+    >
+      {confidence}
+    </span>
+  );
+}
+
+function CampaignAdRecommendationChip({
+  recommendation,
+}: {
+  recommendation: StateLawFirmCampaignAdRow["recommendation"];
+}) {
+  return (
+    <span
+      className={`inline-flex max-w-full rounded-md border px-2 py-1 text-left text-xs font-semibold leading-tight ${RECOMMENDATION_CLASSES[recommendation]}`}
+    >
+      {recommendation}
+    </span>
+  );
+}
+
 function toggleSelectedGrade(
   selectedGrades: CampaignGrade[],
   grade: CampaignGrade,
@@ -1287,7 +1835,9 @@ function countCampaignRowsByGrade(
 }
 
 function isNumericCampaignColumn(columnId: string): boolean {
-  return columnId === "leads" || columnId === "signedLeads";
+  return (
+    columnId === "ads" || columnId === "leads" || columnId === "signedLeads"
+  );
 }
 
 function gradeCountsMatchSelection(
@@ -1363,6 +1913,82 @@ function sumCampaignMetric(
   key: "leads" | "signedLeads",
 ): number {
   return campaigns.reduce((total, campaign) => total + campaign[key], 0);
+}
+
+function buildCampaignAdStats(ads: StateLawFirmCampaignAdRow[]) {
+  const spend = sumCampaignAdMetric(ads, "spend");
+  const leads = sumCampaignAdMetric(ads, "leads");
+  const signedLeads = sumCampaignAdMetric(ads, "signedLeads");
+
+  return {
+    cpl: safeDivide(spend, leads),
+    cpsl: safeDivide(spend, signedLeads),
+    leads,
+    signedLeads,
+    spend,
+  };
+}
+
+function sumCampaignAdMetric(
+  ads: StateLawFirmCampaignAdRow[],
+  key: "leads" | "signedLeads" | "spend",
+): number {
+  return ads.reduce((total, ad) => total + (ad[key] ?? 0), 0);
+}
+
+function isNumericCampaignAdColumn(columnId: string): boolean {
+  return (
+    columnId === "spend" ||
+    columnId === "leads" ||
+    columnId === "signedLeads" ||
+    columnId === "cpl" ||
+    columnId === "cpsl"
+  );
+}
+
+function getCampaignAdStatus(
+  ad: StateLawFirmCampaignAdRow,
+): StateLawFirmCampaignAdRow["metaStatus"] {
+  if (ad.platform === "tiktok") {
+    return ad.adsetStatus ?? ad.metaStatus ?? UNKNOWN_META_STATUS;
+  }
+
+  return ad.metaStatus ?? UNKNOWN_META_STATUS;
+}
+
+function formatAdContextLine(ad: StateLawFirmCampaignAdRow): string {
+  const parts = [
+    ad.adId ? `Ad ID ${ad.adId}` : null,
+    ad.adsetName ? `Ad set ${ad.adsetName}` : null,
+  ].filter(Boolean);
+
+  return parts.join(" · ") || "Ad ID unavailable";
+}
+
+function formatCampaignAdGradeTitle(ad: StateLawFirmCampaignAdRow): string {
+  const metricHealth = ad.metricHealth;
+  const metricSummary = metricHealth
+    ? [
+        metricHealth.attribution,
+        metricHealth.cpsl,
+        metricHealth.volume,
+        metricHealth.intake,
+      ]
+        .filter(Boolean)
+        .map(
+          (metric) =>
+            `${metric.label}: ${HEALTH_STATUS_LABELS[metric.status]}`,
+        )
+        .join("; ")
+    : "";
+
+  return [
+    ad.recommendation,
+    `${ad.confidence} confidence`,
+    metricSummary,
+  ]
+    .filter(Boolean)
+    .join(". ");
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
@@ -1602,6 +2228,120 @@ function normalizeGradeCounts(
 
     return normalized;
   }, {} as CampaignGradeCounts);
+}
+
+async function fetchLawFirmBreakdown(
+  url: string,
+  signal: AbortSignal,
+): Promise<{ data: StateLawFirmsSection | StateLawFirmRow[] }> {
+  let lastError: unknown = null;
+
+  for (
+    let attempt = 0;
+    attempt <= LAW_FIRM_FETCH_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        credentials: "include",
+        signal,
+      });
+
+      if (
+        shouldRetryLawFirmResponse(response) &&
+        attempt < LAW_FIRM_FETCH_RETRY_DELAYS_MS.length
+      ) {
+        await waitForLawFirmRetry(
+          LAW_FIRM_FETCH_RETRY_DELAYS_MS[attempt],
+          signal,
+        );
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(await readLawFirmResponseMessage(response));
+      }
+
+      return (await response.json()) as {
+        data: StateLawFirmsSection | StateLawFirmRow[];
+      };
+    } catch (caughtError) {
+      if (signal.aborted) {
+        throw caughtError;
+      }
+
+      lastError = caughtError;
+
+      if (
+        !isRetryableLawFirmFetchError(caughtError) ||
+        attempt >= LAW_FIRM_FETCH_RETRY_DELAYS_MS.length
+      ) {
+        throw caughtError;
+      }
+
+      await waitForLawFirmRetry(
+        LAW_FIRM_FETCH_RETRY_DELAYS_MS[attempt],
+        signal,
+      );
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Unable to load law firm breakdown.");
+}
+
+function shouldRetryLawFirmResponse(response: Response): boolean {
+  return [408, 429, 500, 502, 503, 504].includes(response.status);
+}
+
+function isRetryableLawFirmFetchError(caughtError: unknown): boolean {
+  if (!(caughtError instanceof Error)) {
+    return false;
+  }
+
+  const message = caughtError.message.toLowerCase();
+
+  return (
+    caughtError.name === "TypeError" &&
+    (message.includes("failed to fetch") ||
+      message.includes("load failed") ||
+      message.includes("networkerror") ||
+      message.includes("network request failed"))
+  );
+}
+
+function formatLawFirmLoadError(error: Error): string {
+  if (isRetryableLawFirmFetchError(error)) {
+    return "The connection dropped while loading the law firm breakdown. We retried automatically; please try again in a moment.";
+  }
+
+  return error.message;
+}
+
+function waitForLawFirmRetry(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Request was aborted.", "AbortError"));
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delayMs);
+
+    function handleAbort() {
+      window.clearTimeout(timeoutId);
+      reject(new DOMException("Request was aborted.", "AbortError"));
+    }
+
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
 }
 
 async function readLawFirmResponseMessage(response: Response): Promise<string> {

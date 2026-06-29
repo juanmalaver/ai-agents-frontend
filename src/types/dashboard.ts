@@ -1,3 +1,8 @@
+import type {
+  CampaignHealthAdRow,
+  CampaignPlatform,
+} from "./campaignHealth";
+
 export interface DashboardPageProps {
   apiUrl?: string;
   activeTab?: DashboardTabId;
@@ -55,9 +60,18 @@ export type CampaignGradeCounts = Record<CampaignGrade, number>;
 
 export type CampaignGradeCountsStatus = "available" | "unavailable";
 
+export interface StateLawFirmCampaignAdRow extends CampaignHealthAdRow {
+  brand: string;
+  campaignId: string | null;
+  campaignName: string;
+  platform: CampaignPlatform;
+}
+
 export interface StateLawFirmCampaignRow {
   adGradeCounts?: CampaignGradeCounts;
   adGradeCountsStatus?: CampaignGradeCountsStatus;
+  ads?: StateLawFirmCampaignAdRow[];
+  adsStatus?: CampaignGradeCountsStatus;
   campaignName: string;
   campaignGradeCounts?: CampaignGradeCounts;
   campaignGradeCountsStatus?: CampaignGradeCountsStatus;
