@@ -199,6 +199,31 @@ export interface VideoProductionBriefCatalogResponse {
   video_styles: VideoProductionCatalogOption[];
 }
 
+export interface HiggsfieldOAuthStartResponse {
+  provider: string;
+  owner_type: string;
+  owner_email: string;
+  authorization_url: string;
+  redirect_uri: string;
+  expires_at: string;
+}
+
+export interface HiggsfieldOAuthStatusResponse {
+  provider: string;
+  owner_type: string;
+  owner_email: string;
+  connected: boolean;
+  status: string | null;
+  connected_email: string | null;
+  connected_subject: string | null;
+  org_id: string | null;
+  expires_at: string | null;
+  connected_at: string | null;
+  last_refresh_at: string | null;
+  has_refresh_token: boolean;
+  metadata: Record<string, unknown>;
+}
+
 export type VideoReviewBrief = {
   brand?: {
     name?: string;

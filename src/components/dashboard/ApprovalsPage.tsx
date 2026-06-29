@@ -8,6 +8,8 @@ import type {
   BriefDraftContinueResponse,
   BriefDraftResponse,
   BriefDraftScene,
+  HiggsfieldOAuthStartResponse,
+  HiggsfieldOAuthStatusResponse,
   ReviewAssetDetailResponse,
   ReviewAssetListItem,
   ReviewAssetsResponse,
@@ -47,6 +49,8 @@ const sceneCountOptions = [1, 2, 3, 4, 5];
 const videoLengthOptions = [15, 30, 45, 60];
 const REELS_ASPECT_RATIO = "9:16";
 const REELS_PLATFORM = "TikTok/Reels/Shorts";
+const HIGGSFIELD_OAUTH_STATUS_REFRESH_MS = 12_000;
+const HIGGSFIELD_OAUTH_MAX_WAIT_ATTEMPTS = 20;
 const promptChecklist = [
   "Brand",
   "Market / state",
@@ -444,6 +448,23 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
 function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [briefText, setBriefText] = useState("");
   const [useAdvancedOptions, setUseAdvancedOptions] = useState(false);
+  const [higgsfieldOAuthStatus, setHiggsfieldOAuthStatus] =
+    useState<HiggsfieldOAuthStatusResponse | null>(null);
+  const [higgsfieldOAuthLoadState, setHiggsfieldOAuthLoadState] =
+    useState<LoadState>("loading");
+  const [higgsfieldOAuthError, setHiggsfieldOAuthError] = useState<string | null>(
+    null,
+  );
+  const [higgsfieldOAuthMessage, setHiggsfieldOAuthMessage] = useState<
+    string | null
+  >(null);
+  const [higgsfieldAuthorizationUrl, setHiggsfieldAuthorizationUrl] = useState<
+    string | null
+  >(null);
+  const [isStartingHiggsfieldOAuth, setIsStartingHiggsfieldOAuth] =
+    useState(false);
+  const [isRefreshingHiggsfieldOAuth, setIsRefreshingHiggsfieldOAuth] =
+    useState(false);
   const [catalog, setCatalog] =
     useState<VideoProductionBriefCatalogResponse | null>(null);
   const [catalogLoadState, setCatalogLoadState] =
@@ -485,6 +506,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const [isSavingScript, setIsSavingScript] = useState(false);
   const [isSavingStoryboard, setIsSavingStoryboard] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const higgsfieldOAuthWindowRef = useRef<Window | null>(null);
+  const higgsfieldOAuthPollTimerRef = useRef<number | null>(null);
   const trimmedBriefText = briefText.trim();
   const brands = catalog?.brands ?? [];
   const characters = catalog?.characters ?? [];
@@ -564,6 +587,157 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   const markAdvancedOptionsUsed = useCallback(() => {
     setUseAdvancedOptions(true);
   }, []);
+
+  const clearHiggsfieldOAuthPolling = useCallback(() => {
+    if (higgsfieldOAuthPollTimerRef.current !== null) {
+      window.clearInterval(higgsfieldOAuthPollTimerRef.current);
+      higgsfieldOAuthPollTimerRef.current = null;
+    }
+  }, []);
+
+  const loadHiggsfieldOAuthStatus = useCallback(async (
+    options: { onlyIfVisible?: boolean; silent?: boolean } = {},
+  ): Promise<HiggsfieldOAuthStatusResponse | null> => {
+    if (!reviewerEmail) {
+      setHiggsfieldOAuthStatus(null);
+      setHiggsfieldOAuthLoadState("ready");
+      setHiggsfieldOAuthError(null);
+      return null;
+    }
+
+    if (options.onlyIfVisible && document.visibilityState !== "visible") {
+      return null;
+    }
+
+    if (!options.silent) {
+      setHiggsfieldOAuthLoadState("loading");
+    }
+    setHiggsfieldOAuthError(null);
+
+    try {
+      const response = await fetchJson<HiggsfieldOAuthStatusResponse>(
+        "/api/video-production/integrations/higgsfield/oauth/status",
+      );
+
+      setHiggsfieldOAuthStatus(response);
+      setHiggsfieldOAuthLoadState("ready");
+      return response;
+    } catch (caughtError) {
+      if (!options.silent) {
+        setHiggsfieldOAuthError(
+          errorMessage(caughtError, "Unable to load Higgsfield connection."),
+        );
+        setHiggsfieldOAuthLoadState("error");
+      }
+      return null;
+    }
+  }, [reviewerEmail]);
+
+  const startHiggsfieldOAuthPolling = useCallback(() => {
+    clearHiggsfieldOAuthPolling();
+
+    let attempts = 0;
+    higgsfieldOAuthPollTimerRef.current = window.setInterval(() => {
+      attempts += 1;
+
+      void loadHiggsfieldOAuthStatus({
+        onlyIfVisible: true,
+        silent: true,
+      }).then((response) => {
+        if (response?.connected) {
+          clearHiggsfieldOAuthPolling();
+          setHiggsfieldOAuthMessage("State updated to connected.");
+          return;
+        }
+
+        const oauthWindow = higgsfieldOAuthWindowRef.current;
+        if (oauthWindow?.closed && attempts >= 2) {
+          clearHiggsfieldOAuthPolling();
+          setHiggsfieldOAuthMessage(
+            "Authorization window closed before a connected state was confirmed.",
+          );
+          return;
+        }
+
+        if (attempts >= HIGGSFIELD_OAUTH_MAX_WAIT_ATTEMPTS) {
+          clearHiggsfieldOAuthPolling();
+          setHiggsfieldOAuthMessage(
+            "Still waiting for Higgsfield authorization.",
+          );
+        }
+      });
+    }, HIGGSFIELD_OAUTH_STATUS_REFRESH_MS);
+  }, [clearHiggsfieldOAuthPolling, loadHiggsfieldOAuthStatus]);
+
+  const startHiggsfieldOAuth = useCallback(async () => {
+    if (!reviewerEmail) {
+      setHiggsfieldOAuthMessage("Authenticated user email is required.");
+      return;
+    }
+
+    setIsStartingHiggsfieldOAuth(true);
+    setHiggsfieldOAuthError(null);
+    setHiggsfieldOAuthMessage(null);
+
+    try {
+      const response = await fetchJson<HiggsfieldOAuthStartResponse>(
+        "/api/video-production/integrations/higgsfield/oauth/start",
+      );
+
+      setHiggsfieldAuthorizationUrl(response.authorization_url);
+      const openedWindow = window.open(
+        response.authorization_url,
+        "higgsfield-oauth",
+        "popup=yes,width=560,height=760",
+      );
+      higgsfieldOAuthWindowRef.current = openedWindow;
+
+      setHiggsfieldOAuthMessage(
+        openedWindow
+          ? "Waiting for Higgsfield authorization."
+          : "Popup blocked. Open the authorization link.",
+      );
+
+      startHiggsfieldOAuthPolling();
+    } catch (caughtError) {
+      setHiggsfieldOAuthError(
+        errorMessage(caughtError, "Unable to start Higgsfield authorization."),
+      );
+    } finally {
+      setIsStartingHiggsfieldOAuth(false);
+    }
+  }, [reviewerEmail, startHiggsfieldOAuthPolling]);
+
+  const refreshHiggsfieldOAuth = useCallback(async () => {
+    if (!reviewerEmail) {
+      setHiggsfieldOAuthMessage("Authenticated user email is required.");
+      return;
+    }
+
+    setIsRefreshingHiggsfieldOAuth(true);
+    setHiggsfieldOAuthError(null);
+    setHiggsfieldOAuthMessage(null);
+
+    try {
+      const response = await fetchJson<HiggsfieldOAuthStatusResponse>(
+        "/api/video-production/integrations/higgsfield/oauth/refresh",
+        {
+          method: "POST",
+        },
+      );
+
+      setHiggsfieldOAuthStatus(response);
+      setHiggsfieldOAuthLoadState("ready");
+      setHiggsfieldOAuthMessage("Higgsfield connection refreshed.");
+    } catch (caughtError) {
+      setHiggsfieldOAuthError(
+        errorMessage(caughtError, "Unable to refresh Higgsfield connection."),
+      );
+    } finally {
+      setIsRefreshingHiggsfieldOAuth(false);
+    }
+  }, [reviewerEmail]);
+
   const scriptValidationError = useMemo(
     () => validateScript(editableScript),
     [editableScript],
@@ -1128,6 +1302,74 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     [updateStoryboard],
   );
 
+  useEffect(() => {
+    void loadHiggsfieldOAuthStatus();
+
+    if (!reviewerEmail) {
+      return;
+    }
+
+    function refreshVisibleStatus() {
+      if (higgsfieldOAuthPollTimerRef.current !== null) {
+        return;
+      }
+
+      void loadHiggsfieldOAuthStatus({
+        onlyIfVisible: true,
+        silent: true,
+      });
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        refreshVisibleStatus();
+      }
+    }
+
+    const statusRefreshInterval = window.setInterval(
+      refreshVisibleStatus,
+      HIGGSFIELD_OAUTH_STATUS_REFRESH_MS,
+    );
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshVisibleStatus);
+
+    return () => {
+      window.clearInterval(statusRefreshInterval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshVisibleStatus);
+    };
+  }, [loadHiggsfieldOAuthStatus, reviewerEmail]);
+
+  useEffect(() => {
+    function handleHiggsfieldOAuthMessage(event: MessageEvent) {
+      const data = event.data as
+        | { provider?: string; success?: boolean; type?: string }
+        | null;
+
+      if (
+        !data ||
+        data.type !== "higgsfield-oauth-complete" ||
+        data.provider !== "higgsfield"
+      ) {
+        return;
+      }
+
+      clearHiggsfieldOAuthPolling();
+      setHiggsfieldOAuthMessage(
+        data.success
+          ? "State updated after Higgsfield authorization."
+          : "Higgsfield authorization did not complete.",
+      );
+      void loadHiggsfieldOAuthStatus({ silent: true });
+    }
+
+    window.addEventListener("message", handleHiggsfieldOAuthMessage);
+    return () => {
+      window.removeEventListener("message", handleHiggsfieldOAuthMessage);
+      clearHiggsfieldOAuthPolling();
+    };
+  }, [clearHiggsfieldOAuthPolling, loadHiggsfieldOAuthStatus]);
+
   return (
     <>
       <section className="grid gap-3 md:grid-cols-3">
@@ -1150,6 +1392,19 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
           value={draft?.run_id ? "Started" : "Not started"}
         />
       </section>
+
+      <HiggsfieldConnectionPanel
+        authorizationUrl={higgsfieldAuthorizationUrl}
+        error={higgsfieldOAuthError}
+        isConnecting={isStartingHiggsfieldOAuth}
+        isLoading={higgsfieldOAuthLoadState === "loading"}
+        isRefreshing={isRefreshingHiggsfieldOAuth}
+        message={higgsfieldOAuthMessage}
+        onConnect={() => void startHiggsfieldOAuth()}
+        onRefreshToken={() => void refreshHiggsfieldOAuth()}
+        reviewerEmail={reviewerEmail}
+        status={higgsfieldOAuthStatus}
+      />
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
@@ -1674,6 +1929,120 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
         </section>
       ) : null}
     </>
+  );
+}
+
+function HiggsfieldConnectionPanel({
+  authorizationUrl,
+  error,
+  isConnecting,
+  isLoading,
+  isRefreshing,
+  message,
+  onConnect,
+  onRefreshToken,
+  reviewerEmail,
+  status,
+}: {
+  authorizationUrl: string | null;
+  error: string | null;
+  isConnecting: boolean;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  message: string | null;
+  onConnect: () => void;
+  onRefreshToken: () => void;
+  reviewerEmail: string;
+  status: HiggsfieldOAuthStatusResponse | null;
+}) {
+  const isConnected = Boolean(status?.connected);
+  const stateValue = isLoading
+    ? "Checking"
+    : isConnected
+      ? "Connected"
+      : status?.status === "reconnect_required"
+        ? "Reconnect"
+        : "Not connected";
+  const statusTone: StatusTone = isLoading
+    ? "amber"
+    : isConnected
+      ? "teal"
+      : status?.status === "reconnect_required"
+        ? "rose"
+        : "slate";
+  const connectedLabel =
+    status?.connected_email || status?.owner_email || reviewerEmail || "-";
+  const detailLabel = isConnected
+    ? connectedLabel
+    : reviewerEmail
+      ? reviewerEmail
+      : "Email required";
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-950">
+              Higgsfield
+            </h2>
+            <StatusPill label={stateValue} tone={statusTone} />
+          </div>
+          <p className="mt-1 break-words text-sm text-slate-500">
+            State: {stateValue.toLowerCase()} / {detailLabel}
+          </p>
+          {status?.expires_at ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Expires {formatTimestamp(status.expires_at)}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!reviewerEmail || isConnecting}
+            onClick={onConnect}
+            type="button"
+          >
+            {isConnecting
+              ? "Opening"
+              : isConnected
+                ? "Reconnect"
+                : "Connect"}
+          </button>
+          <button
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!reviewerEmail || !status?.has_refresh_token || isRefreshing}
+            onClick={onRefreshToken}
+            type="button"
+          >
+            {isRefreshing ? "Renewing" : "Renew"}
+          </button>
+        </div>
+      </div>
+
+      {message ? (
+        <p className="border-t border-slate-200 px-4 py-3 text-sm text-slate-700">
+          {message}
+          {authorizationUrl ? (
+            <>
+              {" "}
+              <a
+                className="font-semibold text-teal-700 underline-offset-2 hover:underline"
+                href={authorizationUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open link
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+
+      {error ? <InlineError message={error} /> : null}
+    </section>
   );
 }
 
