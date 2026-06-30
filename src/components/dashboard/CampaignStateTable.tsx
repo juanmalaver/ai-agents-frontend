@@ -18,6 +18,7 @@ import {
 import { Fragment, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
+  CampaignStateMixedState,
   CampaignStateRow,
   CampaignStateTableProps,
   RowHealth,
@@ -31,6 +32,7 @@ import {
 import { buildHealthPageUrl } from "@/src/utils/runtimeApiUrls";
 import { RecommendationPanel } from "./RecommendationPanel";
 import { StateLawFirmModal } from "./StateLawFirmModal";
+import { StateSpendHistoryModal } from "./StateSpendHistoryModal";
 
 const rowHealthClasses: Record<RowHealth, string> = {
   critical: "bg-rose-50 hover:bg-rose-100",
@@ -38,6 +40,21 @@ const rowHealthClasses: Record<RowHealth, string> = {
   near: "bg-amber-50 hover:bg-amber-100",
   neutral: "bg-white hover:bg-sky-50",
 };
+
+const MIXED_CAMPAIGN_STATE_NAME = "Mixed";
+const DEFAULT_MIXED_CAMPAIGN_STATES: CampaignStateMixedState[] = [
+  buildMixedStateFallback("AZ", "Arizona"),
+  buildMixedStateFallback("CO", "Colorado"),
+  buildMixedStateFallback("IN", "Indiana"),
+  buildMixedStateFallback("UT", "Utah"),
+  buildMixedStateFallback("PA", "Pennsylvania"),
+  buildMixedStateFallback("OH", "Ohio"),
+  buildMixedStateFallback("NC", "North Carolina"),
+  buildMixedStateFallback("WA", "Washington"),
+  buildMixedStateFallback("NJ", "New Jersey"),
+  buildMixedStateFallback("IL", "Illinois"),
+  buildMixedStateFallback("DC", "District of Columbia"),
+];
 
 const headerLines: Record<string, string[]> = {
   budget: ["Budget"],
@@ -66,7 +83,11 @@ export function CampaignStateTable({
   selectedStateFilter,
 }: CampaignStateTableProps) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { desc: true, id: "budget" },
+  ]);
+  const [selectedSpendHistoryState, setSelectedSpendHistoryState] =
+    useState<string | null>(null);
   const [selectedStateRow, setSelectedStateRow] =
     useState<CampaignStateRow | null>(null);
   const stateOptions = useMemo(() => buildStateFilterOptions(rows), [rows]);
@@ -102,12 +123,15 @@ export function CampaignStateTable({
         accessorKey: "state",
         cell: ({ getValue, row }) => {
           const stateName = getValue<string>();
+          const hasMixedStates = getMixedStateRows(row.original).length > 0;
+          const expansionLabel =
+            hasMixedStates ? "mixed states" : "recommendation";
 
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2">
               {row.getCanExpand() ? (
                 <button
-                  aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} recommendation for ${stateName}`}
+                  aria-label={`${row.getIsExpanded() ? "Collapse" : "Expand"} ${expansionLabel} for ${stateName}`}
                   className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-sky-50"
                   onClick={row.getToggleExpandedHandler()}
                   type="button"
@@ -118,7 +142,9 @@ export function CampaignStateTable({
               <Link
                 className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
                 href={buildHealthPageUrl({
+                  adStatuses: ["on"],
                   brand: query.brand,
+                  campaignStatuses: ["on"],
                   from: query.from,
                   states: [stateName],
                   to: query.to,
@@ -153,7 +179,16 @@ export function CampaignStateTable({
       },
       {
         accessorKey: "mtdSpent",
-        cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        cell: ({ getValue, row }) => (
+          <button
+            aria-label={`View six-week spend history for ${row.original.state}`}
+            className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            onClick={() => setSelectedSpendHistoryState(row.original.state)}
+            type="button"
+          >
+            {formatCurrency(getValue<number | null>())}
+          </button>
+        ),
         footer: () => formatCurrency(totalRow?.mtdSpent ?? null),
         header: "Total Spent",
         meta: {
@@ -354,7 +389,9 @@ export function CampaignStateTable({
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getRowCanExpand: (row) => Boolean(row.original.recommendation),
+    getRowCanExpand: (row) =>
+      Boolean(row.original.recommendation) ||
+      getMixedStateRows(row.original).length > 0,
     getSortedRowModel: getSortedRowModel(),
     onExpandedChange: setExpanded,
     onSortingChange: setSorting,
@@ -473,6 +510,19 @@ export function CampaignStateTable({
                           </td>
                         </tr>
                       ) : null}
+                      {row.getIsExpanded() &&
+                      getMixedStateRows(row.original).length > 0 ? (
+                        getMixedStateRows(row.original).map((state) => (
+                          <MixedStateChildRow
+                            key={`${row.id}-${state.code}`}
+                            monthPacing={monthPacing}
+                            onViewSpendHistory={setSelectedSpendHistoryState}
+                            onView={setSelectedStateRow}
+                            query={query}
+                            state={state}
+                          />
+                        ))
+                      ) : null}
                     </Fragment>
                   );
                 })
@@ -510,6 +560,14 @@ export function CampaignStateTable({
           stateRow={selectedStateRow}
         />
       ) : null}
+      {selectedSpendHistoryState ? (
+        <StateSpendHistoryModal
+          apiUrl={apiUrl}
+          onClose={() => setSelectedSpendHistoryState(null)}
+          query={query}
+          stateName={selectedSpendHistoryState}
+        />
+      ) : null}
     </>
   );
 }
@@ -535,6 +593,158 @@ const stateFilterFn: FilterFn<CampaignStateRow> = (
 
   return selectedStates.includes(row.getValue<string>(columnId));
 };
+
+function buildMixedStateFallback(
+  code: string,
+  state: string,
+): CampaignStateMixedState {
+  return {
+    budget: null,
+    code,
+    conversionRate: null,
+    cpl: null,
+    cpsl: null,
+    leads: null,
+    leadsGoal: null,
+    mtdSl: null,
+    mtdSpent: null,
+    slGoal: null,
+    spentPct: null,
+    state,
+  };
+}
+
+function getMixedStateRows(row: CampaignStateRow): CampaignStateMixedState[] {
+  if (row.state !== MIXED_CAMPAIGN_STATE_NAME) {
+    return [];
+  }
+
+  return row.mixedStates && row.mixedStates.length > 0
+    ? row.mixedStates
+    : DEFAULT_MIXED_CAMPAIGN_STATES;
+}
+
+function MixedStateChildRow({
+  monthPacing,
+  onViewSpendHistory,
+  onView,
+  query,
+  state,
+}: {
+  monthPacing: MonthPacing;
+  onViewSpendHistory: (state: string) => void;
+  onView: (row: CampaignStateRow) => void;
+  query: CampaignStateTableProps["query"];
+  state: CampaignStateMixedState;
+}) {
+  const mtdLeadGoal = calculateMtdGoal(state.leadsGoal, monthPacing);
+  const mtdSlGoalPct = safeDivide(state.mtdSl, state.slGoal);
+  const stateRow = buildCampaignStateRowFromMixedState(state);
+
+  return (
+    <tr
+      className={`transition-colors ${rowHealthClasses[getRowHealth(mtdSlGoalPct)]}`}
+    >
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        <div className="flex items-center gap-2">
+          <Link
+            className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
+            href={buildHealthPageUrl({
+              adStatuses: ["on"],
+              brand: query.brand,
+              campaignStatuses: ["on"],
+              from: query.from,
+              states: [state.state],
+              to: query.to,
+            })}
+          >
+            {state.state}
+          </Link>
+        </div>
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatCurrency(state.budget)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        <button
+          aria-label={`View six-week spend history for ${state.state}`}
+          className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+          onClick={() => onViewSpendHistory(state.state)}
+          type="button"
+        >
+          {formatCurrency(state.mtdSpent)}
+        </button>
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatPercentage(state.spentPct)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatCurrency(state.cpl)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatCurrency(state.cpsl)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(state.leadsGoal)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(mtdLeadGoal)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(state.leads)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatPercentage(safeDivide(state.leads, mtdLeadGoal))}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(state.slGoal)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(state.slGoal)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatNumber(state.mtdSl)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatPercentage(safeDivide(state.mtdSl, state.slGoal))}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        {formatPercentage(state.conversionRate)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+        <button
+          aria-label={`View law firms for ${state.state}`}
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+          onClick={() => onView(stateRow)}
+          type="button"
+        >
+          View
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function buildCampaignStateRowFromMixedState(
+  state: CampaignStateMixedState,
+): CampaignStateRow {
+  return {
+    budget: state.budget,
+    conversionRate: state.conversionRate,
+    cpl: state.cpl,
+    cpsl: state.cpsl,
+    goalPct: safeDivide(state.mtdSl, state.slGoal),
+    id: `mixed-${state.code.toLowerCase()}`,
+    leads: state.leads,
+    leadsGoal: state.leadsGoal,
+    mtdSl: state.mtdSl,
+    mtdSpent: state.mtdSpent,
+    recommendation: null,
+    slGoal: state.slGoal,
+    spentPct: state.spentPct,
+    state: state.state,
+  };
+}
 
 function StateFilterMenu({
   onClear,

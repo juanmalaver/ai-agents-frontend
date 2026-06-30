@@ -63,6 +63,7 @@ const CONFIDENCE_CLASSES = {
 } satisfies Record<StateLawFirmCampaignAdRow["confidence"], string>;
 
 const RECOMMENDATION_CLASSES = {
+  Learning: "border-slate-200 bg-slate-50 text-slate-600",
   "Replicate/Keep on": "border-teal-200 bg-teal-50 text-teal-800",
   Review: "border-amber-200 bg-amber-50 text-amber-800",
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
@@ -91,6 +92,18 @@ const UNKNOWN_META_STATUS: StateLawFirmCampaignAdRow["metaStatus"] = {
 };
 
 const LAW_FIRM_FETCH_RETRY_DELAYS_MS = [800, 2_000];
+const lawFirmBreakdownMemoryCache = new Map<string, StateLawFirmsSection>();
+const LAW_FIRM_LOADING_PREVIEW_COLUMNS = [
+  "Law firm",
+  "MTD % to Lead Goal",
+  "MTD L Goal",
+  "MTD Current Leads",
+  "EOM L Goal",
+  "MTD % to SL Goal",
+  "MTD SL Goal",
+  "MTD Current SL",
+  "EOM SL Goal",
+];
 
 const EMPTY_GRADE_COUNTS = Object.freeze(
   CAMPAIGN_GRADES.reduce((counts, grade) => {
@@ -126,9 +139,13 @@ export function StateLawFirmModal({
   const [isLoading, setIsLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const monthPacing = useMemo(() => buildMonthPacing(query.to), [query.to]);
+  const hasRows = rows.length > 0;
   const summaryItems = useMemo(
-    () => buildStateLawFirmSummaryItems(rows, monthPacing),
-    [monthPacing, rows],
+    () =>
+      hasRows
+        ? buildStateLawFirmSummaryItems(rows, monthPacing)
+        : buildStateSnapshotSummaryItems(stateRow, monthPacing),
+    [hasRows, monthPacing, rows, stateRow],
   );
   const auditPlatform = useMemo(() => inferAuditPlatform(apiUrl), [apiUrl]);
   const lawFirmUrl = useMemo(
@@ -168,6 +185,18 @@ export function StateLawFirmModal({
     }
 
     const controller = new AbortController();
+    const cachedSection = lawFirmBreakdownMemoryCache.get(lawFirmUrl);
+    const commitSection = (section: StateLawFirmsSection) => {
+      setRows(section.rows);
+      setAdGradeCounts(normalizeGradeCounts(section.adGradeCounts));
+      setAdGradeCountsStatus(section.adGradeCountsStatus);
+      setGradeCounts(normalizeGradeCounts(section.gradeCounts));
+      setGradeCountsStatus(section.gradeCountsStatus);
+    };
+
+    if (cachedSection) {
+      commitSection(cachedSection);
+    }
 
     setIsLoading(true);
     setError(null);
@@ -182,11 +211,8 @@ export function StateLawFirmModal({
         if (!controller.signal.aborted) {
           const section = normalizeStateLawFirmsPayload(payload.data);
 
-          setRows(section.rows);
-          setAdGradeCounts(normalizeGradeCounts(section.adGradeCounts));
-          setAdGradeCountsStatus(section.adGradeCountsStatus);
-          setGradeCounts(normalizeGradeCounts(section.gradeCounts));
-          setGradeCountsStatus(section.gradeCountsStatus);
+          lawFirmBreakdownMemoryCache.set(lawFirmUrl as string, section);
+          commitSection(section);
         }
       } catch (caughtError) {
         if (!controller.signal.aborted) {
@@ -261,18 +287,7 @@ export function StateLawFirmModal({
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-          {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-10 text-sm font-medium text-slate-600">
-              <div className="flex items-center gap-2">
-                <LoadingSpinner label="Loading law firms" />
-                Loading law firms...
-              </div>
-              <p className="text-xs font-normal text-slate-500">
-                The first load can take up to 30 seconds while CRM data is
-                fetched.
-              </p>
-            </div>
-          ) : error ? (
+          {error && !hasRows ? (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-10 text-center text-sm text-rose-700">
               <p>{error}</p>
               <button
@@ -285,25 +300,112 @@ export function StateLawFirmModal({
             </div>
           ) : (
             <>
-              <CampaignGradeSummary
-                adGradeCounts={adGradeCounts}
-                adStatus={adGradeCountsStatus}
-                auditPlatform={auditPlatform}
-                gradeCounts={gradeCounts}
-                query={query}
-                status={gradeCountsStatus}
-                stateName={stateRow.state}
-              />
-              <StateLawFirmTable
-                auditPlatform={auditPlatform}
-                query={query}
-                rows={rows}
-                stateName={stateRow.state}
-              />
+              {isLoading ? <LawFirmLoadingNotice hasRows={hasRows} /> : null}
+              {error && hasRows ? (
+                <LawFirmRefreshError
+                  error={error}
+                  onRetry={() => setReloadKey((current) => current + 1)}
+                />
+              ) : null}
+              {hasRows || !isLoading ? (
+                <>
+                  <CampaignGradeSummary
+                    adGradeCounts={adGradeCounts}
+                    adStatus={adGradeCountsStatus}
+                    auditPlatform={auditPlatform}
+                    gradeCounts={gradeCounts}
+                    query={query}
+                    status={gradeCountsStatus}
+                    stateName={stateRow.state}
+                  />
+                  <StateLawFirmTable
+                    auditPlatform={auditPlatform}
+                    query={query}
+                    rows={rows}
+                    stateName={stateRow.state}
+                  />
+                </>
+              ) : (
+                <LawFirmLoadingPreview />
+              )}
             </>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function LawFirmLoadingNotice({ hasRows }: { hasRows: boolean }) {
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-3 text-sm text-sky-800">
+      <div className="flex items-center gap-2 font-semibold">
+        <LoadingSpinner label="Loading law firms" />
+        {hasRows ? "Refreshing law firm details..." : "Loading law firm details..."}
+      </div>
+      <span className="text-xs font-medium text-sky-700">
+        {hasRows
+          ? "Showing the latest loaded rows while CRM refreshes."
+          : "State totals are available while CRM rows load."}
+      </span>
+    </div>
+  );
+}
+
+function LawFirmRefreshError({
+  error,
+  onRetry,
+}: {
+  error: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-800">
+      <span>{error}</span>
+      <button
+        className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+        onClick={onRetry}
+        type="button"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function LawFirmLoadingPreview() {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200">
+      <table className="w-full table-fixed border-collapse text-left text-sm">
+        <thead className="bg-slate-50 text-xs leading-tight text-slate-500">
+          <tr>
+            {LAW_FIRM_LOADING_PREVIEW_COLUMNS.map((column) => (
+              <th className="px-2 py-2 font-semibold" key={column} scope="col">
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200">
+          {Array.from({ length: 6 }).map((_, rowIndex) => (
+            <tr className="bg-white" key={rowIndex}>
+              {LAW_FIRM_LOADING_PREVIEW_COLUMNS.map((column, columnIndex) => (
+                <td className="px-2 py-3" key={`${column}-${rowIndex}`}>
+                  <span
+                    className={`block h-3 animate-pulse rounded-full bg-slate-200 ${
+                      columnIndex === 0
+                        ? "w-4/5"
+                        : columnIndex % 3 === 0
+                          ? "ml-auto w-12"
+                          : "ml-auto w-16"
+                    }`}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -588,8 +690,9 @@ const AD_RECOMMENDATION_SORT_RANKS: Record<
   StateLawFirmCampaignAdRow["recommendation"],
   number
 > = {
-  "Shut off": 3,
-  Review: 2,
+  "Shut off": 4,
+  Review: 3,
+  Learning: 2,
   "Replicate/Keep on": 1,
 };
 
@@ -912,6 +1015,48 @@ function buildStateLawFirmSummaryItems(
     {
       label: "EOM SL Goal",
       value: formatNumber(totals.slGoal),
+    },
+  ];
+}
+
+function buildStateSnapshotSummaryItems(
+  stateRow: CampaignStateRow,
+  monthPacing: MonthPacing,
+): StateLawFirmSummaryItem[] {
+  const mtdLeadGoal = calculateMtdGoal(stateRow.leadsGoal, monthPacing);
+
+  return [
+    {
+      label: "Spent",
+      value: formatCurrency(stateRow.mtdSpent),
+    },
+    {
+      label: "Budget",
+      value: formatCurrency(stateRow.budget),
+    },
+    {
+      label: "MTD % Spent",
+      value: formatPercentage(stateRow.spentPct),
+    },
+    {
+      label: "MTD Leads",
+      value: formatNumber(stateRow.leads),
+    },
+    {
+      label: "MTD Lead Goal",
+      value: formatNumber(mtdLeadGoal),
+    },
+    {
+      label: "MTD SL",
+      value: formatNumber(stateRow.mtdSl),
+    },
+    {
+      label: "MTD SL Goal",
+      value: formatNumber(stateRow.slGoal),
+    },
+    {
+      label: "CPSL",
+      value: formatCurrency(stateRow.cpsl),
     },
   ];
 }

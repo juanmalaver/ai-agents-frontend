@@ -1,5 +1,8 @@
 import type { DashboardQueryParams } from "@/src/types/dashboard";
-import type { HealthDashboardPlatform } from "@/src/types/campaignHealth";
+import type {
+  CampaignMetaDeliveryStatus,
+  HealthDashboardPlatform,
+} from "@/src/types/campaignHealth";
 
 const LOCAL_BACKEND_ORIGIN = "http://localhost:3002";
 const FRONTEND_SERVICE_NAME = "ai-agents-frontend";
@@ -7,6 +10,11 @@ const BACKEND_SERVICE_NAME = "ai-agents-backend";
 const VIDEO_PRODUCTION_API_PATH = "/api/video-production";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const GRADE_PATTERN = /^(A|B|C|D|F)$/i;
+const META_DELIVERY_STATUSES = new Set<CampaignMetaDeliveryStatus>([
+  "off",
+  "on",
+  "unknown",
+]);
 
 export function resolveAuthApiUrl(
   explicitAuthApiUrl?: string | null,
@@ -231,7 +239,12 @@ export function resolveSlackGradeMessageApiUrl(
 }
 
 export function resolveDashboardSectionApiUrl(
-  section: "kpis" | "monthly-performance" | "state-campaigns" | "state-law-firms",
+  section:
+    | "kpis"
+    | "monthly-performance"
+    | "state-campaigns"
+    | "state-history"
+    | "state-law-firms",
   explicitDashboardApiUrl?: string | null,
 ): string | undefined {
   const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
@@ -239,7 +252,21 @@ export function resolveDashboardSectionApiUrl(
   return appendSectionPath(dashboardUrl, `sections/${section}`);
 }
 
+export function appendStateHistoryQueryParams(
+  url: string | undefined,
+  query: Partial<DashboardQueryParams> & { state: string },
+): string | undefined {
+  return appendStateQueryParams(url, query);
+}
+
 export function appendStateLawFirmsQueryParams(
+  url: string | undefined,
+  query: Partial<DashboardQueryParams> & { state: string },
+): string | undefined {
+  return appendStateQueryParams(url, query);
+}
+
+function appendStateQueryParams(
   url: string | undefined,
   query: Partial<DashboardQueryParams> & { state: string },
 ): string | undefined {
@@ -326,6 +353,8 @@ export function appendDashboardQueryParams(
 export function buildHealthPageUrl(
   query?: Partial<DashboardQueryParams> & {
     adGrades?: string[] | null;
+    adStatuses?: string[] | null;
+    campaignStatuses?: string[] | null;
     grades?: string[] | null;
     platform?: HealthDashboardPlatform | string | null;
     states?: string[] | null;
@@ -374,6 +403,22 @@ export function buildHealthPageUrl(
 
     if (normalizedGrade) {
       params.append("adGrades", normalizedGrade);
+    }
+  }
+
+  for (const status of query?.campaignStatuses ?? []) {
+    const normalizedStatus = normalizeMetaDeliveryStatusParam(status);
+
+    if (normalizedStatus) {
+      params.append("campaignStatuses", normalizedStatus);
+    }
+  }
+
+  for (const status of query?.adStatuses ?? []) {
+    const normalizedStatus = normalizeMetaDeliveryStatusParam(status);
+
+    if (normalizedStatus) {
+      params.append("adStatuses", normalizedStatus);
     }
   }
 
@@ -599,6 +644,18 @@ function normalizeGradeParam(value: string | null | undefined): string | null {
   const normalized = value?.trim().toUpperCase();
 
   return normalized && GRADE_PATTERN.test(normalized) ? normalized : null;
+}
+
+function normalizeMetaDeliveryStatusParam(
+  value: string | null | undefined,
+): CampaignMetaDeliveryStatus | null {
+  const normalized = value?.trim().toLowerCase();
+
+  if (META_DELIVERY_STATUSES.has(normalized as CampaignMetaDeliveryStatus)) {
+    return normalized as CampaignMetaDeliveryStatus;
+  }
+
+  return null;
 }
 
 function getRuntimeBackendOrigin(): string | null {

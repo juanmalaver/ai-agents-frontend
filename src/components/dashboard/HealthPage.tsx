@@ -60,6 +60,10 @@ const ALL_RECOMMENDATIONS: Array<{
   label: string;
 }> = [
   {
+    id: "Learning",
+    label: "Learning",
+  },
+  {
     id: "Replicate/Keep on",
     label: "Replicate/Keep on",
   },
@@ -128,6 +132,10 @@ interface SlackGradeMessageRequest {
   videoReference: string;
 }
 
+interface ToggleExpandedRowOptions {
+  autoExpanded?: boolean;
+}
+
 export function HealthPage({ apiUrl }: HealthPageProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -192,6 +200,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [searchParams],
   );
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [collapsedRows, setCollapsedRows] = useState<string[]>([]);
   const [selectedAdReuse, setSelectedAdReuse] =
     useState<SelectedAdReuse | null>(null);
   const adMediaApiUrl = useMemo(
@@ -539,13 +548,41 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     selectedRecommendations,
     selectedStates,
   ]);
-  const toggleExpandedRow = useCallback((id: string) => {
+  useEffect(() => {
+    const visibleRowIds = new Set(filteredRows.map((row) => row.id));
+
     setExpandedRows((current) =>
-      current.includes(id)
-        ? current.filter((currentId) => currentId !== id)
-        : [...current, id],
+      current.filter((id) => visibleRowIds.has(id)),
     );
-  }, []);
+    setCollapsedRows((current) =>
+      current.filter((id) => visibleRowIds.has(id)),
+    );
+  }, [filteredRows]);
+  const toggleExpandedRow = useCallback(
+    (id: string, options: ToggleExpandedRowOptions = {}) => {
+      if (options.autoExpanded) {
+        setExpandedRows((current) =>
+          current.filter((currentId) => currentId !== id),
+        );
+        setCollapsedRows((current) =>
+          current.includes(id)
+            ? current.filter((currentId) => currentId !== id)
+            : [...current, id],
+        );
+        return;
+      }
+
+      setCollapsedRows((current) =>
+        current.filter((currentId) => currentId !== id),
+      );
+      setExpandedRows((current) =>
+        current.includes(id)
+          ? current.filter((currentId) => currentId !== id)
+          : [...current, id],
+      );
+    },
+    [],
+  );
   const lastUpdated = data?.generatedAt
     ? formatDashboardTimestamp(data.generatedAt)
     : undefined;
@@ -763,6 +800,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
               <HealthTable
                 adMediaApiUrl={adMediaApiUrl}
                 adNamePlacements={adNamePlacements}
+                collapsedRows={collapsedRows}
                 dateRange={dateRange}
                 expandedRows={expandedRows}
                 isRefreshing={isRefreshingHealth}
@@ -935,6 +973,7 @@ function HealthSummary({
             disabled ||
             ((counts[grade] ?? 0) === 0 && !selectedGradeSet.has(grade))
           }
+          grade={grade}
           key={grade}
           label={grade}
           onClick={() => onToggleGrade(grade)}
@@ -976,34 +1015,57 @@ function RefreshingRegion({
 function SummaryTile({
   active = false,
   disabled = false,
+  grade,
   label,
   onClick,
   value,
 }: {
   active?: boolean;
   disabled?: boolean;
+  grade?: CampaignHealthGrade;
   label: string;
   onClick?: () => void;
   value: string;
 }) {
   const isInteractive = Boolean(onClick);
+  const colorClasses = grade ? gradeClasses[grade] : null;
+  const buttonClasses = colorClasses
+    ? `${colorClasses} ${
+        active
+          ? "ring-2 ring-offset-1 ring-current/20"
+          : "hover:border-current hover:shadow-md"
+      }`
+    : `bg-white ${
+        active
+          ? "border-teal-300 ring-1 ring-teal-200"
+          : "border-slate-200 hover:border-teal-300 hover:shadow-md"
+      }`;
+  const disabledClasses = disabled
+    ? "cursor-not-allowed opacity-50 hover:border-slate-200 hover:shadow-sm"
+    : "";
 
   return (
     <button
       aria-pressed={isInteractive ? active : undefined}
-      className={`rounded-lg border bg-white p-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
-        active
-          ? "border-teal-300 ring-1 ring-teal-200"
-          : "border-slate-200 hover:border-teal-300 hover:shadow-md"
-      } ${disabled ? "cursor-not-allowed opacity-50 hover:border-slate-200 hover:shadow-sm" : ""}`}
+      className={`rounded-lg border p-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${buttonClasses} ${disabledClasses}`}
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p
+        className={`text-xs font-semibold uppercase tracking-wide ${
+          grade ? "text-current opacity-80" : "text-slate-500"
+        }`}
+      >
         {label}
       </p>
-      <p className="mt-1 text-2xl font-bold text-slate-950">{value}</p>
+      <p
+        className={`mt-1 text-2xl font-bold ${
+          grade ? "text-current" : "text-slate-950"
+        }`}
+      >
+        {value}
+      </p>
     </button>
   );
 }
@@ -1011,6 +1073,7 @@ function SummaryTile({
 function HealthTable({
   adMediaApiUrl,
   adNamePlacements,
+  collapsedRows,
   dateRange,
   expandedRows,
   isRefreshing,
@@ -1025,11 +1088,12 @@ function HealthTable({
 }: {
   adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
+  collapsedRows: string[];
   dateRange: DashboardDateRange;
   expandedRows: string[];
   isRefreshing: boolean;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
-  onToggleExpandedRow: (id: string) => void;
+  onToggleExpandedRow: (id: string, options?: ToggleExpandedRowOptions) => void;
   rampUpDays: number;
   rows: CampaignHealthRow[];
   selectedAdIds: string[];
@@ -1038,6 +1102,7 @@ function HealthTable({
   slackMessageApiUrl?: string;
 }) {
   const expandedSet = new Set(expandedRows);
+  const collapsedSet = new Set(collapsedRows);
   const selectedAdSet = new Set(selectedAdIds);
   const selectedAdGradeSet = new Set(selectedAdGrades);
   const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
@@ -1160,6 +1225,31 @@ function HealthTable({
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
       },
+      {
+        accessorKey: "droppedLeads",
+        header: "Dropped",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "averageLeadAgeDays",
+        header: "Lead Age",
+        id: "leadAgeDays",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "averageLeadActualAge",
+        header: "Actual Age",
+        id: "actualAge",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        enableSorting: false,
+        header: "Genders",
+        id: "genders",
+      },
     ],
     [],
   );
@@ -1184,26 +1274,30 @@ function HealthTable({
       <div className="max-w-full overflow-hidden">
         <table className="w-full table-fixed border-collapse text-left text-[0.8125rem]">
           <colgroup>
-            <col className="w-[3%]" />
-            <col className="w-[6%]" />
-            <col className="w-[5%]" />
-            <col className="w-[8%]" />
-            <col className="w-[4%]" />
-            <col className="w-[5%]" />
-            <col className="w-[4%]" />
-            <col className="w-[6%]" />
-            <col className="w-[8%]" />
-            <col className="w-[5%]" />
-            <col className="w-[4%]" />
-            <col className="w-[4%]" />
+            <col className="w-[2.5%]" />
+            <col className="w-[4.5%]" />
+            <col className="w-[3.5%]" />
             <col className="w-[7%]" />
-            <col className="w-[5%]" />
-            <col className="w-[4%]" />
+            <col className="w-[3.5%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3%]" />
+            <col className="w-[4.5%]" />
             <col className="w-[6%]" />
             <col className="w-[4%]" />
-            <col className="w-[4%]" />
-            <col className="w-[4%]" />
-            <col className="w-[4%]" />
+            <col className="w-[3.4%]" />
+            <col className="w-[3.4%]" />
+            <col className="w-[5%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3.4%]" />
+            <col className="w-[4.2%]" />
+            <col className="w-[4.2%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3.4%]" />
+            <col className="w-[3.7%]" />
+            <col className="w-[3.7%]" />
+            <col className="w-[5.8%]" />
           </colgroup>
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -1272,14 +1366,18 @@ function HealthTable({
                         row.platform ?? "meta",
                       ),
                   );
-                const isExpanded = expandedSet.has(row.id) || autoExpanded;
+                const isAutoExpanded =
+                  autoExpanded && !collapsedSet.has(row.id);
+                const isExpanded = expandedSet.has(row.id) || isAutoExpanded;
 
                 return (
                   <HealthTableRow
                     adMediaApiUrl={adMediaApiUrl}
                     adNamePlacements={adNamePlacements}
+                    columnCount={columns.length}
                     dateRange={dateRange}
                     isExpanded={isExpanded}
+                    isAutoExpanded={autoExpanded}
                     isRefreshing={isRefreshing}
                     key={row.id}
                     onOpenAdReuse={onOpenAdReuse}
@@ -1297,7 +1395,7 @@ function HealthTable({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-slate-500"
-                  colSpan={20}
+                  colSpan={columns.length}
                 >
                   No campaigns match the selected filters.
                 </td>
@@ -1313,8 +1411,10 @@ function HealthTable({
 function HealthTableRow({
   adMediaApiUrl,
   adNamePlacements,
+  columnCount,
   dateRange,
   isExpanded,
+  isAutoExpanded,
   isRefreshing,
   onOpenAdReuse,
   onToggleExpandedRow,
@@ -1327,11 +1427,13 @@ function HealthTableRow({
 }: {
   adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
+  columnCount: number;
   dateRange: DashboardDateRange;
   isExpanded: boolean;
+  isAutoExpanded: boolean;
   isRefreshing: boolean;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
-  onToggleExpandedRow: (id: string) => void;
+  onToggleExpandedRow: (id: string, options?: ToggleExpandedRowOptions) => void;
   rampUpDays: number;
   row: CampaignHealthRow;
   selectedAdIds: string[];
@@ -1351,7 +1453,9 @@ function HealthTableRow({
           <button
             aria-expanded={isExpanded}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-bold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => onToggleExpandedRow(row.id)}
+            onClick={() =>
+              onToggleExpandedRow(row.id, { autoExpanded: isAutoExpanded })
+            }
             disabled={isRefreshing}
             title={isExpanded ? "Hide ads" : "Show ads"}
             type="button"
@@ -1442,11 +1546,26 @@ function HealthTableRow({
         <td className="px-2 py-3">
           <MetricChip metric={row.metricHealth.intake} variant="percentage" />
         </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatNumber(row.droppedLeads)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatAverageDays(row.averageLeadAgeDays)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatAverageYears(row.averageLeadActualAge)}
+        </td>
+        <td
+          className="px-2 py-3 text-left font-medium text-slate-700"
+          title={formatGenderCounts(row.genderCounts, { compact: false })}
+        >
+          <GenderCountsStack counts={row.genderCounts} />
+        </td>
       </tr>
       {isExpanded ? (
         <tr className="bg-slate-50/70">
           <td className="px-4 py-3" />
-          <td className="px-4 py-3" colSpan={19}>
+          <td className="px-4 py-3" colSpan={columnCount - 1}>
             <div className="space-y-3">
               <QualitySignalsPanel signals={row.qualitySignals} />
               <AdDetailTable
@@ -1630,6 +1749,12 @@ function AdDetailTable({
           id: "adId",
         },
         {
+          accessorKey: "activeDays",
+          header: "Age days",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
           accessorKey: "spend",
           header: "Spend",
           sortDescFirst: true,
@@ -1671,13 +1796,34 @@ function AdDetailTable({
           sortingFn: nullableAdNumberSortingFn,
         },
         {
-          accessorKey: "inStateCpsl",
-          header: "In-State CPSL",
+          accessorKey: "oosCpsl",
+          header: "OOS CPSL",
           sortingFn: nullableAdNumberSortingFn,
         },
         {
-          accessorKey: "oosCpsl",
-          header: "OOS CPSL",
+          accessorFn: (row) => row.metricHealth.cpsl.value,
+          header: "In-State CPSL",
+          id: "inStateCpsl",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.metricHealth.volume.value,
+          header: "Volume",
+          id: "volume",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.metricHealth.attribution.value,
+          header: "Quality",
+          id: "quality",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.metricHealth.intake.value,
+          header: "Int. Conv.",
+          id: "intake",
+          sortDescFirst: true,
           sortingFn: nullableAdNumberSortingFn,
         },
       );
@@ -1707,28 +1853,50 @@ function AdDetailTable({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-      <table
-        className={`table-fixed text-sm ${
-          showSlackColumn ? "min-w-[1660px]" : "min-w-[1540px]"
-        }`}
-      >
-        <colgroup>
-          <col className="w-[300px]" />
-          <col className="w-[80px]" />
-          <col className="w-[125px]" />
-          <col className="w-[190px]" />
-          <col className="w-[105px]" />
-          <col className="w-[90px]" />
-          <col className="w-[90px]" />
-          <col className="w-[100px]" />
-          <col className="w-[125px]" />
-          <col className="w-[105px]" />
-          <col className="w-[90px]" />
-          <col className="w-[125px]" />
-          <col className="w-[115px]" />
-          {showSlackColumn ? <col className="w-[120px]" /> : null}
-        </colgroup>
+      <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+      <table className="w-full table-fixed text-xs">
+        {showSlackColumn ? (
+          <colgroup>
+            <col className="w-[16%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[5%]" />
+            <col className="w-[7%]" />
+            <col className="w-[3.6%]" />
+            <col className="w-[5%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[3.4%]" />
+            <col className="w-[4.3%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[4.3%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[5.7%]" />
+          </colgroup>
+        ) : (
+          <colgroup>
+            <col className="w-[15%]" />
+            <col className="w-[4.3%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[7.5%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[4.2%]" />
+            <col className="w-[3.8%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[6%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[6%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[5.5%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[5.2%]" />
+          </colgroup>
+        )}
         <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
@@ -1745,7 +1913,7 @@ function AdDetailTable({
                       onClick={header.column.getToggleSortingHandler()}
                       type="button"
                     >
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 whitespace-normal break-words leading-tight">
                         {flexRender(
                           header.column.columnDef.header,
                           header.getContext(),
@@ -1782,7 +1950,7 @@ function AdDetailTable({
 
               return (
                 <tr key={ad.id}>
-                  <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
+                  <td className="min-w-0 px-2 py-2 font-medium text-slate-900">
                     {isClickable ? (
                       <button
                         className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
@@ -1806,11 +1974,11 @@ function AdDetailTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
+                  <td className="px-2 py-2" title={formatAdGradeTitle(ad)}>
                     <GradeChip grade={ad.grade} />
                   </td>
                   {showAdGroupColumn ? (
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <MetaStatusChip
                         status={getAdsetMetaStatus(ad)}
                         unknownLabel="-"
@@ -1818,42 +1986,66 @@ function AdDetailTable({
                     </td>
                   ) : null}
                   {showAdStatusColumn ? (
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <MetaStatusChip status={getAdMetaStatus(ad)} />
                     </td>
                   ) : null}
-                  <td className="break-words px-3 py-2 text-slate-500">
+                  <td className="break-words px-2 py-2 text-slate-500 [overflow-wrap:anywhere]">
                     {ad.adId ?? "-"}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
+                    {formatNumber(ad.activeDays)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
                     {formatCurrency(ad.spend)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatNumber(ad.leads)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatNumber(ad.signedLeads)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatCurrency(ad.cpl)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatCurrency(ad.cpsl)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatNumber(ad.inStateSignedLeads)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatNumber(ad.oosSignedLeads)}
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    {formatCurrency(ad.inStateCpsl)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right">
                     {formatCurrency(ad.oosCpsl)}
                   </td>
+                  <td className="px-2 py-2 text-right">
+                    <MetricChip
+                      metric={ad.metricHealth.cpsl}
+                      variant="currency"
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <MetricChip
+                      metric={ad.metricHealth.volume}
+                      variant="currency"
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <MetricChip
+                      metric={ad.metricHealth.attribution}
+                      variant="percentage"
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <MetricChip
+                      metric={ad.metricHealth.intake}
+                      variant="percentage"
+                    />
+                  </td>
                   {showSlackColumn ? (
-                    <td className="px-3 py-2 text-center align-middle">
+                    <td className="px-2 py-2 text-center align-middle">
                       {isSlackEligibleAd(ad, campaignPlatform) ? (
                         <button
                           className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
@@ -2430,7 +2622,7 @@ function AdReuseModal({
   const isMetaPlacement = placementPlatform === "meta";
   const [selectedMetaStatuses, setSelectedMetaStatuses] = useState<
     CampaignMetaDeliveryStatus[]
-  >([]);
+  >(() => (isMetaPlacement ? ["on"] : []));
   const visiblePlacements = useMemo(
     () =>
       isMetaPlacement
@@ -2459,8 +2651,8 @@ function AdReuseModal({
   );
 
   useEffect(() => {
-    setSelectedMetaStatuses([]);
-  }, [adName, placements]);
+    setSelectedMetaStatuses(isMetaPlacement ? ["on"] : []);
+  }, [adName, isMetaPlacement, placements]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -2867,6 +3059,33 @@ function AdReusePlacementList({
           sortDescFirst: true,
           sortingFn: placementNumberSortingFn,
         },
+        {
+          accessorFn: (row) => row.ad.metricHealth.cpsl.value,
+          header: "In-State CPSL",
+          id: "inStateCpsl",
+          sortingFn: placementNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.ad.metricHealth.volume.value,
+          header: "Volume",
+          id: "volume",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.ad.metricHealth.attribution.value,
+          header: "Quality",
+          id: "quality",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
+        {
+          accessorFn: (row) => row.ad.metricHealth.intake.value,
+          header: "Int. Conv.",
+          id: "intake",
+          sortDescFirst: true,
+          sortingFn: placementNumberSortingFn,
+        },
       );
 
       return nextColumns;
@@ -2930,25 +3149,33 @@ function AdReusePlacementList({
         </div>
       ) : null}
       <div className="overflow-hidden rounded-lg border border-slate-200">
-        <table className="w-full table-fixed text-sm">
+        <table className="w-full table-fixed text-xs">
           {isMetaPlacement ? (
             <colgroup>
-              <col className="w-[30%]" />
-              <col className="w-[17%]" />
+              <col className="w-[20%]" />
+              <col className="w-[13%]" />
+              <col className="w-[6%]" />
               <col className="w-[8%]" />
-              <col className="w-[11%]" />
-              <col className="w-[12%]" />
-              <col className="w-[11%]" />
-              <col className="w-[11%]" />
+              <col className="w-[8%]" />
+              <col className="w-[6%]" />
+              <col className="w-[5%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[9%]" />
             </colgroup>
           ) : (
             <colgroup>
-              <col className="w-[34%]" />
-              <col className="w-[18%]" />
+              <col className="w-[22%]" />
+              <col className="w-[15%]" />
+              <col className="w-[7%]" />
               <col className="w-[8%]" />
-              <col className="w-[14%]" />
-              <col className="w-[12%]" />
-              <col className="w-[14%]" />
+              <col className="w-[7%]" />
+              <col className="w-[6%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[9%]" />
             </colgroup>
           )}
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -2961,13 +3188,13 @@ function AdReusePlacementList({
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
-                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getPlacementHeaderButtonClassName(
+                        className={`flex w-full items-start gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getPlacementHeaderButtonClassName(
                           header.column.id,
                         )}`}
                         onClick={header.column.getToggleSortingHandler()}
                         type="button"
                       >
-                        <span className="min-w-0 truncate">
+                        <span className="min-w-0 leading-tight">
                           {flexRender(
                             header.column.columnDef.header,
                             header.getContext(),
@@ -3000,31 +3227,55 @@ function AdReusePlacementList({
                   <tr
                     key={`${placement.campaign.id}::${placement.ad.id}`}
                   >
-                    <td className="break-words px-3 py-2 font-medium text-slate-950">
+                    <td className="break-words px-2 py-2 font-medium text-slate-950">
                       <div className="truncate">
                         {placement.campaign.brand} /{" "}
                         {placement.campaign.campaignName}
                       </div>
                     </td>
-                    <td className="break-words px-3 py-2 text-slate-500">
+                    <td className="break-words px-2 py-2 text-slate-500">
                       {placement.ad.adId ?? "No ad ID"}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <GradeChip grade={placement.ad.grade} />
                     </td>
                     {isMetaPlacement ? (
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <MetaStatusChip status={getAdMetaStatus(placement.ad)} />
                       </td>
                     ) : null}
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-2 text-right">
                       {formatCurrency(placement.ad.spend)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-2 text-right">
                       {formatNumber(placement.ad.leads)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-2 text-right">
                       {formatNumber(placement.ad.signedLeads)}
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <MetricChip
+                        metric={placement.ad.metricHealth.cpsl}
+                        variant="currency"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <MetricChip
+                        metric={placement.ad.metricHealth.volume}
+                        variant="currency"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <MetricChip
+                        metric={placement.ad.metricHealth.attribution}
+                        variant="percentage"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <MetricChip
+                        metric={placement.ad.metricHealth.intake}
+                        variant="percentage"
+                      />
                     </td>
                   </tr>
                 );
@@ -3033,7 +3284,7 @@ function AdReusePlacementList({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-sm text-slate-500"
-                  colSpan={isMetaPlacement ? 7 : 6}
+                  colSpan={columns.length}
                 >
                   {totalPlacements === 0
                     ? "No matching ad names in the current audit data."
@@ -3121,6 +3372,107 @@ function formatQualitySignalCount(signal: CampaignHealthQualitySignal): string {
   return `${formatNumber(signal.count)} of ${formatNumber(
     signal.denominator,
   )} leads`;
+}
+
+function formatAverageDays(value: number | null | undefined): string {
+  const formatted = formatRoundedValue(value);
+
+  return formatted === "-" ? formatted : `${formatted}d`;
+}
+
+function formatAverageYears(value: number | null | undefined): string {
+  const formatted = formatRoundedValue(value);
+
+  return formatted === "-" ? formatted : `${formatted}y`;
+}
+
+function formatRoundedValue(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatGenderCounts(
+  counts: Record<string, number> | null | undefined,
+  options: { compact?: boolean } = {},
+): string {
+  const entries = getSortedGenderEntries(counts);
+
+  if (entries.length === 0) {
+    return "-";
+  }
+
+  return entries
+    .map(([gender, count]) => {
+      const label = options.compact === false ? gender : shortGenderLabel(gender);
+
+      return `${label} ${formatNumber(count)}`;
+    })
+    .join(" / ");
+}
+
+function GenderCountsStack({
+  counts,
+}: {
+  counts: Record<string, number> | null | undefined;
+}) {
+  const entries = getSortedGenderEntries(counts);
+
+  if (entries.length === 0) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 leading-tight">
+      {entries.map(([gender, count]) => (
+        <span className="whitespace-nowrap" key={gender}>
+          <span className="font-semibold text-slate-700">
+            {shortGenderLabel(gender)}
+          </span>{" "}
+          <span className="tabular-nums text-slate-600">
+            {formatNumber(count)}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function getSortedGenderEntries(
+  counts: Record<string, number> | null | undefined,
+): Array<[string, number]> {
+  const genderRank: Record<string, number> = {
+    Female: 1,
+    Male: 2,
+    Other: 3,
+    Unknown: 4,
+  };
+
+  return Object.entries(counts ?? {})
+    .filter(([, count]) => count > 0)
+    .sort(
+      ([firstGender], [secondGender]) =>
+        (genderRank[firstGender] ?? 99) - (genderRank[secondGender] ?? 99) ||
+        firstGender.localeCompare(secondGender),
+    );
+}
+
+function shortGenderLabel(gender: string): string {
+  switch (gender) {
+    case "Female":
+      return "F";
+    case "Male":
+      return "M";
+    case "Unknown":
+      return "Unk";
+    default:
+      return gender;
+  }
 }
 
 function getQualitySignalFormula(signal: CampaignHealthQualitySignal): string {
@@ -3293,8 +3645,8 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
         In-State CPSL is the shutdown gate: only Red CPSL forces F. Yellow
         CPSL below the red threshold is graded with the other health metrics.
         Overall CPSL remains Spend / all signed leads for comparison. Ad grades
-        use the same In-State CPSL rule. Campaign F rows and high-CPSL ad F
-        rows stay in Review until they have at least 7 active spend days.
+        use the same In-State CPSL rule. Campaign and ad rows with fewer than 7
+        active spend days are marked Learning before grade-based actions apply.
       </p>
       <div className="mt-3 overflow-hidden">
         <table className="w-full table-fixed text-left text-sm">
@@ -3499,6 +3851,7 @@ const confidenceClasses: Record<CampaignHealthConfidence, string> = {
 };
 
 const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
+  Learning: "border-slate-200 bg-slate-50 text-slate-600",
   "Replicate/Keep on": "border-teal-200 bg-teal-50 text-teal-800",
   Review: "border-amber-200 bg-amber-50 text-amber-800",
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
@@ -3526,8 +3879,9 @@ const confidenceSortRanks: Record<CampaignHealthConfidence, number> = {
 };
 
 const recommendationSortRanks: Record<CampaignHealthRecommendation, number> = {
-  "Shut off": 3,
-  Review: 2,
+  "Shut off": 4,
+  Review: 3,
+  Learning: 2,
   "Replicate/Keep on": 1,
 };
 
@@ -3665,15 +4019,31 @@ const placementNumberSortingFn: SortingFn<AdNamePlacement> = (
 };
 
 function getPlacementHeaderClassName(columnId: string): string {
-  const rightAligned = new Set(["spend", "leads", "signedLeads"]);
+  const rightAligned = new Set([
+    "spend",
+    "leads",
+    "signedLeads",
+    "inStateCpsl",
+    "volume",
+    "quality",
+    "intake",
+  ]);
 
   return rightAligned.has(columnId)
-    ? "px-3 py-2 text-right"
-    : "px-3 py-2 text-left";
+    ? "px-2 py-2 text-right"
+    : "px-2 py-2 text-left";
 }
 
 function getPlacementHeaderButtonClassName(columnId: string): string {
-  return ["spend", "leads", "signedLeads"].includes(columnId)
+  return [
+    "spend",
+    "leads",
+    "signedLeads",
+    "inStateCpsl",
+    "volume",
+    "quality",
+    "intake",
+  ].includes(columnId)
     ? "justify-end"
     : "";
 }
@@ -3700,6 +4070,10 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     campaignName: "Campaign name and platform campaign ID.",
     confidence:
       "Confidence in the audit result based on available data and campaign age.",
+    actualAge:
+      "Average lead age in years from CRM birth date when available.",
+    droppedLeads: "CRM leads dropped in the selected date range.",
+    genders: "CRM gender mix for attributed leads in the selected date range.",
     grade:
       "Overall campaign grade based on In-State CPSL, volume, quality, and Int. Conv.",
     inStateCpsl:
@@ -3707,6 +4081,8 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     inStateSignedLeads:
       "Signed leads attributed to the campaign inside the target state.",
     intake: "Signed Leads / Leads.",
+    leadAgeDays:
+      "Average days from CRM lead creation to the selected date range end.",
     leads: "Total CRM leads attributed to the campaign.",
     meta: "Current delivery status from the ad platform.",
     oosCpsl:
@@ -3718,7 +4094,7 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     platform: "Ad platform for the campaign.",
     quality: "1 - (no-accident leads / total leads).",
     recommendation:
-      "A/B: Replicate/Keep on. C/D: Review. F: Review until 7 active spend days, then Shut off.",
+      "< 7 active spend days: Learning. A/B: Replicate/Keep on. C/D: Review. F: Shut off once it has at least 7 active spend days.",
     signedLeads: "Total signed leads attributed to the campaign.",
     spend: "Total ad spend in the selected date range.",
     volume: "Spend / Leads. Shows N/A when there are no leads.",
@@ -3741,6 +4117,9 @@ function getCampaignHeaderClassName(columnId: string): string {
     "volume",
     "quality",
     "intake",
+    "droppedLeads",
+    "leadAgeDays",
+    "actualAge",
   ]);
   const base = columnId === "expand" ? "w-12 px-2 py-3" : "px-2 py-3";
 
@@ -3761,6 +4140,9 @@ function getCampaignHeaderButtonClassName(columnId: string): string {
     "volume",
     "quality",
     "intake",
+    "droppedLeads",
+    "leadAgeDays",
+    "actualAge",
   ].includes(columnId)
     ? "justify-end"
     : "";
@@ -3768,6 +4150,7 @@ function getCampaignHeaderButtonClassName(columnId: string): string {
 
 function getAdHeaderClassName(columnId: string): string {
   const rightAligned = new Set([
+    "activeDays",
     "spend",
     "leads",
     "signedLeads",
@@ -3778,6 +4161,9 @@ function getAdHeaderClassName(columnId: string): string {
     "oosSignedLeads",
     "inStateCpsl",
     "oosCpsl",
+    "volume",
+    "quality",
+    "intake",
   ]);
 
   return rightAligned.has(columnId)
@@ -3787,6 +4173,7 @@ function getAdHeaderClassName(columnId: string): string {
 
 function getAdHeaderButtonClassName(columnId: string): string {
   return [
+    "activeDays",
     "spend",
     "leads",
     "signedLeads",
@@ -3797,6 +4184,9 @@ function getAdHeaderButtonClassName(columnId: string): string {
     "oosSignedLeads",
     "inStateCpsl",
     "oosCpsl",
+    "volume",
+    "quality",
+    "intake",
   ].includes(columnId)
     ? "justify-end"
     : "";

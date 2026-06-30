@@ -1,10 +1,14 @@
 import type { KpiCardsGridProps } from "@/src/types/dashboard";
 import { KpiCard } from "./KpiCard";
 
-export function KpiCardsGrid({ contextLabel, items }: KpiCardsGridProps) {
+export function KpiCardsGrid({
+  ariaLabel = "Aggregate campaign KPIs",
+  contextLabel,
+  items,
+}: KpiCardsGridProps) {
   return (
     <section
-      aria-label="Aggregate campaign KPIs"
+      aria-label={ariaLabel}
       className="space-y-2"
     >
       {contextLabel ? (

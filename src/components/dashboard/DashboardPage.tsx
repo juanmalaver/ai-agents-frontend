@@ -116,35 +116,27 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     () => filterStateRowsBySelectedStates(stateRows, activeStateFilter),
     [activeStateFilter, stateRows],
   );
-  const kpisForCards = useMemo(() => {
-    if (!kpisSection.data) {
-      return null;
-    }
-
-    if (activeStateFilter.length === 0) {
-      return kpisSection.data;
-    }
-
-    return buildAggregatedKpisFromStateRows(filteredStateRows);
-  }, [activeStateFilter.length, filteredStateRows, kpisSection.data]);
-  const kpiContextLabel =
-    activeStateFilter.length > 0
-      ? `Filtered to ${formatNumber(activeStateFilter.length)} ${
-          activeStateFilter.length === 1 ? "state" : "states"
-        }`
-      : undefined;
-
-  const kpiCards = useMemo(
+  const allStateKpiCards = useMemo(
     () =>
-      kpisForCards
+      kpisSection.data
+        ? buildKpiCards(kpisSection.data, dateRange, stateRows)
+        : [],
+    [dateRange, kpisSection.data, stateRows],
+  );
+  const filteredStateKpiCards = useMemo(
+    () =>
+      activeStateFilter.length > 0
         ? buildKpiCards(
-            kpisForCards,
+            buildAggregatedKpisFromStateRows(filteredStateRows),
             dateRange,
             filteredStateRows,
           )
         : [],
-    [dateRange, filteredStateRows, kpisForCards],
+    [activeStateFilter.length, dateRange, filteredStateRows],
   );
+  const filteredKpiContextLabel = `Filtered states: ${formatNumber(
+    activeStateFilter.length,
+  )} ${activeStateFilter.length === 1 ? "state" : "states"}`;
   const lastUpdated = useMemo(
     () =>
       formatLatestGeneratedAt([
@@ -216,7 +208,22 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           onRetry={retryDashboardSections}
         />
         {kpisSection.data ? (
-          <KpiCardsGrid contextLabel={kpiContextLabel} items={kpiCards} />
+          <div className="space-y-4">
+            <KpiCardsGrid
+              ariaLabel="All state campaign KPIs"
+              contextLabel={
+                activeStateFilter.length > 0 ? "All states total" : undefined
+              }
+              items={allStateKpiCards}
+            />
+            {activeStateFilter.length > 0 ? (
+              <KpiCardsGrid
+                ariaLabel="Filtered state campaign KPIs"
+                contextLabel={filteredKpiContextLabel}
+                items={filteredStateKpiCards}
+              />
+            ) : null}
+          </div>
         ) : kpisSection.isLoading ? (
           <KpiSkeletonGrid />
         ) : (
@@ -316,6 +323,7 @@ function normalizeStateCampaignRow(row: CampaignStateRow): CampaignStateRow {
     goalPct: numberOrNull(row.goalPct) ?? safeDivide(mtdSl, slGoal),
     leads,
     leadsGoal,
+    mixedStates: row.mixedStates?.map(normalizeMixedStateRow),
     mtdSl,
     mtdSpent,
     slGoal,
@@ -327,6 +335,24 @@ function normalizeStateCampaignRows(
   rows: CampaignStateRow[],
 ): CampaignStateRow[] {
   return rows.map(normalizeStateCampaignRow);
+}
+
+function normalizeMixedStateRow(
+  row: NonNullable<CampaignStateRow["mixedStates"]>[number],
+): NonNullable<CampaignStateRow["mixedStates"]>[number] {
+  return {
+    ...row,
+    budget: numberOrNull(row.budget),
+    conversionRate: numberOrNull(row.conversionRate),
+    cpl: numberOrNull(row.cpl),
+    cpsl: numberOrNull(row.cpsl),
+    leads: numberOrNull(row.leads),
+    leadsGoal: numberOrNull(row.leadsGoal),
+    mtdSl: numberOrNull(row.mtdSl),
+    mtdSpent: numberOrNull(row.mtdSpent),
+    slGoal: numberOrNull(row.slGoal),
+    spentPct: numberOrNull(row.spentPct),
+  };
 }
 
 function filterStateRowsBySelectedStates(
@@ -373,15 +399,16 @@ function buildKpiCards(
   const monthPacing = buildMonthPacing(dateRange.to);
   const mtdBudgetGoal = calculateMtdGoal(kpis.budget, monthPacing);
   const mtdBudgetCompletionPct = safeDivide(kpis.mtdSpent, mtdBudgetGoal);
+  const leadGoalContext = calculateMtdLeadGoalContext(stateRows, monthPacing);
   const slGoalCompletion = calculateMtdSlGoalCompletion(stateRows);
   const intakeConversion = calculateIntakeConversion(stateRows);
 
   return [
     {
       format: "currency",
-      helperText: formatCostEfficiencyHelper({
-        denominator: intakeConversion.mtdSl,
-        denominatorLabel: "SL",
+      helperText: formatCpslHelper({
+        mtdSl: slGoalCompletion.mtdSl,
+        mtdSlGoal: slGoalCompletion.mtdSlGoal,
         spent: kpis.mtdSpent,
       }),
       id: "cpsl",
@@ -391,9 +418,9 @@ function buildKpiCards(
     },
     {
       format: "currency",
-      helperText: formatCostEfficiencyHelper({
-        denominator: intakeConversion.leads,
-        denominatorLabel: "Leads",
+      helperText: formatCplHelper({
+        leads: leadGoalContext.leads,
+        mtdLeadGoal: leadGoalContext.mtdLeadGoal,
         spent: kpis.mtdSpent,
       }),
       id: "cpl",
@@ -500,22 +527,76 @@ function formatBudgetProgressHelper({
   return parts.join(" · ");
 }
 
-function formatCostEfficiencyHelper({
-  denominator,
-  denominatorLabel,
+function formatCpslHelper({
+  mtdSl,
+  mtdSlGoal,
   spent,
 }: {
-  denominator: number | null;
-  denominatorLabel: string;
+  mtdSl: number | null;
+  mtdSlGoal: number | null;
   spent: number | null;
 }): string | undefined {
-  if (spent == null && denominator == null) {
+  if (mtdSl == null && mtdSlGoal == null && spent == null) {
     return undefined;
   }
 
-  return `Spend ${formatCurrency(spent)} · ${denominatorLabel} ${formatNumber(
-    denominator,
-  )}`;
+  return [
+    `MTD SL ${formatNumber(mtdSl)}`,
+    `MTD Goal ${formatNumber(mtdSlGoal)}`,
+    `Spend ${formatCurrency(spent)}`,
+  ].join(" · ");
+}
+
+function formatCplHelper({
+  leads,
+  mtdLeadGoal,
+  spent,
+}: {
+  leads: number | null;
+  mtdLeadGoal: number | null;
+  spent: number | null;
+}): string | undefined {
+  if (leads == null && mtdLeadGoal == null && spent == null) {
+    return undefined;
+  }
+
+  return [
+    `MTD Leads ${formatNumber(leads)}`,
+    `MTD Goal ${formatNumber(mtdLeadGoal)}`,
+    `Spend ${formatCurrency(spent)}`,
+  ].join(" · ");
+}
+
+interface LeadGoalContext {
+  leads: number | null;
+  mtdLeadGoal: number | null;
+}
+
+function calculateMtdLeadGoalContext(
+  rows: CampaignStateRow[],
+  monthPacing: MonthPacing,
+): LeadGoalContext {
+  let leads = 0;
+  let leadGoal = 0;
+  let hasLeads = false;
+  let hasGoal = false;
+
+  for (const row of rows) {
+    if (typeof row.leads === "number" && Number.isFinite(row.leads)) {
+      leads += row.leads;
+      hasLeads = true;
+    }
+
+    if (typeof row.leadsGoal === "number" && Number.isFinite(row.leadsGoal)) {
+      leadGoal += row.leadsGoal;
+      hasGoal = true;
+    }
+  }
+
+  return {
+    leads: hasLeads ? leads : null,
+    mtdLeadGoal: hasGoal ? calculateMtdGoal(leadGoal, monthPacing) : null,
+  };
 }
 
 interface SlGoalCompletion {

@@ -17,6 +17,7 @@ export type CampaignHealthConfidence =
   | "Learning";
 
 export type CampaignHealthRecommendation =
+  | "Learning"
   | "Replicate/Keep on"
   | "Review"
   | "Shut off";
@@ -40,9 +41,13 @@ export interface CampaignHealthAdRow {
   adsetId: string | null;
   adsetName: string | null;
   adsetStatus: CampaignMetaStatus;
+  averageLeadActualAge?: number | null;
+  averageLeadAgeDays?: number | null;
   confidence: CampaignHealthConfidence;
   cpl: number | null;
   cpsl: number | null;
+  droppedLeads?: number;
+  genderCounts?: Record<string, number> | null;
   grade: CampaignHealthGrade;
   id: string;
   inStateCpsl: number | null;
@@ -94,6 +99,8 @@ export interface CampaignHealthRow {
   activeEndDate: string | null;
   activeStartDate: string | null;
   ads: CampaignHealthAdRow[];
+  averageLeadActualAge?: number | null;
+  averageLeadAgeDays?: number | null;
   brand: string;
   campaignAgeDays: number | null;
   campaignId: string | null;
@@ -102,6 +109,8 @@ export interface CampaignHealthRow {
   cpl: number | null;
   cpsl: number | null;
   displayName: string;
+  droppedLeads?: number;
+  genderCounts?: Record<string, number> | null;
   grade: CampaignHealthGrade;
   id: string;
   inStateCpsl: number | null;

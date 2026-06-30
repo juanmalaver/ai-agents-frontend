@@ -36,6 +36,7 @@ export interface DashboardHeaderProps {
 }
 
 export interface KpiCardsGridProps {
+  ariaLabel?: string;
   contextLabel?: string;
   items: KpiCardData[];
 }
@@ -164,7 +165,32 @@ export interface CampaignStateRow {
   leads: number | null;
   conversionRate: number | null;
   cpl: number | null;
+  mixedStates?: CampaignStateMixedState[];
   recommendation?: AiAgentRecommendation | null;
+}
+
+export interface CampaignStateHistoryRow {
+  cpsl: number | null;
+  leads: number;
+  signedLeads: number;
+  spent: number;
+  weekEnd: string;
+  weekStart: string;
+}
+
+export interface CampaignStateMixedState {
+  budget: number | null;
+  code: string;
+  conversionRate: number | null;
+  cpl: number | null;
+  cpsl: number | null;
+  leads: number | null;
+  leadsGoal: number | null;
+  mtdSl: number | null;
+  mtdSpent: number | null;
+  slGoal: number | null;
+  spentPct: number | null;
+  state: string;
 }
 
 export type CampaignStateName = string;
