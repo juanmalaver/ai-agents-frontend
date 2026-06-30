@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDashboardQueryParams } from "@/src/hooks/useDashboardQueryParams";
 import { useDashboardSection } from "@/src/hooks/useDashboardSection";
 import type {
@@ -101,17 +101,48 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     normalize: normalizeStateCampaignRows,
     url: stateCampaignsUrl,
   });
+  const [selectedStateFilter, setSelectedStateFilter] = useState<string[]>([]);
+  const stateRows = stateCampaignsSection.data ?? [];
+  const availableStates = useMemo(
+    () => new Set(stateRows.map((row) => row.state)),
+    [stateRows],
+  );
+  const activeStateFilter = useMemo(
+    () => selectedStateFilter.filter((state) => availableStates.has(state)),
+    [availableStates, selectedStateFilter],
+  );
+  const filteredStateRows = useMemo(
+    () => filterStateRowsBySelectedStates(stateRows, activeStateFilter),
+    [activeStateFilter, stateRows],
+  );
+  const kpisForCards = useMemo(() => {
+    if (!kpisSection.data) {
+      return null;
+    }
+
+    if (activeStateFilter.length === 0) {
+      return kpisSection.data;
+    }
+
+    return buildAggregatedKpisFromStateRows(filteredStateRows);
+  }, [activeStateFilter.length, filteredStateRows, kpisSection.data]);
+  const kpiContextLabel =
+    activeStateFilter.length > 0
+      ? `Filtered to ${formatNumber(activeStateFilter.length)} ${
+          activeStateFilter.length === 1 ? "state" : "states"
+        }`
+      : undefined;
 
   const kpiCards = useMemo(
     () =>
-      kpisSection.data
+      kpisForCards
         ? buildKpiCards(
-            kpisSection.data,
+            kpisForCards,
             dateRange,
-            stateCampaignsSection.data ?? [],
+            filteredStateRows,
           )
         : [],
-    [dateRange, kpisSection.data, stateCampaignsSection.data],
+    [dateRange, filteredStateRows, kpisForCards],
   );
   const lastUpdated = useMemo(
     () =>
@@ -185,7 +216,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           onRetry={retryDashboardSections}
         />
         {kpisSection.data ? (
-          <KpiCardsGrid items={kpiCards} />
+          <KpiCardsGrid contextLabel={kpiContextLabel} items={kpiCards} />
         ) : kpisSection.isLoading ? (
           <KpiSkeletonGrid />
         ) : (
@@ -197,8 +228,10 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
         {stateCampaignsSection.data ? (
           <CampaignStateTable
             apiUrl={apiUrl}
+            onSelectedStateFilterChange={setSelectedStateFilter}
             query={dashboardQuery}
             rows={stateCampaignsSection.data}
+            selectedStateFilter={activeStateFilter}
           />
         ) : stateCampaignsSection.isLoading ? (
           <TableSkeleton />
@@ -295,6 +328,42 @@ function normalizeStateCampaignRows(
   rows: CampaignStateRow[],
 ): CampaignStateRow[] {
   return rows.map(normalizeStateCampaignRow);
+}
+
+function filterStateRowsBySelectedStates(
+  rows: CampaignStateRow[],
+  selectedStates: string[],
+): CampaignStateRow[] {
+  if (selectedStates.length === 0) {
+    return rows;
+  }
+
+  const selectedStateSet = new Set(selectedStates);
+
+  return rows.filter((row) => selectedStateSet.has(row.state));
+}
+
+function buildAggregatedKpisFromStateRows(
+  rows: CampaignStateRow[],
+): AggregatedKpis {
+  const budget = sumNullable(rows.map((row) => row.budget));
+  const leads = sumNullable(rows.map((row) => row.leads));
+  const leadsGoal = sumNullable(rows.map((row) => row.leadsGoal));
+  const mtdSl = sumNullable(rows.map((row) => row.mtdSl));
+  const mtdSpent = sumNullable(rows.map((row) => row.mtdSpent));
+  const slGoal = sumNullable(rows.map((row) => row.slGoal));
+
+  return {
+    budget,
+    budgetSpentCompletionPct: safeDivide(mtdSpent, budget),
+    cpsl: safeDivide(mtdSpent, mtdSl),
+    cpql: null,
+    finalCpl: safeDivide(mtdSpent, leads),
+    leadGoalCompletionPct: safeDivide(leads, leadsGoal),
+    mtdSpent,
+    mtdSpentPct: safeDivide(mtdSpent, budget),
+    slGoalCompletionPct: safeDivide(mtdSl, slGoal),
+  };
 }
 
 function buildKpiCards(
@@ -606,6 +675,20 @@ function calculateMtdGoal(
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sumNullable(values: Array<number | null | undefined>): number | null {
+  let total = 0;
+  let hasValue = false;
+
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      total += value;
+      hasValue = true;
+    }
+  }
+
+  return hasValue ? total : null;
 }
 
 function formatLatestGeneratedAt(

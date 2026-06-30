@@ -198,6 +198,18 @@ export function resolveDashboardAdMediaApiUrl(
     : `${trimmed}/marketing-dashboard/ad-media`;
 }
 
+export function resolveSlackGradeMessageApiUrl(
+  explicitDashboardApiUrl?: string | null,
+): string | undefined {
+  const dashboardUrl = resolveDashboardApiUrl(explicitDashboardApiUrl);
+
+  if (!dashboardUrl) {
+    return undefined;
+  }
+
+  return `${new URL(dashboardUrl).origin}/api/slack/messages/grade`;
+}
+
 export function resolveDashboardSectionApiUrl(
   section: "kpis" | "monthly-performance" | "state-campaigns" | "state-law-firms",
   explicitDashboardApiUrl?: string | null,

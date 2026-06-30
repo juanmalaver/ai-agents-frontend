@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type FormEvent,
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -45,6 +46,7 @@ import {
   appendHealthDashboardQueryParams,
   resolveDashboardAdMediaApiUrl,
   resolveHealthDashboardApiUrl,
+  resolveSlackGradeMessageApiUrl,
 } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardTabs } from "./DashboardTabs";
@@ -58,24 +60,16 @@ const ALL_RECOMMENDATIONS: Array<{
   label: string;
 }> = [
   {
-    id: "WINNER / REPLICATE / SCALE REVIEW",
-    label: "Winner / Scale",
+    id: "Replicate/Keep on",
+    label: "Replicate/Keep on",
   },
   {
-    id: "KEEP / WATCH",
-    label: "Keep / Watch",
+    id: "Review",
+    label: "Review",
   },
   {
-    id: "WATCH / DIAGNOSE",
-    label: "Watch / Diagnose",
-  },
-  {
-    id: "REDUCE / REBUILD REVIEW",
-    label: "Reduce / Rebuild",
-  },
-  {
-    id: "PAUSE / SHUTDOWN REVIEW",
-    label: "Pause / Shutdown",
+    id: "Shut off",
+    label: "Shut off",
   },
 ];
 const ALL_META_STATUSES: Array<{
@@ -125,6 +119,13 @@ interface AdMediaState {
 interface AdMediaSelection {
   state: AdMediaState;
   target: AdMediaTarget;
+}
+
+interface SlackGradeMessageRequest {
+  grade: string;
+  message: string;
+  title?: string;
+  videoReference: string;
 }
 
 export function HealthPage({ apiUrl }: HealthPageProps) {
@@ -195,6 +196,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     useState<SelectedAdReuse | null>(null);
   const adMediaApiUrl = useMemo(
     () => resolveDashboardAdMediaApiUrl(apiUrl),
+    [apiUrl],
+  );
+  const slackMessageApiUrl = useMemo(
+    () => resolveSlackGradeMessageApiUrl(apiUrl),
     [apiUrl],
   );
   const healthUrl = useMemo(
@@ -579,7 +584,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-none flex-col gap-5">
         <DashboardHeader
           lastUpdated={lastUpdated}
           subtitle="Campaign and ad audit across selected platforms, brands, campaigns, and ads."
@@ -756,7 +761,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             </RefreshingRegion>
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
               <HealthTable
+                adMediaApiUrl={adMediaApiUrl}
                 adNamePlacements={adNamePlacements}
+                dateRange={dateRange}
                 expandedRows={expandedRows}
                 isRefreshing={isRefreshingHealth}
                 onOpenAdReuse={handleOpenAdReuse}
@@ -766,6 +773,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
+                slackMessageApiUrl={slackMessageApiUrl}
               />
             </RefreshingRegion>
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
@@ -1001,7 +1009,9 @@ function SummaryTile({
 }
 
 function HealthTable({
+  adMediaApiUrl,
   adNamePlacements,
+  dateRange,
   expandedRows,
   isRefreshing,
   onOpenAdReuse,
@@ -1011,8 +1021,11 @@ function HealthTable({
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  slackMessageApiUrl,
 }: {
+  adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
+  dateRange: DashboardDateRange;
   expandedRows: string[];
   isRefreshing: boolean;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
@@ -1022,6 +1035,7 @@ function HealthTable({
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  slackMessageApiUrl?: string;
 }) {
   const expandedSet = new Set(expandedRows);
   const selectedAdSet = new Set(selectedAdIds);
@@ -1097,9 +1111,32 @@ function HealthTable({
         sortingFn: nullableNumberSortingFn,
       },
       {
+        accessorKey: "cpsl",
+        header: "Overall CPSL",
+        id: "overallCpsl",
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "inStateSignedLeads",
+        header: "In-State SL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "oosSignedLeads",
+        header: "OOS SL",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "oosCpsl",
+        header: "OOS CPSL",
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
         accessorFn: (row) => row.metricHealth.cpsl.value,
-        header: "CPSL",
-        id: "cpsl",
+        header: "In-State CPSL",
+        id: "inStateCpsl",
         sortingFn: nullableNumberSortingFn,
       },
       {
@@ -1138,69 +1175,79 @@ function HealthTable({
   });
 
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-3">
         <h2 className="text-base font-semibold text-slate-950">
           Campaign audit
         </h2>
       </div>
-      <div className="overflow-hidden">
-        <table className="w-full table-fixed border-collapse text-left text-sm">
+      <div className="max-w-full overflow-hidden">
+        <table className="w-full table-fixed border-collapse text-left text-[0.8125rem]">
           <colgroup>
+            <col className="w-[3%]" />
+            <col className="w-[6%]" />
+            <col className="w-[5%]" />
+            <col className="w-[8%]" />
             <col className="w-[4%]" />
-            <col className="w-[8%]" />
-            <col className="w-[6%]" />
-            <col className="w-[11%]" />
-            <col className="w-[5%]" />
-            <col className="w-[5%]" />
-            <col className="w-[5%]" />
-            <col className="w-[6%]" />
-            <col className="w-[8%]" />
-            <col className="w-[6%]" />
             <col className="w-[5%]" />
             <col className="w-[4%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
             <col className="w-[6%]" />
+            <col className="w-[8%]" />
+            <col className="w-[5%]" />
+            <col className="w-[4%]" />
+            <col className="w-[4%]" />
+            <col className="w-[7%]" />
+            <col className="w-[5%]" />
+            <col className="w-[4%]" />
+            <col className="w-[6%]" />
+            <col className="w-[4%]" />
+            <col className="w-[4%]" />
+            <col className="w-[4%]" />
+            <col className="w-[4%]" />
           </colgroup>
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    className={getCampaignHeaderClassName(header.column.id)}
-                    key={header.id}
-                  >
-                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                      <button
-                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getCampaignHeaderButtonClassName(
-                          header.column.id,
-                        )}`}
-                        onClick={header.column.getToggleSortingHandler()}
-                        type="button"
-                      >
-                        <span className="min-w-0 truncate">
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                        </span>
-                        <span
-                          aria-hidden="true"
-                          className="shrink-0 text-[0.65rem] text-slate-400"
+                {headerGroup.headers.map((header) => {
+                  const headerTitle = getCampaignHeaderTitle(header.column.id);
+
+                  return (
+                    <th
+                      className={getCampaignHeaderClassName(header.column.id)}
+                      key={header.id}
+                      title={headerTitle}
+                    >
+                      {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                        <button
+                          className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getCampaignHeaderButtonClassName(
+                            header.column.id,
+                          )}`}
+                          onClick={header.column.getToggleSortingHandler()}
+                          title={headerTitle}
+                          type="button"
                         >
-                          {formatSortIndicator(header.column.getIsSorted())}
-                        </span>
-                      </button>
-                    ) : (
-                      flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )
-                    )}
-                  </th>
-                ))}
+                          <span className="min-w-0 whitespace-normal break-words leading-tight">
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="shrink-0 text-[0.65rem] text-slate-400"
+                          >
+                            {formatSortIndicator(header.column.getIsSorted())}
+                          </span>
+                        </button>
+                      ) : (
+                        flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -1229,7 +1276,9 @@ function HealthTable({
 
                 return (
                   <HealthTableRow
+                    adMediaApiUrl={adMediaApiUrl}
                     adNamePlacements={adNamePlacements}
+                    dateRange={dateRange}
                     isExpanded={isExpanded}
                     isRefreshing={isRefreshing}
                     key={row.id}
@@ -1240,6 +1289,7 @@ function HealthTable({
                     selectedAdIds={selectedAdIds}
                     selectedAdGrades={selectedAdGrades}
                     selectedAdMetaStatuses={selectedAdMetaStatuses}
+                    slackMessageApiUrl={slackMessageApiUrl}
                   />
                 );
               })
@@ -1247,7 +1297,7 @@ function HealthTable({
               <tr>
                 <td
                   className="px-4 py-10 text-center text-slate-500"
-                  colSpan={16}
+                  colSpan={20}
                 >
                   No campaigns match the selected filters.
                 </td>
@@ -1261,7 +1311,9 @@ function HealthTable({
 }
 
 function HealthTableRow({
+  adMediaApiUrl,
   adNamePlacements,
+  dateRange,
   isExpanded,
   isRefreshing,
   onOpenAdReuse,
@@ -1271,8 +1323,11 @@ function HealthTableRow({
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  slackMessageApiUrl,
 }: {
+  adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
+  dateRange: DashboardDateRange;
   isExpanded: boolean;
   isRefreshing: boolean;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
@@ -1282,14 +1337,17 @@ function HealthTableRow({
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  slackMessageApiUrl?: string;
 }) {
   const activePeriod = formatActivePeriod(row);
   const activePeriodTitle = activePeriod === "-" ? undefined : activePeriod;
+  const campaignMetaStatus = getRowMetaStatus(row);
+  const showRampUpBadge = row.isRampUp && campaignMetaStatus.id === "on";
 
   return (
     <>
       <tr className="align-top transition hover:bg-slate-50">
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <button
             aria-expanded={isExpanded}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-bold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1301,25 +1359,33 @@ function HealthTableRow({
             {isExpanded ? "−" : "+"}
           </button>
         </td>
-        <td className="break-words px-4 py-3 font-medium text-slate-900">
+        <td className="break-words px-2 py-3 font-medium text-slate-900">
           {row.brand}
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <PlatformChip platform={row.platform ?? "meta"} />
         </td>
-        <td className="break-words px-4 py-3">
-          <div className="font-semibold text-slate-950">{row.campaignName}</div>
-          <div className="mt-1 text-xs text-slate-500">
+        <td className="min-w-0 px-2 py-3">
+          <div
+            className="line-clamp-2 font-semibold text-slate-950 [overflow-wrap:anywhere]"
+            title={row.campaignName}
+          >
+            {row.campaignName}
+          </div>
+          <div
+            className="mt-1 truncate text-xs text-slate-500"
+            title={row.campaignId ?? "CRM-only campaign"}
+          >
             {row.campaignId ?? "CRM-only campaign"}
           </div>
-          {row.isRampUp ? (
-            <div className="mt-2 inline-flex rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
+          {showRampUpBadge ? (
+            <div className="mt-2 inline-flex max-w-full rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
               Ramp-up active day {formatNumber(row.activeDays)} of{" "}
               {formatNumber(rampUpDays)}
             </div>
           ) : null}
         </td>
-        <td className="px-4 py-3 text-right">
+        <td className="px-2 py-3 text-right">
           <span
             className="inline-block font-medium text-slate-900"
             title={activePeriodTitle}
@@ -1327,56 +1393,73 @@ function HealthTableRow({
             {formatNumber(row.activeDays)}
           </span>
         </td>
-        <td className="px-4 py-3">
-          <MetaStatusChip status={getRowMetaStatus(row)} />
+        <td className="px-2 py-3">
+          <MetaStatusChip status={campaignMetaStatus} />
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <GradeChip grade={row.grade} />
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <ConfidenceChip confidence={row.confidence} />
         </td>
-        <td className="break-words px-4 py-3">
+        <td className="break-words px-2 py-3">
           <RecommendationChip recommendation={row.recommendation} />
         </td>
-        <td className="px-4 py-3 text-right font-semibold text-slate-950">
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
           {formatCurrency(row.spend)}
         </td>
-        <td className="px-4 py-3 text-right">{formatNumber(row.leads)}</td>
-        <td className="px-4 py-3 text-right">
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatNumber(row.leads)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
           {formatNumber(row.signedLeads)}
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatCurrency(row.cpsl)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatNumber(row.inStateSignedLeads)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatNumber(row.oosSignedLeads)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatCurrency(row.oosCpsl)}
+        </td>
+        <td className="px-2 py-3">
           <MetricChip metric={row.metricHealth.cpsl} variant="currency" />
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <MetricChip metric={row.metricHealth.volume} variant="currency" />
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <MetricChip
             formatValue={formatPositiveQualityValue}
             metric={row.metricHealth.quality}
             variant="percentage"
           />
         </td>
-        <td className="px-4 py-3">
+        <td className="px-2 py-3">
           <MetricChip metric={row.metricHealth.intake} variant="percentage" />
         </td>
       </tr>
       {isExpanded ? (
         <tr className="bg-slate-50/70">
           <td className="px-4 py-3" />
-          <td className="px-4 py-3" colSpan={15}>
+          <td className="px-4 py-3" colSpan={19}>
             <div className="space-y-3">
               <QualitySignalsPanel signals={row.qualitySignals} />
               <AdDetailTable
+                adMediaApiUrl={adMediaApiUrl}
                 adNamePlacements={adNamePlacements}
                 ads={row.ads}
                 campaign={row}
+                dateRange={dateRange}
                 onOpenAdReuse={onOpenAdReuse}
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
+                slackMessageApiUrl={slackMessageApiUrl}
               />
             </div>
           </td>
@@ -1409,8 +1492,9 @@ function QualitySignalsPanel({
           key={signal.label}
           title={signal.reason}
         >
-          <div className="text-xs font-semibold uppercase tracking-wide opacity-80">
-            {signal.label}
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide opacity-80">
+            <span>{signal.label}</span>
+            <QualitySignalInfoIcon formula={getQualitySignalFormula(signal)} />
           </div>
           <div className="mt-1 text-sm font-bold">
             {formatQualitySignalValue(signal)}
@@ -1424,22 +1508,41 @@ function QualitySignalsPanel({
   );
 }
 
+function QualitySignalInfoIcon({ formula }: { formula: string }) {
+  return (
+    <span
+      aria-label={formula}
+      className="inline-flex h-3.5 w-3.5 shrink-0 cursor-help items-center justify-center rounded-full border border-current text-[0.6rem] font-bold normal-case leading-none opacity-80"
+      role="img"
+      title={formula}
+    >
+      i
+    </span>
+  );
+}
+
 function AdDetailTable({
+  adMediaApiUrl,
   adNamePlacements,
   ads,
   campaign,
+  dateRange,
   onOpenAdReuse,
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  slackMessageApiUrl,
 }: {
+  adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
   ads: CampaignHealthAdRow[];
   campaign: CampaignHealthRow;
+  dateRange: DashboardDateRange;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  slackMessageApiUrl?: string;
 }) {
   const visibleAds = useMemo(() => {
     const selectedAdIdSet = new Set(selectedAdIds);
@@ -1478,9 +1581,15 @@ function AdDetailTable({
     selectedAdMetaStatuses,
   ]);
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [selectedSlackAd, setSelectedSlackAd] =
+    useState<CampaignHealthAdRow | null>(null);
   const isTikTokCampaign = campaign.platform === "tiktok";
   const showAdGroupColumn = isTikTokCampaign;
   const showAdStatusColumn = !isTikTokCampaign;
+  const campaignPlatform = campaign.platform ?? "meta";
+  const showSlackColumn = visibleAds.some((ad) =>
+    isSlackEligibleAd(ad, campaignPlatform),
+  );
   const columns = useMemo<ColumnDef<CampaignHealthAdRow>[]>(
     () => {
       const nextColumns: ColumnDef<CampaignHealthAdRow>[] = [
@@ -1545,14 +1654,45 @@ function AdDetailTable({
         },
         {
           accessorKey: "cpsl",
-          header: "CPSL",
+          header: "Overall CPSL",
+          id: "overallCpsl",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "inStateSignedLeads",
+          header: "In-State SL",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "oosSignedLeads",
+          header: "OOS SL",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "inStateCpsl",
+          header: "In-State CPSL",
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
+          accessorKey: "oosCpsl",
+          header: "OOS CPSL",
           sortingFn: nullableAdNumberSortingFn,
         },
       );
 
+      if (showSlackColumn) {
+        nextColumns.push({
+          enableSorting: false,
+          header: "Slack",
+          id: "slack",
+        });
+      }
+
       return nextColumns;
     },
-    [showAdGroupColumn, showAdStatusColumn],
+    [showAdGroupColumn, showAdStatusColumn, showSlackColumn],
   );
   const table = useReactTable({
     columns,
@@ -1566,161 +1706,711 @@ function AdDetailTable({
   });
 
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-      <table className="w-full table-fixed text-sm">
-        {isTikTokCampaign ? (
-          <colgroup>
-            <col className="w-[28%]" />
-            <col className="w-[6%]" />
-            <col className="w-[14%]" />
-            <col className="w-[13%]" />
-            <col className="w-[8%]" />
-            <col className="w-[7%]" />
-            <col className="w-[6%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-          </colgroup>
-        ) : (
-          <colgroup>
-            <col className="w-[31%]" />
-            <col className="w-[6%]" />
-            <col className="w-[9%]" />
-            <col className="w-[14%]" />
-            <col className="w-[8%]" />
-            <col className="w-[7%]" />
-            <col className="w-[6%]" />
-            <col className="w-[10%]" />
-            <col className="w-[9%]" />
-          </colgroup>
-        )}
-          <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    className={getAdHeaderClassName(header.column.id)}
-                    key={header.id}
-                  >
-                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+    <>
+      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+      <table
+        className={`table-fixed text-sm ${
+          showSlackColumn ? "min-w-[1660px]" : "min-w-[1540px]"
+        }`}
+      >
+        <colgroup>
+          <col className="w-[300px]" />
+          <col className="w-[80px]" />
+          <col className="w-[125px]" />
+          <col className="w-[190px]" />
+          <col className="w-[105px]" />
+          <col className="w-[90px]" />
+          <col className="w-[90px]" />
+          <col className="w-[100px]" />
+          <col className="w-[125px]" />
+          <col className="w-[105px]" />
+          <col className="w-[90px]" />
+          <col className="w-[125px]" />
+          <col className="w-[115px]" />
+          {showSlackColumn ? <col className="w-[120px]" /> : null}
+        </colgroup>
+        <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr key={headerGroup.id}>
+              {headerGroup.headers.map((header) => (
+                <th
+                  className={getAdHeaderClassName(header.column.id)}
+                  key={header.id}
+                >
+                  {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                    <button
+                      className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
+                        header.column.id,
+                      )}`}
+                      onClick={header.column.getToggleSortingHandler()}
+                      type="button"
+                    >
+                      <span className="min-w-0 truncate">
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="shrink-0 text-[0.65rem] text-slate-400"
+                      >
+                        {formatSortIndicator(header.column.getIsSorted())}
+                      </span>
+                    </button>
+                  ) : (
+                    flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )
+                  )}
+                </th>
+              ))}
+            </tr>
+          ))}
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {table.getRowModel().rows.length > 0 ? (
+            table.getRowModel().rows.map((tableRow) => {
+              const ad = tableRow.original;
+              const placementCount = getAdNamePlacementCount(
+                adNamePlacements,
+                ad,
+                campaign,
+              );
+              const isClickable = Boolean(normalizeAdName(ad.adName));
+
+              return (
+                <tr key={ad.id}>
+                  <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
+                    {isClickable ? (
                       <button
-                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
-                          header.column.id,
-                        )}`}
-                        onClick={header.column.getToggleSortingHandler()}
+                        className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                        onClick={() => onOpenAdReuse(ad, campaign)}
+                        title={ad.adName}
                         type="button"
                       >
-                        <span className="min-w-0 truncate">
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                        </span>
-                        <span
-                          aria-hidden="true"
-                          className="shrink-0 text-[0.65rem] text-slate-400"
-                        >
-                          {formatSortIndicator(header.column.getIsSorted())}
-                        </span>
+                        {ad.adName}
                       </button>
                     ) : (
-                      flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )
+                      <span
+                        className="block max-w-full break-words [overflow-wrap:anywhere]"
+                        title={ad.adName || undefined}
+                      >
+                        {ad.adName}
+                      </span>
                     )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {table.getRowModel().rows.length > 0 ? (
-              table.getRowModel().rows.map((tableRow) => {
-                const ad = tableRow.original;
-                const placementCount = getAdNamePlacementCount(
-                  adNamePlacements,
-                  ad,
-                  campaign,
-                );
-                const isClickable = Boolean(normalizeAdName(ad.adName));
-
-                return (
-                  <tr key={ad.id}>
-                    <td className="min-w-0 px-3 py-2 font-medium text-slate-900">
-                      {isClickable ? (
+                    {placementCount > 1 ? (
+                      <div className="mt-1 text-xs font-medium text-slate-500">
+                        {formatNumber(placementCount)} placements
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
+                    <GradeChip grade={ad.grade} />
+                  </td>
+                  {showAdGroupColumn ? (
+                    <td className="px-3 py-2">
+                      <MetaStatusChip
+                        status={getAdsetMetaStatus(ad)}
+                        unknownLabel="-"
+                      />
+                    </td>
+                  ) : null}
+                  {showAdStatusColumn ? (
+                    <td className="px-3 py-2">
+                      <MetaStatusChip status={getAdMetaStatus(ad)} />
+                    </td>
+                  ) : null}
+                  <td className="break-words px-3 py-2 text-slate-500">
+                    {ad.adId ?? "-"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.spend)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.leads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.signedLeads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.cpl)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.cpsl)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.inStateSignedLeads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatNumber(ad.oosSignedLeads)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.inStateCpsl)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(ad.oosCpsl)}
+                  </td>
+                  {showSlackColumn ? (
+                    <td className="px-3 py-2 text-center align-middle">
+                      {isSlackEligibleAd(ad, campaignPlatform) ? (
                         <button
-                          className="block max-w-full whitespace-normal break-words text-left font-semibold text-teal-700 underline decoration-teal-200 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-                          onClick={() => onOpenAdReuse(ad, campaign)}
-                          title={ad.adName}
+                          className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                          onClick={() => setSelectedSlackAd(ad)}
                           type="button"
                         >
-                          {ad.adName}
+                          Compose
                         </button>
                       ) : (
-                        <span
-                          className="block max-w-full break-words [overflow-wrap:anywhere]"
-                          title={ad.adName || undefined}
-                        >
-                          {ad.adName}
-                        </span>
+                        <span className="text-sm text-slate-400">-</span>
                       )}
-                      {placementCount > 1 ? (
-                        <div className="mt-1 text-xs font-medium text-slate-500">
-                          {formatNumber(placementCount)} placements
-                        </div>
-                      ) : null}
                     </td>
-                    <td className="px-3 py-2" title={formatAdGradeTitle(ad)}>
-                      <GradeChip grade={ad.grade} />
-                    </td>
-                    {showAdGroupColumn ? (
-                      <td className="px-3 py-2">
-                        <MetaStatusChip
-                          status={getAdsetMetaStatus(ad)}
-                          unknownLabel="-"
-                        />
-                      </td>
-                    ) : null}
-                    {showAdStatusColumn ? (
-                      <td className="px-3 py-2">
-                        <MetaStatusChip status={getAdMetaStatus(ad)} />
-                      </td>
-                    ) : null}
-                    <td className="break-words px-3 py-2 text-slate-500">
-                      {ad.adId ?? "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatCurrency(ad.spend)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatNumber(ad.leads)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatNumber(ad.signedLeads)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatCurrency(ad.cpl)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatCurrency(ad.cpsl)}
-                    </td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td
-                  className="px-3 py-6 text-center text-sm font-medium text-slate-500"
-                  colSpan={columns.length}
-                >
-                  No ads match the selected ad filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  ) : null}
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td
+                className="px-3 py-6 text-center text-sm font-medium text-slate-500"
+                colSpan={columns.length}
+              >
+                No ads match the selected ad filters.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      </div>
+      {selectedSlackAd ? (
+        <AdSlackModal
+          ad={selectedSlackAd}
+          adMediaApiUrl={adMediaApiUrl}
+          campaign={campaign}
+          dateRange={dateRange}
+          onClose={() => setSelectedSlackAd(null)}
+          slackMessageApiUrl={slackMessageApiUrl}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function AdSlackModal({
+  ad,
+  adMediaApiUrl,
+  campaign,
+  dateRange,
+  onClose,
+  slackMessageApiUrl,
+}: {
+  ad: CampaignHealthAdRow;
+  adMediaApiUrl?: string;
+  campaign: CampaignHealthRow;
+  dateRange: DashboardDateRange;
+  onClose: () => void;
+  slackMessageApiUrl?: string;
+}) {
+  const platform = campaign.platform ?? "meta";
+  const [message, setMessage] = useState("");
+  const [videoReference, setVideoReference] = useState(
+    buildFallbackAdVideoReference(ad),
+  );
+  const [isLoadingReference, setIsLoadingReference] = useState(false);
+  const [sendState, setSendState] = useState<{
+    error: string | null;
+    isSending: boolean;
+    sent: boolean;
+  }>({
+    error: null,
+    isSending: false,
+    sent: false,
+  });
+  const contextRows = buildAdSlackContextRows({
+    ad,
+    campaign,
+    dateRange,
+    platform,
+  });
+  const trimmedMessage = message.trim();
+  const canSend =
+    Boolean(trimmedMessage) && !sendState.isSending && !isLoadingReference;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    setVideoReference(buildFallbackAdVideoReference(ad));
+
+    if (!adMediaApiUrl || !ad.adId?.trim()) {
+      setIsLoadingReference(false);
+      return;
+    }
+
+    setIsLoadingReference(true);
+
+    async function loadReference() {
+      const reference = await resolveAdSlackVideoReference({
+        ad,
+        adMediaApiUrl,
+        campaign,
+        platform,
+      });
+
+      if (!isActive) {
+        return;
+      }
+
+      setVideoReference(reference);
+      setIsLoadingReference(false);
+    }
+
+    void loadReference();
+
+    return () => {
+      isActive = false;
+    };
+  }, [ad, adMediaApiUrl, campaign, platform]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSend) {
+      return;
+    }
+
+    if (!slackMessageApiUrl) {
+      setSendState({
+        error: "Slack message endpoint is not configured.",
+        isSending: false,
+        sent: false,
+      });
+      return;
+    }
+
+    setSendState({ error: null, isSending: true, sent: false });
+
+    try {
+      const payload = await buildAdSlackPayload({
+        ad,
+        adMediaApiUrl,
+        campaign,
+        dateRange,
+        message: trimmedMessage,
+        videoReference,
+      });
+
+      await sendSlackGradeMessage(slackMessageApiUrl, payload);
+      setMessage("");
+      setSendState({ error: null, isSending: false, sent: true });
+    } catch (caughtError) {
+      setSendState({
+        error:
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Unable to send Slack message.",
+        isSending: false,
+        sent: false,
+      });
+    }
+  }
+
+  return (
+    <div
+      aria-labelledby="ad-slack-modal-title"
+      aria-modal="true"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 px-4 py-6"
+      role="dialog"
+    >
+      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Slack review
+            </p>
+            <h2
+              className="mt-1 truncate text-xl font-bold text-slate-950"
+              id="ad-slack-modal-title"
+              title={ad.adName}
+            >
+              {ad.adName || "Unnamed ad"}
+            </h2>
+          </div>
+          <button
+            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <form
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          onSubmit={handleSubmit}
+        >
+          <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-3">
+            <AdSlackSummaryItem label="Grade" value={ad.grade} />
+            <AdSlackSummaryItem
+              label="Video/reference"
+              value={isLoadingReference ? "Loading..." : videoReference}
+            />
+            <AdSlackSummaryItem
+              label="Trigger"
+              value="Good volume + red In-State CPSL"
+            />
+          </div>
+          <div className="space-y-4 px-5 py-4">
+            <div>
+              <label
+                className="text-sm font-semibold text-slate-950"
+                htmlFor="ad-slack-message"
+              >
+                Message
+              </label>
+              <textarea
+                className="mt-2 min-h-[132px] w-full resize-y rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                disabled={sendState.isSending}
+                id="ad-slack-message"
+                maxLength={1800}
+                onChange={(event) => {
+                  setMessage(event.target.value);
+
+                  if (sendState.error || sendState.sent) {
+                    setSendState({
+                      error: null,
+                      isSending: false,
+                      sent: false,
+                    });
+                  }
+                }}
+                placeholder="Add the note for Slack..."
+                value={message}
+              />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">
+                Included context
+              </h3>
+              <dl className="mt-2 grid gap-2 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2">
+                {contextRows.map((row) => (
+                  <div className="min-w-0" key={row.label}>
+                    <dt className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+                      {row.label}
+                    </dt>
+                    <dd
+                      className="mt-0.5 truncate text-sm font-medium text-slate-950"
+                      title={row.value}
+                    >
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+            {sendState.error ? (
+              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+                {sendState.error}
+              </p>
+            ) : null}
+            {sendState.sent ? (
+              <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-700">
+                Sent to Slack.
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+            <button
+              className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              onClick={onClose}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={!canSend}
+              type="submit"
+            >
+              {sendState.isSending ? "Posting..." : "Post to Slack"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
+}
+
+function AdSlackSummaryItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div
+        className="mt-1 truncate text-sm font-bold text-slate-950"
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function isSlackEligibleAd(
+  ad: CampaignHealthAdRow,
+  platform: CampaignPlatform,
+): boolean {
+  return (
+    getAdDeliveryStatus(ad, platform).id === "on" &&
+    ad.metricHealth.volume.status === "green" &&
+    ad.metricHealth.cpsl.status === "red"
+  );
+}
+
+async function buildAdSlackPayload({
+  ad,
+  adMediaApiUrl,
+  campaign,
+  dateRange,
+  message,
+  videoReference,
+}: {
+  ad: CampaignHealthAdRow;
+  adMediaApiUrl?: string;
+  campaign: CampaignHealthRow;
+  dateRange: DashboardDateRange;
+  message: string;
+  videoReference?: string;
+}): Promise<SlackGradeMessageRequest> {
+  const platform = campaign.platform ?? "meta";
+  const resolvedVideoReference =
+    videoReference ??
+    (await resolveAdSlackVideoReference({
+      ad,
+      adMediaApiUrl,
+      campaign,
+      platform,
+    }));
+
+  return {
+    grade: ad.grade,
+    message: buildAdSlackContextMessage({
+      ad,
+      campaign,
+      dateRange,
+      message,
+      platform,
+    }),
+    title: `Audit ad review: ${ad.adName || "Unnamed ad"}`,
+    videoReference: resolvedVideoReference,
+  };
+}
+
+async function resolveAdSlackVideoReference({
+  ad,
+  adMediaApiUrl,
+  campaign,
+  platform,
+}: {
+  ad: CampaignHealthAdRow;
+  adMediaApiUrl?: string;
+  campaign: CampaignHealthRow;
+  platform: CampaignPlatform;
+}): Promise<string> {
+  const adId = ad.adId?.trim();
+
+  if (adMediaApiUrl && adId) {
+    try {
+      const media = await fetchAdMedia(adMediaApiUrl, {
+        adId,
+        campaignLabel: `${campaign.brand} / ${campaign.campaignName}`,
+        platform,
+      });
+      const watchUrl = getAdMediaWatchUrl(media, platform);
+
+      return (
+        firstTrimmedValue(
+          watchUrl,
+          media.creativeName,
+          media.videoId,
+          media.creativeId,
+          ad.adId,
+          ad.adName,
+        ) ?? buildFallbackAdVideoReference(ad)
+      );
+    } catch {
+      return buildFallbackAdVideoReference(ad);
+    }
+  }
+
+  return buildFallbackAdVideoReference(ad);
+}
+
+function buildAdSlackContextMessage({
+  ad,
+  campaign,
+  dateRange,
+  message,
+  platform,
+}: {
+  ad: CampaignHealthAdRow;
+  campaign: CampaignHealthRow;
+  dateRange: DashboardDateRange;
+  message: string;
+  platform: CampaignPlatform;
+}): string {
+  const contextRows = buildAdSlackContextRows({
+    ad,
+    campaign,
+    dateRange,
+    platform,
+  });
+
+  return [
+    message,
+    "",
+    "Audit context:",
+    ...contextRows.map((row) => `${row.label}: ${row.value}`),
+  ].join("\n");
+}
+
+function buildAdSlackContextRows({
+  ad,
+  campaign,
+  dateRange,
+  platform,
+}: {
+  ad: CampaignHealthAdRow;
+  campaign: CampaignHealthRow;
+  dateRange: DashboardDateRange;
+  platform: CampaignPlatform;
+}): Array<{ label: string; value: string }> {
+  return [
+    { label: "Brand", value: campaign.brand },
+    { label: "Campaign", value: campaign.campaignName },
+    { label: "Ad", value: ad.adName || "-" },
+    { label: "Ad ID", value: ad.adId || "-" },
+    { label: "Platform", value: platformLabel(platform) },
+    {
+      label: "Volume",
+      value: formatAdMetricForSlack(ad.metricHealth.volume, "currency"),
+    },
+    {
+      label: "In-State CPSL",
+      value: formatAdMetricForSlack(ad.metricHealth.cpsl, "currency"),
+    },
+    { label: "Spend", value: formatCurrency(ad.spend) },
+    { label: "Leads", value: formatNumber(ad.leads) },
+    { label: "Signed leads", value: formatNumber(ad.signedLeads) },
+    { label: "Date range", value: `${dateRange.from} to ${dateRange.to}` },
+  ];
+}
+
+function formatAdMetricForSlack(
+  metric: CampaignHealthMetric,
+  variant: "currency" | "percentage",
+): string {
+  const value =
+    variant === "currency"
+      ? formatCurrency(metric.value)
+      : formatPercentage(metric.value);
+
+  return `${healthStatusLabels[metric.status]} / ${value}`;
+}
+
+function buildFallbackAdVideoReference(ad: CampaignHealthAdRow): string {
+  return (
+    firstTrimmedValue(ad.adId, ad.adName, ad.id) ??
+    "Unknown ad reference"
+  );
+}
+
+function firstTrimmedValue(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+async function sendSlackGradeMessage(
+  apiUrl: string,
+  payload: SlackGradeMessageRequest,
+): Promise<void> {
+  const response = await fetch(apiUrl, {
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readSlackResponseMessage(response));
+  }
+}
+
+async function readSlackResponseMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as unknown;
+
+    if (typeof body === "object" && body !== null) {
+      if ("message" in body) {
+        const message = (body as { message?: unknown }).message;
+
+        if (Array.isArray(message)) {
+          const normalized = message
+            .filter((item) => typeof item === "string")
+            .join(" ")
+            .trim();
+
+          if (normalized) {
+            return normalized;
+          }
+        }
+
+        if (typeof message === "string" && message.trim()) {
+          return message;
+        }
+      }
+
+      if ("error" in body) {
+        const error = (body as { error?: unknown }).error;
+
+        if (typeof error === "string" && error.trim()) {
+          return error;
+        }
+      }
+    }
+  } catch {
+    return `Unable to send Slack message (${response.status}).`;
+  }
+
+  return `Unable to send Slack message (${response.status}).`;
 }
 
 function AdReuseModal({
@@ -2433,6 +3123,25 @@ function formatQualitySignalCount(signal: CampaignHealthQualitySignal): string {
   )} leads`;
 }
 
+function getQualitySignalFormula(signal: CampaignHealthQualitySignal): string {
+  switch (signal.label) {
+    case "No accident":
+      return "Formula: no-accident leads / total leads.";
+    case "CNA / no answer":
+      return "Formula: CNA or no-answer leads / total leads.";
+    case "Commercial":
+      return "Formula: commercial leads / total leads.";
+    case "Previous attorney":
+      return "Formula: previous-attorney leads / total leads.";
+    case "Old accident":
+      return "Formula: old-accident leads / total leads.";
+    case "Speed to lead":
+      return "Formula: total minutes from CRM lead creation to first measured PhoneBurner attempt / measured leads.";
+    default:
+      return "Formula: signal count / total leads.";
+  }
+}
+
 function normalizeQualitySignals(
   signals: CampaignHealthRow["qualitySignals"],
 ): CampaignHealthRow["qualitySignals"] {
@@ -2580,11 +3289,12 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
         Audit formulas
       </h2>
       <p className="mt-2 text-sm text-slate-600">
-        Campaign grades use CPSL, volume, quality, and Int. Conv. CPSL is the
-        gating metric: if CPSL is not Good, the campaign grade is F. Ad grades
-        use CPSL, volume, Int. Conv., and attribution quality with the same
-        CPSL rule; source-backed quality stays at campaign level until it can be
-        reliably tied to ad IDs.
+        Campaign grades use In-State CPSL, volume, quality, and Int. Conv.
+        In-State CPSL is the shutdown gate: only Red CPSL forces F. Yellow
+        CPSL below the red threshold is graded with the other health metrics.
+        Overall CPSL remains Spend / all signed leads for comparison. Ad grades
+        use the same In-State CPSL rule. Campaign F rows and high-CPSL ad F
+        rows stay in Review until they have at least 7 active spend days.
       </p>
       <div className="mt-3 overflow-hidden">
         <table className="w-full table-fixed text-left text-sm">
@@ -2608,10 +3318,10 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             <ThresholdRow
-              formula="Spend / Signed Leads"
+              formula="Spend / In-State Signed Leads"
               green={`< ${formatCurrency(thresholds.cpsl.greenMaxExclusive)}`}
-              metric="CPSL"
-              neutral={`0 signed leads and spend < ${formatCurrency(
+              metric="In-State CPSL"
+              neutral={`0 in-state signed leads and spend < ${formatCurrency(
                 thresholds.cpsl.zeroSignedLeadYellowSpendMin,
               )}`}
               red={`>= ${formatCurrency(thresholds.cpsl.redMin)}`}
@@ -2619,7 +3329,7 @@ function ThresholdsPanel({ data }: { data: MarketingDashboardHealthResponse }) {
                 thresholds.cpsl.greenMaxExclusive,
               )} - ${formatCurrency(
                 thresholds.cpsl.redMin - 1,
-              )}; or 0 signed leads and spend ${formatCurrency(
+              )}; or 0 in-state signed leads and spend ${formatCurrency(
                 thresholds.cpsl.zeroSignedLeadYellowSpendMin,
               )} - ${formatCurrency(
                 thresholds.cpsl.zeroSignedLeadRedSpendMin - 1,
@@ -2789,12 +3499,9 @@ const confidenceClasses: Record<CampaignHealthConfidence, string> = {
 };
 
 const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
-  "KEEP / WATCH": "border-sky-200 bg-sky-50 text-sky-800",
-  "PAUSE / SHUTDOWN REVIEW": "border-rose-200 bg-rose-50 text-rose-800",
-  "REDUCE / REBUILD REVIEW": "border-orange-200 bg-orange-50 text-orange-800",
-  "WATCH / DIAGNOSE": "border-amber-200 bg-amber-50 text-amber-800",
-  "WINNER / REPLICATE / SCALE REVIEW":
-    "border-teal-200 bg-teal-50 text-teal-800",
+  "Replicate/Keep on": "border-teal-200 bg-teal-50 text-teal-800",
+  Review: "border-amber-200 bg-amber-50 text-amber-800",
+  "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 };
 
 const metaStatusClasses: Record<CampaignMetaDeliveryStatus, string> = {
@@ -2819,11 +3526,9 @@ const confidenceSortRanks: Record<CampaignHealthConfidence, number> = {
 };
 
 const recommendationSortRanks: Record<CampaignHealthRecommendation, number> = {
-  "PAUSE / SHUTDOWN REVIEW": 5,
-  "REDUCE / REBUILD REVIEW": 4,
-  "WATCH / DIAGNOSE": 3,
-  "KEEP / WATCH": 2,
-  "WINNER / REPLICATE / SCALE REVIEW": 1,
+  "Shut off": 3,
+  Review: 2,
+  "Replicate/Keep on": 1,
 };
 
 const metaStatusSortRanks: Record<CampaignMetaDeliveryStatus, number> = {
@@ -2987,20 +3692,76 @@ function normalizeSortableNumber(value: number | null | undefined): number {
     : value;
 }
 
+function getCampaignHeaderTitle(columnId: string): string | undefined {
+  const titles: Record<string, string> = {
+    activeDays:
+      "Active days in the selected range; campaigns under the ramp-up window are treated separately.",
+    brand: "Brand associated with the campaign.",
+    campaignName: "Campaign name and platform campaign ID.",
+    confidence:
+      "Confidence in the audit result based on available data and campaign age.",
+    grade:
+      "Overall campaign grade based on In-State CPSL, volume, quality, and Int. Conv.",
+    inStateCpsl:
+      "Spend / In-State Signed Leads. Shows N/A when there are no in-state signed leads.",
+    inStateSignedLeads:
+      "Signed leads attributed to the campaign inside the target state.",
+    intake: "Signed Leads / Leads.",
+    leads: "Total CRM leads attributed to the campaign.",
+    meta: "Current delivery status from the ad platform.",
+    oosCpsl:
+      "Spend / Out-of-State Signed Leads. Shows N/A when there are no out-of-state signed leads.",
+    oosSignedLeads:
+      "Signed leads attributed to the campaign outside the target state.",
+    overallCpsl:
+      "Spend / all Signed Leads. Shows N/A when there are no signed leads.",
+    platform: "Ad platform for the campaign.",
+    quality: "1 - (no-accident leads / total leads).",
+    recommendation:
+      "A/B: Replicate/Keep on. C/D: Review. F: Review until 7 active spend days, then Shut off.",
+    signedLeads: "Total signed leads attributed to the campaign.",
+    spend: "Total ad spend in the selected date range.",
+    volume: "Spend / Leads. Shows N/A when there are no leads.",
+  };
+
+  return titles[columnId];
+}
+
 function getCampaignHeaderClassName(columnId: string): string {
   const rightAligned = new Set([
     "activeDays",
     "spend",
     "leads",
     "signedLeads",
+    "overallCpsl",
+    "inStateSignedLeads",
+    "oosSignedLeads",
+    "inStateCpsl",
+    "oosCpsl",
+    "volume",
+    "quality",
+    "intake",
   ]);
-  const base = columnId === "expand" ? "w-12 px-4 py-3" : "px-4 py-3";
+  const base = columnId === "expand" ? "w-12 px-2 py-3" : "px-2 py-3";
 
   return rightAligned.has(columnId) ? `${base} text-right` : base;
 }
 
 function getCampaignHeaderButtonClassName(columnId: string): string {
-  return ["activeDays", "spend", "leads", "signedLeads"].includes(columnId)
+  return [
+    "activeDays",
+    "spend",
+    "leads",
+    "signedLeads",
+    "overallCpsl",
+    "inStateSignedLeads",
+    "oosSignedLeads",
+    "inStateCpsl",
+    "oosCpsl",
+    "volume",
+    "quality",
+    "intake",
+  ].includes(columnId)
     ? "justify-end"
     : "";
 }
@@ -3011,7 +3772,12 @@ function getAdHeaderClassName(columnId: string): string {
     "leads",
     "signedLeads",
     "cpl",
+    "overallCpsl",
     "cpsl",
+    "inStateSignedLeads",
+    "oosSignedLeads",
+    "inStateCpsl",
+    "oosCpsl",
   ]);
 
   return rightAligned.has(columnId)
@@ -3025,7 +3791,12 @@ function getAdHeaderButtonClassName(columnId: string): string {
     "leads",
     "signedLeads",
     "cpl",
+    "overallCpsl",
     "cpsl",
+    "inStateSignedLeads",
+    "oosSignedLeads",
+    "inStateCpsl",
+    "oosCpsl",
   ].includes(columnId)
     ? "justify-end"
     : "";

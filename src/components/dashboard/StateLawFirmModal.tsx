@@ -63,12 +63,9 @@ const CONFIDENCE_CLASSES = {
 } satisfies Record<StateLawFirmCampaignAdRow["confidence"], string>;
 
 const RECOMMENDATION_CLASSES = {
-  "KEEP / WATCH": "border-sky-200 bg-sky-50 text-sky-800",
-  "PAUSE / SHUTDOWN REVIEW": "border-rose-200 bg-rose-50 text-rose-800",
-  "REDUCE / REBUILD REVIEW": "border-orange-200 bg-orange-50 text-orange-800",
-  "WATCH / DIAGNOSE": "border-amber-200 bg-amber-50 text-amber-800",
-  "WINNER / REPLICATE / SCALE REVIEW":
-    "border-teal-200 bg-teal-50 text-teal-800",
+  "Replicate/Keep on": "border-teal-200 bg-teal-50 text-teal-800",
+  Review: "border-amber-200 bg-amber-50 text-amber-800",
+  "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 } satisfies Record<StateLawFirmCampaignAdRow["recommendation"], string>;
 
 const PLATFORM_CLASSES = {
@@ -591,11 +588,9 @@ const AD_RECOMMENDATION_SORT_RANKS: Record<
   StateLawFirmCampaignAdRow["recommendation"],
   number
 > = {
-  "PAUSE / SHUTDOWN REVIEW": 5,
-  "REDUCE / REBUILD REVIEW": 4,
-  "WATCH / DIAGNOSE": 3,
-  "KEEP / WATCH": 2,
-  "WINNER / REPLICATE / SCALE REVIEW": 1,
+  "Shut off": 3,
+  Review: 2,
+  "Replicate/Keep on": 1,
 };
 
 const campaignGradeBreakdownSortingFn: SortingFn<StateLawFirmCampaignRow> = (
@@ -1534,7 +1529,30 @@ function CampaignAdsModal({
       },
       {
         accessorKey: "cpsl",
-        header: "CPSL",
+        header: "Overall CPSL",
+        id: "overallCpsl",
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "inStateSignedLeads",
+        header: "In-State SL",
+        sortDescFirst: true,
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "oosSignedLeads",
+        header: "OOS SL",
+        sortDescFirst: true,
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "inStateCpsl",
+        header: "In-State CPSL",
+        sortingFn: nullableCampaignAdNumberSortingFn,
+      },
+      {
+        accessorKey: "oosCpsl",
+        header: "OOS CPSL",
         sortingFn: nullableCampaignAdNumberSortingFn,
       },
       {
@@ -1605,28 +1623,41 @@ function CampaignAdsModal({
             Close
           </button>
         </div>
-        <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 md:grid-cols-5">
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 md:grid-cols-4 xl:grid-cols-8">
           <SummaryItem label="Spend" value={formatCurrency(stats.spend)} />
           <SummaryItem label="Leads" value={formatNumber(stats.leads)} />
           <SummaryItem label="SL" value={formatNumber(stats.signedLeads)} />
-          <SummaryItem label="CPL" value={formatCurrency(stats.cpl)} />
-          <SummaryItem label="CPSL" value={formatCurrency(stats.cpsl)} />
+          <SummaryItem label="Overall CPSL" value={formatCurrency(stats.cpsl)} />
+          <SummaryItem
+            label="In-State SL"
+            value={formatNumber(stats.inStateSignedLeads)}
+          />
+          <SummaryItem label="OOS SL" value={formatNumber(stats.oosSignedLeads)} />
+          <SummaryItem
+            label="In-State CPSL"
+            value={formatCurrency(stats.inStateCpsl)}
+          />
+          <SummaryItem label="OOS CPSL" value={formatCurrency(stats.oosCpsl)} />
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-5">
           <div className="overflow-hidden rounded-lg border border-slate-200">
-            <table className="w-full min-w-[1120px] table-fixed text-left text-sm">
+            <table className="w-full min-w-[1580px] table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[24%]" />
-                <col className="w-[6%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[6%]" />
-                <col className="w-[6%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[10%]" />
+                <col className="w-[260px]" />
+                <col className="w-[80px]" />
+                <col className="w-[100px]" />
+                <col className="w-[95px]" />
+                <col className="w-[105px]" />
+                <col className="w-[90px]" />
+                <col className="w-[90px]" />
+                <col className="w-[100px]" />
+                <col className="w-[125px]" />
+                <col className="w-[105px]" />
+                <col className="w-[90px]" />
+                <col className="w-[125px]" />
+                <col className="w-[115px]" />
+                <col className="w-[110px]" />
+                <col className="w-[150px]" />
               </colgroup>
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -1697,6 +1728,18 @@ function CampaignAdsModal({
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {formatCurrency(ad.cpsl)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatNumber(ad.inStateSignedLeads)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatNumber(ad.oosSignedLeads)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatCurrency(ad.inStateCpsl)}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {formatCurrency(ad.oosCpsl)}
                         </td>
                         <td className="px-3 py-3">
                           <CampaignAdConfidenceChip
@@ -1919,11 +1962,17 @@ function buildCampaignAdStats(ads: StateLawFirmCampaignAdRow[]) {
   const spend = sumCampaignAdMetric(ads, "spend");
   const leads = sumCampaignAdMetric(ads, "leads");
   const signedLeads = sumCampaignAdMetric(ads, "signedLeads");
+  const inStateSignedLeads = sumCampaignAdMetric(ads, "inStateSignedLeads");
+  const oosSignedLeads = sumCampaignAdMetric(ads, "oosSignedLeads");
 
   return {
     cpl: safeDivide(spend, leads),
     cpsl: safeDivide(spend, signedLeads),
+    inStateCpsl: safeDivide(spend, inStateSignedLeads),
+    inStateSignedLeads,
     leads,
+    oosCpsl: safeDivide(spend, oosSignedLeads),
+    oosSignedLeads,
     signedLeads,
     spend,
   };
@@ -1931,7 +1980,12 @@ function buildCampaignAdStats(ads: StateLawFirmCampaignAdRow[]) {
 
 function sumCampaignAdMetric(
   ads: StateLawFirmCampaignAdRow[],
-  key: "leads" | "signedLeads" | "spend",
+  key:
+    | "inStateSignedLeads"
+    | "leads"
+    | "oosSignedLeads"
+    | "signedLeads"
+    | "spend",
 ): number {
   return ads.reduce((total, ad) => total + (ad[key] ?? 0), 0);
 }
@@ -1942,7 +1996,12 @@ function isNumericCampaignAdColumn(columnId: string): boolean {
     columnId === "leads" ||
     columnId === "signedLeads" ||
     columnId === "cpl" ||
-    columnId === "cpsl"
+    columnId === "overallCpsl" ||
+    columnId === "cpsl" ||
+    columnId === "inStateSignedLeads" ||
+    columnId === "oosSignedLeads" ||
+    columnId === "inStateCpsl" ||
+    columnId === "oosCpsl"
   );
 }
 

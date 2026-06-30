@@ -17,11 +17,9 @@ export type CampaignHealthConfidence =
   | "Learning";
 
 export type CampaignHealthRecommendation =
-  | "WINNER / REPLICATE / SCALE REVIEW"
-  | "KEEP / WATCH"
-  | "WATCH / DIAGNOSE"
-  | "REDUCE / REBUILD REVIEW"
-  | "PAUSE / SHUTDOWN REVIEW";
+  | "Replicate/Keep on"
+  | "Review"
+  | "Shut off";
 
 export interface CampaignHealthMetric {
   label: string;
@@ -36,6 +34,7 @@ export interface CampaignHealthQualitySignal extends CampaignHealthMetric {
 }
 
 export interface CampaignHealthAdRow {
+  activeDays: number | null;
   adId: string | null;
   adName: string;
   adsetId: string | null;
@@ -46,6 +45,8 @@ export interface CampaignHealthAdRow {
   cpsl: number | null;
   grade: CampaignHealthGrade;
   id: string;
+  inStateCpsl: number | null;
+  inStateSignedLeads: number;
   leads: number;
   metaStatus: CampaignMetaStatus;
   metaLeadActions: number | null;
@@ -55,10 +56,13 @@ export interface CampaignHealthAdRow {
     intake: CampaignHealthMetric;
     volume: CampaignHealthMetric;
   };
+  oosCpsl: number | null;
+  oosSignedLeads: number;
   recommendation: CampaignHealthRecommendation;
   signedLeads: number;
   spend: number;
   states: string[];
+  unknownStateSignedLeads: number;
 }
 
 export interface CampaignHealthAdMedia {
@@ -100,6 +104,8 @@ export interface CampaignHealthRow {
   displayName: string;
   grade: CampaignHealthGrade;
   id: string;
+  inStateCpsl: number | null;
+  inStateSignedLeads: number;
   intakeRegistrationRate: number | null;
   isRampUp: boolean;
   leads: number;
@@ -121,11 +127,14 @@ export interface CampaignHealthRow {
     previousAttorney: CampaignHealthQualitySignal;
     speedToLead: CampaignHealthQualitySignal;
   };
+  oosCpsl: number | null;
+  oosSignedLeads: number;
   recommendation: CampaignHealthRecommendation;
   signedLeads: number;
   spend: number;
   startedAt: string | null;
   states: string[];
+  unknownStateSignedLeads: number;
 }
 
 export interface CampaignHealthFilterOption {
