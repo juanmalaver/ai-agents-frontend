@@ -50,6 +50,59 @@ export async function proxyVideoReviewRequest(
   }
 }
 
+export async function proxyVideoReviewStreamRequest(
+  path: string,
+  request: Request,
+): Promise<NextResponse> {
+  const targetUrl = `${resolveVideoProductionBackendApiUrl()}${path}`;
+  const headers = new Headers({
+    Accept: request.headers.get("accept") ?? "*/*",
+  });
+  const cookie = request.headers.get("cookie");
+  const range = request.headers.get("range");
+
+  if (cookie) {
+    headers.set("cookie", cookie);
+  }
+
+  if (range) {
+    headers.set("Range", range);
+  }
+
+  try {
+    const response = await fetch(targetUrl, {
+      cache: "no-store",
+      headers,
+      method: "GET",
+    });
+    const responseHeaders = new Headers();
+
+    for (const headerName of [
+      "Accept-Ranges",
+      "Cache-Control",
+      "Content-Length",
+      "Content-Range",
+      "Content-Type",
+    ]) {
+      const headerValue = response.headers.get(headerName);
+
+      if (headerValue) {
+        responseHeaders.set(headerName, headerValue);
+      }
+    }
+
+    return new NextResponse(response.body, {
+      headers: responseHeaders,
+      status: response.status,
+    });
+  } catch {
+    return NextResponse.json(
+      { detail: "AI Agents backend is unavailable." },
+      { status: 502 },
+    );
+  }
+}
+
 function resolveVideoProductionBackendApiUrl(): string {
   const explicit =
     process.env.VIDEO_PRODUCTION_BACKEND_API_URL?.trim() ||

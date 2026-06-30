@@ -756,8 +756,8 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
     !isGeneratingStoryboard;
   const canContinue =
     draft !== null &&
-    draft.status === "storyboard_ready" &&
     !draft.run_id &&
+    isBriefDraftEditableStatus(draft.status) &&
     Boolean(reviewerEmail) &&
     !scriptValidationError &&
     !storyboardValidationError &&
@@ -1161,9 +1161,9 @@ function BriefApprovalsPanel({ reviewerEmail }: { reviewerEmail: string }) {
   ]);
 
   const canEditStoryboard =
-    draft !== null && draft.status === "storyboard_ready" && !draft.run_id;
+    draft !== null && isBriefDraftEditableStatus(draft.status) && !draft.run_id;
   const canEditScript =
-    draft !== null && draft.status === "storyboard_ready" && !draft.run_id;
+    draft !== null && isBriefDraftEditableStatus(draft.status) && !draft.run_id;
   const canSaveScript =
     canEditScript &&
     isScriptDirty &&
@@ -2706,15 +2706,13 @@ function ReviewDetailModal({
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
               <div className="flex flex-col gap-4">
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
-                  {detail.asset.signed_video_url || detail.asset.storage_url ? (
+                  {detail.asset.storage_url ? (
                     <video
                       className="aspect-video w-full bg-slate-950"
                       controls
-                      src={
-                        detail.asset.signed_video_url ??
-                        detail.asset.storage_url ??
-                        undefined
-                      }
+                      src={`/api/video-production/reviews/${encodeURIComponent(
+                        detail.asset.asset_id,
+                      )}/video`}
                     />
                   ) : (
                     <div className="flex aspect-video items-center justify-center text-sm text-white">
@@ -3020,6 +3018,12 @@ function briefDraftStatusTone(status: BriefDraftResponse["status"]): StatusTone 
   }
 
   return "amber";
+}
+
+function isBriefDraftEditableStatus(
+  status: BriefDraftResponse["status"],
+): boolean {
+  return status === "storyboard_ready" || status === "generation_failed";
 }
 
 function briefDraftValue(
