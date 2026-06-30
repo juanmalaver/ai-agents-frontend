@@ -36,6 +36,7 @@ export interface DashboardHeaderProps {
 }
 
 export interface KpiCardsGridProps {
+  contextLabel?: string;
   items: KpiCardData[];
 }
 
@@ -50,8 +51,10 @@ export interface CampaignPerformanceChartProps {
 
 export interface CampaignStateTableProps {
   apiUrl?: string;
+  onSelectedStateFilterChange: (states: string[]) => void;
   query: DashboardQueryParams;
   rows: CampaignStateRow[];
+  selectedStateFilter: string[];
 }
 
 export type CampaignGrade = "A" | "B" | "C" | "D" | "F";

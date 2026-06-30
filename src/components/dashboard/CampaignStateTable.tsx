@@ -2,17 +2,20 @@
 
 import {
   type ColumnDef,
+  type ColumnFiltersState,
   type ExpandedState,
+  type FilterFn,
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
+  getFilteredRowModel,
   getSortedRowModel,
   type Header,
   type SortingFn,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
   CampaignStateRow,
@@ -46,6 +49,7 @@ const headerLines: Record<string, string[]> = {
   leadsGoal: ["EOM Lead", "Goal"],
   mtdLeadGoalPct: ["% to MTD", "Lead Goal"],
   mtdLeadsGoal: ["MTD Lead", "Goal"],
+  mtdSpent: ["Total", "Spent"],
   mtdSl: ["SL"],
   mtdSlGoal: ["MTD SL", "Goal"],
   mtdSlGoalPct: ["% to MTD", "SL Goal"],
@@ -56,14 +60,40 @@ const headerLines: Record<string, string[]> = {
 
 export function CampaignStateTable({
   apiUrl,
+  onSelectedStateFilterChange,
   query,
   rows,
+  selectedStateFilter,
 }: CampaignStateTableProps) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedStateRow, setSelectedStateRow] =
     useState<CampaignStateRow | null>(null);
-  const totalRow = useMemo(() => buildTotalRow(rows), [rows]);
+  const stateOptions = useMemo(() => buildStateFilterOptions(rows), [rows]);
+  const activeStateFilter = useMemo(
+    () =>
+      selectedStateFilter.filter((state) => stateOptions.includes(state)),
+    [selectedStateFilter, stateOptions],
+  );
+  const selectedStateSet = useMemo(
+    () => new Set(activeStateFilter),
+    [activeStateFilter],
+  );
+  const columnFilters = useMemo<ColumnFiltersState>(
+    () =>
+      activeStateFilter.length > 0
+        ? [{ id: "state", value: activeStateFilter }]
+        : [],
+    [activeStateFilter],
+  );
+  const filteredRowsForTotals = useMemo(
+    () => filterRowsByStates(rows, activeStateFilter),
+    [activeStateFilter, rows],
+  );
+  const totalRow = useMemo(
+    () => buildTotalRow(filteredRowsForTotals),
+    [filteredRowsForTotals],
+  );
   const monthPacing = useMemo(() => buildMonthPacing(query.to), [query.to]);
 
   const columns = useMemo<ColumnDef<CampaignStateRow>[]>(
@@ -84,9 +114,7 @@ export function CampaignStateTable({
                 >
                   {row.getIsExpanded() ? "-" : "+"}
                 </button>
-              ) : (
-                <span aria-hidden="true" className="h-7 w-7" />
-              )}
+              ) : null}
               <Link
                 className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
                 href={buildHealthPageUrl({
@@ -103,11 +131,11 @@ export function CampaignStateTable({
         },
         footer: () => (
           <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="h-7 w-7" />
             <span className="font-semibold">Total</span>
           </div>
         ),
         header: "State",
+        filterFn: stateFilterFn,
         meta: {
           info: "Meaning: campaign performance grouped by state. Formula: rows are grouped by the campaign state for the selected date range.",
         },
@@ -119,6 +147,17 @@ export function CampaignStateTable({
         header: "Budget",
         meta: {
           info: "Meaning: monthly budget assigned to the state. Formula: sum of active marketing budget targets for the state.",
+        },
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
+        accessorKey: "mtdSpent",
+        cell: ({ getValue }) => formatCurrency(getValue<number | null>()),
+        footer: () => formatCurrency(totalRow?.mtdSpent ?? null),
+        header: "Total Spent",
+        meta: {
+          info: "Meaning: total ad spend attributed to the state in the selected date range. Formula: sum of campaign spend for the state.",
         },
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
@@ -293,17 +332,34 @@ export function CampaignStateTable({
     [monthPacing, query.brand, query.from, query.to, totalRow],
   );
 
+  const toggleStateFilter = (state: string, checked: boolean) => {
+    if (checked) {
+      onSelectedStateFilterChange(
+        activeStateFilter.includes(state)
+          ? activeStateFilter
+          : [...activeStateFilter, state],
+      );
+      return;
+    }
+
+    onSelectedStateFilterChange(
+      activeStateFilter.filter((currentState) => currentState !== state),
+    );
+  };
+
   const table = useReactTable({
     autoResetExpanded: false,
     columns,
     data: rows,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     getRowCanExpand: (row) => Boolean(row.original.recommendation),
     getSortedRowModel: getSortedRowModel(),
     onExpandedChange: setExpanded,
     onSortingChange: setSorting,
     state: {
+      columnFilters,
       expanded,
       sorting,
     },
@@ -313,21 +369,54 @@ export function CampaignStateTable({
     <>
       <section
         aria-label="State campaign performance table"
-        className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+        className="rounded-lg border border-slate-200 bg-white shadow-sm"
       >
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-base font-semibold text-slate-950">
-            State campaign performance
-          </h2>
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">
+              State campaign performance
+            </h2>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              {activeStateFilter.length > 0
+                ? `${formatNumber(table.getRowModel().rows.length)} of ${formatNumber(
+                    rows.length,
+                  )} states`
+                : "All states"}
+            </p>
+          </div>
+          <StateFilterMenu
+            onClear={() => onSelectedStateFilterChange([])}
+            onToggle={toggleStateFilter}
+            options={stateOptions}
+            selectedStates={selectedStateSet}
+          />
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[1360px] w-full border-collapse text-left text-sm">
+        <div className="max-h-[72vh] overflow-auto">
+          <table className="min-w-[1460px] w-full table-fixed border-collapse text-left text-sm">
+            <colgroup>
+              <col className="w-[120px]" />
+              <col className="w-[90px]" />
+              <col className="w-[100px]" />
+              <col className="w-[85px]" />
+              <col className="w-[78px]" />
+              <col className="w-[80px]" />
+              <col className="w-[95px]" />
+              <col className="w-[98px]" />
+              <col className="w-[78px]" />
+              <col className="w-[105px]" />
+              <col className="w-[92px]" />
+              <col className="w-[95px]" />
+              <col className="w-[70px]" />
+              <col className="w-[105px]" />
+              <col className="w-[80px]" />
+              <col className="w-[89px]" />
+            </colgroup>
             <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
                     <th
-                      className="px-3 py-2.5 align-middle font-semibold"
+                      className="sticky top-0 z-20 bg-sky-50 px-3 py-2.5 align-middle font-semibold shadow-[inset_0_-1px_0_rgb(226_232_240)]"
                       key={header.id}
                       scope="col"
                     >
@@ -432,6 +521,131 @@ const nullableNumberSortingFn: SortingFn<CampaignStateRow> = (
 ) =>
   normalizeSortableNumber(first.getValue<number | null>(columnId)) -
   normalizeSortableNumber(second.getValue<number | null>(columnId));
+
+const stateFilterFn: FilterFn<CampaignStateRow> = (
+  row,
+  columnId,
+  filterValue,
+) => {
+  const selectedStates = Array.isArray(filterValue) ? filterValue : [];
+
+  if (selectedStates.length === 0) {
+    return true;
+  }
+
+  return selectedStates.includes(row.getValue<string>(columnId));
+};
+
+function StateFilterMenu({
+  onClear,
+  onToggle,
+  options,
+  selectedStates,
+}: {
+  onClear: () => void;
+  onToggle: (state: string, checked: boolean) => void;
+  options: string[];
+  selectedStates: Set<string>;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [search, setSearch] = useState("");
+  const visibleOptions = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return options;
+    }
+
+    return options.filter((state) =>
+      state.toLowerCase().includes(normalizedSearch),
+    );
+  }, [options, search]);
+  const selectedCount = selectedStates.size;
+
+  if (options.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="relative" ref={detailsRef}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500/30">
+        <span>States</span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+          {selectedCount > 0
+            ? `${formatNumber(selectedCount)} selected`
+            : "All"}
+        </span>
+      </summary>
+      <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-slate-200 bg-white p-2 shadow-xl">
+        <input
+          aria-label="Search states"
+          className="mb-2 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search states"
+          type="search"
+          value={search}
+        />
+        <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((state) => (
+              <label
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                key={state}
+              >
+                <input
+                  checked={selectedStates.has(state)}
+                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  onChange={(event) => onToggle(state, event.target.checked)}
+                  type="checkbox"
+                />
+                <span>{state}</span>
+              </label>
+            ))
+          ) : (
+            <div className="rounded-md px-2 py-3 text-center text-sm font-medium text-slate-500">
+              No states found.
+            </div>
+          )}
+        </div>
+        {selectedCount > 0 ? (
+          <button
+            className="mt-2 w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+            onClick={onClear}
+            type="button"
+          >
+            Clear
+          </button>
+        ) : null}
+        <button
+          className="mt-2 w-full rounded-md border border-slate-300 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+          onClick={() => detailsRef.current?.removeAttribute("open")}
+          type="button"
+        >
+          Close
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function buildStateFilterOptions(rows: CampaignStateRow[]): string[] {
+  return Array.from(new Set(rows.map((row) => row.state))).sort((first, second) =>
+    first.localeCompare(second),
+  );
+}
+
+function filterRowsByStates(
+  rows: CampaignStateRow[],
+  selectedStates: string[],
+): CampaignStateRow[] {
+  if (selectedStates.length === 0) {
+    return rows;
+  }
+
+  const selectedStateSet = new Set(selectedStates);
+
+  return rows.filter((row) => selectedStateSet.has(row.state));
+}
 
 function renderHeader<TData>(header: Header<TData, unknown>) {
   if (header.isPlaceholder) {
