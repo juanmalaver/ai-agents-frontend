@@ -18,7 +18,7 @@ export type CampaignHealthConfidence =
 
 export type CampaignHealthRecommendation =
   | "Learning"
-  | "Replicate/Keep on"
+  | "Skill"
   | "Review"
   | "Shut off";
 

@@ -71,8 +71,8 @@ const ALL_RECOMMENDATIONS: Array<{
     label: "Learning",
   },
   {
-    id: "Replicate/Keep on",
-    label: "Replicate/Keep on",
+    id: "Skill",
+    label: "Skill",
   },
   {
     id: "Review",
@@ -4761,7 +4761,7 @@ const confidenceClasses: Record<CampaignHealthConfidence, string> = {
 
 const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
   Learning: "border-slate-200 bg-slate-50 text-slate-600",
-  "Replicate/Keep on": "border-teal-200 bg-teal-50 text-teal-800",
+  Skill: "border-teal-200 bg-teal-50 text-teal-800",
   Review: "border-amber-200 bg-amber-50 text-amber-800",
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 };
@@ -4771,12 +4771,7 @@ const compactRecommendationLabels: Record<
   ReactNode
 > = {
   Learning: "Learning",
-  "Replicate/Keep on": (
-    <span className="flex flex-col">
-      <span>Replicate/</span>
-      <span>Keep on</span>
-    </span>
-  ),
+  Skill: "Skill",
   Review: "Review",
   "Shut off": "Shut off",
 };
@@ -4806,7 +4801,7 @@ const recommendationSortRanks: Record<CampaignHealthRecommendation, number> = {
   "Shut off": 4,
   Review: 3,
   Learning: 2,
-  "Replicate/Keep on": 1,
+  Skill: 1,
 };
 
 const metaStatusSortRanks: Record<CampaignMetaDeliveryStatus, number> = {
@@ -5028,7 +5023,7 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     platform: "Ad platform for the campaign.",
     quality: "1 - (no-accident leads / total leads).",
     recommendation:
-      "< 7 active spend days: Learning. A/B: Replicate/Keep on. C/D: Review. F: Shut off once it has at least 7 active spend days.",
+      "< 7 active spend days: Learning. A/B: Skill. C/D: Review. F: Shut off once it has at least 7 active spend days.",
     signedLeads: "Total signed leads attributed to the campaign.",
     spend: "Total ad spend in the selected date range.",
     volume: "Spend / Leads. Shows N/A when there are no leads.",
@@ -5108,7 +5103,7 @@ function getAdHeaderTitle(columnId: string): string | undefined {
       "Spend / all Signed Leads. Shows N/A when there are no signed leads.",
     quality: "1 - (no-accident leads / total leads).",
     recommendation:
-      "< 7 active spend days: Learning unless spend is at least $2,500. A/B: Replicate/Keep on. C/D: Review. F: Shut off once it has enough age.",
+      "< 7 active spend days: Learning. A/B: Skill. C/D/F: Review unless spend is at least $2,500 with zero in-state signed leads or in-state CPSL above the shutdown threshold.",
     signedLeads: "Total signed leads attributed to the ad.",
     slack: "Compose a Slack grade message for this ad.",
     spend: "Total ad spend in the selected date range.",
