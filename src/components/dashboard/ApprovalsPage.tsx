@@ -2643,6 +2643,27 @@ function ReviewDetailModal({
   reviewerEmail: string;
   selectedAssetId: string;
 }) {
+  const [useVideoProxy, setUseVideoProxy] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoProxyUrl = detail?.asset.storage_url
+    ? `/api/video-production/reviews/${encodeURIComponent(
+        detail.asset.asset_id,
+      )}/video`
+    : null;
+  const videoSourceUrl =
+    !useVideoProxy && detail?.asset.signed_video_url
+      ? detail.asset.signed_video_url
+      : videoProxyUrl;
+
+  useEffect(() => {
+    setUseVideoProxy(false);
+    setVideoError(null);
+  }, [
+    detail?.asset.asset_id,
+    detail?.asset.signed_video_url,
+    detail?.asset.storage_url,
+  ]);
+
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -2706,14 +2727,28 @@ function ReviewDetailModal({
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
               <div className="flex flex-col gap-4">
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
-                  {detail.asset.storage_url ? (
-                    <video
-                      className="aspect-video w-full bg-slate-950"
-                      controls
-                      src={`/api/video-production/reviews/${encodeURIComponent(
-                        detail.asset.asset_id,
-                      )}/video`}
-                    />
+                  {videoSourceUrl ? (
+                    <div className="relative">
+                      <video
+                        key={videoSourceUrl}
+                        className="aspect-video w-full bg-slate-950"
+                        controls
+                        onError={() => {
+                          if (!useVideoProxy && videoProxyUrl) {
+                            setUseVideoProxy(true);
+                            return;
+                          }
+                          setVideoError("Video preview failed to load.");
+                        }}
+                        preload="metadata"
+                        src={videoSourceUrl}
+                      />
+                      {videoError ? (
+                        <div className="absolute inset-x-0 bottom-0 bg-slate-950/85 px-3 py-2 text-sm text-white">
+                          {videoError}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : (
                     <div className="flex aspect-video items-center justify-center text-sm text-white">
                       Video unavailable
