@@ -13,6 +13,10 @@ export function normalizeCampaignHealthRecommendation(
     case "scale":
     case "skill":
       return "Scale";
+    case "turn on":
+    case "turn-on":
+    case "turnon":
+      return "Turn on";
     case "shut off":
     case "shut-off":
     case "shutoff":

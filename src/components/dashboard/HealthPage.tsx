@@ -76,6 +76,10 @@ const ALL_RECOMMENDATIONS: Array<{
     label: "Scale",
   },
   {
+    id: "Turn on",
+    label: "Turn on",
+  },
+  {
     id: "Review",
     label: "Review",
   },
@@ -3413,6 +3417,7 @@ function getDefaultSlackPriority(ad: CampaignHealthAdRow): SlackPriorityLevel {
   switch (ad.recommendation) {
     case "Shut off":
       return "Urgent";
+    case "Turn on":
     case "Review":
       return "High";
     default:
@@ -4765,6 +4770,7 @@ const confidenceClasses: Record<CampaignHealthConfidence, string> = {
 const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
   Learning: "border-slate-200 bg-slate-50 text-slate-600",
   Scale: "border-teal-200 bg-teal-50 text-teal-800",
+  "Turn on": "border-emerald-200 bg-emerald-50 text-emerald-800",
   Review: "border-amber-200 bg-amber-50 text-amber-800",
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 };
@@ -4775,6 +4781,7 @@ const compactRecommendationLabels: Record<
 > = {
   Learning: "Learning",
   Scale: "Scale",
+  "Turn on": "Turn on",
   Review: "Review",
   "Shut off": "Shut off",
 };
@@ -4801,8 +4808,9 @@ const confidenceSortRanks: Record<CampaignHealthConfidence, number> = {
 };
 
 const recommendationSortRanks: Record<CampaignHealthRecommendation, number> = {
-  "Shut off": 4,
-  Review: 3,
+  "Shut off": 5,
+  Review: 4,
+  "Turn on": 3,
   Learning: 2,
   Scale: 1,
 };
@@ -5026,7 +5034,7 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     platform: "Ad platform for the campaign.",
     quality: "1 - (no-accident leads / total leads).",
     recommendation:
-      "< 7 active spend days: Learning. A/B: Scale. C/D: Review. F: Shut off once it has at least 7 active spend days.",
+      "Off with In-State CPSL below $1,500: Turn on. Other Off campaigns: Review. On campaigns under 7 active spend days: Learning. A/B: Scale. C/D: Review. F: Shut off once it has at least 7 active spend days.",
     signedLeads: "Total signed leads attributed to the campaign.",
     spend: "Total ad spend in the selected date range.",
     volume: "Spend / Leads. Shows N/A when there are no leads.",
@@ -5106,7 +5114,7 @@ function getAdHeaderTitle(columnId: string): string | undefined {
       "Spend / all Signed Leads. Shows N/A when there are no signed leads.",
     quality: "1 - (no-accident leads / total leads).",
     recommendation:
-      "< 7 active spend days: Learning. A/B: Scale. C/D/F: Review unless spend is at least $2,500 with zero in-state signed leads or in-state CPSL above the shutdown threshold.",
+      "Off with In-State CPSL below $1,500: Turn on. Other Off ads: Review. On ads under 7 active spend days: Learning. A/B: Scale. C/D/F: Review unless spend is at least $2,500 with zero in-state signed leads or in-state CPSL above the shutdown threshold.",
     signedLeads: "Total signed leads attributed to the ad.",
     slack: "Compose a Slack grade message for this ad.",
     spend: "Total ad spend in the selected date range.",
@@ -5198,7 +5206,9 @@ function adMatchesSelectedRecommendation(
 ): boolean {
   return (
     selectedAdRecommendations.size === 0 ||
-    selectedAdRecommendations.has(ad.recommendation)
+    selectedAdRecommendations.has(
+      normalizeCampaignHealthRecommendation(ad.recommendation),
+    )
   );
 }
 
@@ -5304,7 +5314,9 @@ function filterHealthRows(
 
     if (
       selectedRecommendations.size > 0 &&
-      !selectedRecommendations.has(row.recommendation)
+      !selectedRecommendations.has(
+        normalizeCampaignHealthRecommendation(row.recommendation),
+      )
     ) {
       return false;
     }

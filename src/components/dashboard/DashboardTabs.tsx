@@ -41,13 +41,15 @@ export function DashboardTabs({
   query?: DashboardQueryParams;
 }) {
   return (
-    <TabNav
-      activeTab={activeTab}
-      ariaLabel="Marketing dashboard sections"
-      tabs={tabs.map((tab) => ({
-        ...tab,
-        href: appendDashboardQueryParams(tab.href, query) ?? tab.href,
-      }))}
-    />
+    <div className="sticky top-[6.875rem] z-[25] bg-[var(--color-app-bg)] pb-1 md:top-[3.75rem]">
+      <TabNav
+        activeTab={activeTab}
+        ariaLabel="Marketing dashboard sections"
+        tabs={tabs.map((tab) => ({
+          ...tab,
+          href: appendDashboardQueryParams(tab.href, query) ?? tab.href,
+        }))}
+      />
+    </div>
   );
 }
