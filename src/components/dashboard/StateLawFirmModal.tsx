@@ -64,7 +64,7 @@ const CONFIDENCE_CLASSES = {
 
 const RECOMMENDATION_CLASSES = {
   Learning: "border-slate-200 bg-slate-50 text-slate-600",
-  Skill: "border-teal-200 bg-teal-50 text-teal-800",
+  Scale: "border-teal-200 bg-teal-50 text-teal-800",
   Review: "border-amber-200 bg-amber-50 text-amber-800",
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 } satisfies Record<StateLawFirmCampaignAdRow["recommendation"], string>;
@@ -693,7 +693,7 @@ const AD_RECOMMENDATION_SORT_RANKS: Record<
   "Shut off": 4,
   Review: 3,
   Learning: 2,
-  Skill: 1,
+  Scale: 1,
 };
 
 const campaignGradeBreakdownSortingFn: SortingFn<StateLawFirmCampaignRow> = (
