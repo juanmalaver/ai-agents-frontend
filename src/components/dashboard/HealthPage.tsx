@@ -41,7 +41,10 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
-import { getCurrentMonthDateRange } from "@/src/utils/dateRangeDefaults";
+import {
+  getCurrentMonthDateRange,
+  isSameDateRange,
+} from "@/src/utils/dateRangeDefaults";
 import {
   appendHealthDashboardQueryParams,
   resolveDashboardAdMediaApiUrl,
@@ -128,12 +131,36 @@ interface AdMediaSelection {
 interface SlackGradeMessageRequest {
   grade: string;
   message: string;
+  priority: SlackPriorityLevel;
   title?: string;
   videoReference: string;
 }
 
+type SlackPriorityLevel = "Normal" | "High" | "Urgent";
+
+const SLACK_PRIORITY_OPTIONS: SlackPriorityLevel[] = [
+  "Normal",
+  "High",
+  "Urgent",
+];
+
 interface ToggleExpandedRowOptions {
   autoExpanded?: boolean;
+}
+
+interface ActiveFilterChip {
+  group: string;
+  id: string;
+  label: string;
+  onRemove: () => void;
+}
+
+interface AdSummaryFilters {
+  selectedAdGrades: CampaignHealthGrade[];
+  selectedAdIds: string[];
+  selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedAdRecommendations: CampaignHealthRecommendation[];
+  selectedStates: string[];
 }
 
 export function HealthPage({ apiUrl }: HealthPageProps) {
@@ -181,6 +208,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [searchParams],
   );
   const [selectedRecommendations, setSelectedRecommendations] = useState<
+    CampaignHealthRecommendation[]
+  >([]);
+  const [selectedAdRecommendations, setSelectedAdRecommendations] = useState<
     CampaignHealthRecommendation[]
   >([]);
   const selectedCampaignMetaStatuses = useMemo(
@@ -256,6 +286,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         selectedAdIds,
         selectedAdGrades,
         selectedAdMetaStatuses,
+        selectedAdRecommendations,
         selectedCampaignIds,
         selectedGrades: [],
         selectedCampaignMetaStatuses,
@@ -267,8 +298,84 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       selectedAdIds,
       selectedAdGrades,
       selectedAdMetaStatuses,
+      selectedAdRecommendations,
       selectedCampaignIds,
       selectedCampaignMetaStatuses,
+      selectedRecommendations,
+      selectedStates,
+    ],
+  );
+  const rowsBeforeAdGradeFilter = useMemo(
+    () =>
+      filterHealthRows(data?.campaignRows ?? [], {
+        selectedAdIds,
+        selectedAdGrades: [],
+        selectedAdMetaStatuses,
+        selectedAdRecommendations,
+        selectedCampaignIds,
+        selectedGrades,
+        selectedCampaignMetaStatuses,
+        selectedRecommendations,
+        selectedStates,
+      }),
+    [
+      data,
+      selectedAdIds,
+      selectedAdMetaStatuses,
+      selectedAdRecommendations,
+      selectedCampaignIds,
+      selectedCampaignMetaStatuses,
+      selectedGrades,
+      selectedRecommendations,
+      selectedStates,
+    ],
+  );
+  const rowsBeforeRecommendationFilter = useMemo(
+    () =>
+      filterHealthRows(data?.campaignRows ?? [], {
+        selectedAdIds,
+        selectedAdGrades,
+        selectedAdMetaStatuses,
+        selectedAdRecommendations,
+        selectedCampaignIds,
+        selectedGrades,
+        selectedCampaignMetaStatuses,
+        selectedRecommendations: [],
+        selectedStates,
+      }),
+    [
+      data,
+      selectedAdIds,
+      selectedAdGrades,
+      selectedAdMetaStatuses,
+      selectedAdRecommendations,
+      selectedCampaignIds,
+      selectedCampaignMetaStatuses,
+      selectedGrades,
+      selectedStates,
+    ],
+  );
+  const rowsBeforeAdRecommendationFilter = useMemo(
+    () =>
+      filterHealthRows(data?.campaignRows ?? [], {
+        selectedAdIds,
+        selectedAdGrades,
+        selectedAdMetaStatuses,
+        selectedAdRecommendations: [],
+        selectedCampaignIds,
+        selectedGrades,
+        selectedCampaignMetaStatuses,
+        selectedRecommendations,
+        selectedStates,
+      }),
+    [
+      data,
+      selectedAdIds,
+      selectedAdGrades,
+      selectedAdMetaStatuses,
+      selectedCampaignIds,
+      selectedCampaignMetaStatuses,
+      selectedGrades,
       selectedRecommendations,
       selectedStates,
     ],
@@ -279,6 +386,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         selectedAdIds,
         selectedAdGrades,
         selectedAdMetaStatuses,
+        selectedAdRecommendations,
         selectedCampaignIds,
         selectedGrades,
         selectedCampaignMetaStatuses,
@@ -290,6 +398,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       selectedAdIds,
       selectedAdGrades,
       selectedAdMetaStatuses,
+      selectedAdRecommendations,
       selectedCampaignIds,
       selectedGrades,
       selectedCampaignMetaStatuses,
@@ -427,6 +536,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
+      setSelectedAdRecommendations([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
@@ -449,6 +559,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
+      setSelectedAdRecommendations([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
@@ -475,10 +586,160 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       setSelectedCampaignIds([]);
       setSelectedAdIds([]);
       setSelectedRecommendations([]);
+      setSelectedAdRecommendations([]);
       setSelectedAdReuse(null);
     },
     [replaceParams],
   );
+  const handleClearAllFilters = useCallback(() => {
+    replaceParams((nextParams) => {
+      nextParams.delete("brand");
+      nextParams.delete("brands");
+      nextParams.delete("platform");
+      nextParams.delete("from");
+      nextParams.delete("to");
+      nextParams.delete("states");
+      nextParams.delete("grades");
+      nextParams.delete("adGrades");
+      nextParams.delete("campaignStatuses");
+      nextParams.delete("adStatuses");
+    });
+    setSelectedCampaignIds([]);
+    setSelectedAdIds([]);
+    setSelectedRecommendations([]);
+    setSelectedAdRecommendations([]);
+    setSelectedAdReuse(null);
+  }, [replaceParams]);
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    const currentDefaultRange = getCurrentMonthDateRange();
+
+    if (!isSameDateRange(dateRange, currentDefaultRange)) {
+      chips.push({
+        group: "Date",
+        id: "date-range",
+        label: formatDateRangeChip(dateRange),
+        onRemove: () => handleDateRangeChange({ from: null, to: null }),
+      });
+    }
+
+    for (const platform of selectedPlatformIds) {
+      chips.push({
+        group: "Platform",
+        id: `platform:${platform}`,
+        label: getOptionLabel(platformOptions, platform),
+        onRemove: () => handlePlatformChange([]),
+      });
+    }
+
+    for (const brand of selectedBrands) {
+      chips.push({
+        group: "Brand",
+        id: `brand:${brand}`,
+        label: brand,
+        onRemove: () =>
+          handleBrandChange(selectedBrands.filter((value) => value !== brand)),
+      });
+    }
+
+    appendSelectionChips({
+      chips,
+      group: "Campaign",
+      onChange: setSelectedCampaignIds,
+      options: campaignOptions,
+      selectedIds: selectedCampaignIds,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Ad",
+      onChange: setSelectedAdIds,
+      options: adOptions,
+      selectedIds: selectedAdIds,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Campaign grade",
+      onChange: handleGradesChange,
+      options: gradeOptions,
+      selectedIds: selectedGrades,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Ad grade",
+      onChange: handleAdGradesChange,
+      options: gradeOptions,
+      selectedIds: selectedAdGrades,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Campaign recommendation",
+      onChange: (values) =>
+        setSelectedRecommendations(values as CampaignHealthRecommendation[]),
+      options: recommendationOptions,
+      selectedIds: selectedRecommendations,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Ad recommendation",
+      onChange: (values) =>
+        setSelectedAdRecommendations(
+          values as CampaignHealthRecommendation[],
+        ),
+      options: recommendationOptions,
+      selectedIds: selectedAdRecommendations,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Campaign status",
+      onChange: handleCampaignMetaStatusesChange,
+      options: metaStatusOptions,
+      selectedIds: selectedCampaignMetaStatuses,
+    });
+    appendSelectionChips({
+      chips,
+      group: "Ad status",
+      onChange: handleAdMetaStatusesChange,
+      options: metaStatusOptions,
+      selectedIds: selectedAdMetaStatuses,
+    });
+    appendSelectionChips({
+      chips,
+      group: "State",
+      onChange: handleStatesChange,
+      options: stateOptions,
+      selectedIds: selectedStates,
+    });
+
+    return chips;
+  }, [
+    adOptions,
+    campaignOptions,
+    dateRange,
+    gradeOptions,
+    handleAdGradesChange,
+    handleAdMetaStatusesChange,
+    handleBrandChange,
+    handleCampaignMetaStatusesChange,
+    handleDateRangeChange,
+    handleGradesChange,
+    handlePlatformChange,
+    handleStatesChange,
+    metaStatusOptions,
+    platformOptions,
+    recommendationOptions,
+    selectedAdGrades,
+    selectedAdIds,
+    selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedBrands,
+    selectedCampaignIds,
+    selectedCampaignMetaStatuses,
+    selectedGrades,
+    selectedPlatformIds,
+    selectedRecommendations,
+    selectedStates,
+    stateOptions,
+  ]);
   useEffect(() => {
     pruneSelection(
       selectedCampaignIds,
@@ -505,6 +766,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       ALL_RECOMMENDATIONS.map((option) => option.id),
       (values) =>
         setSelectedRecommendations(values as CampaignHealthRecommendation[]),
+    );
+    pruneSelection(
+      selectedAdRecommendations,
+      ALL_RECOMMENDATIONS.map((option) => option.id),
+      (values) =>
+        setSelectedAdRecommendations(
+          values as CampaignHealthRecommendation[],
+        ),
     );
     pruneSelection(
       selectedCampaignMetaStatuses,
@@ -542,6 +811,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     selectedAdIds,
     selectedAdGrades,
     selectedAdMetaStatuses,
+    selectedAdRecommendations,
     selectedCampaignIds,
     selectedCampaignMetaStatuses,
     selectedGrades,
@@ -597,6 +867,42 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       );
     },
     [handleGradesChange, selectedGrades],
+  );
+  const handleSummaryAdGradeToggle = useCallback(
+    (grade: CampaignHealthGrade) => {
+      handleAdGradesChange(
+        selectedAdGrades.includes(grade)
+          ? selectedAdGrades.filter((currentGrade) => currentGrade !== grade)
+          : [...selectedAdGrades, grade],
+      );
+    },
+    [handleAdGradesChange, selectedAdGrades],
+  );
+  const handleSummaryRecommendationToggle = useCallback(
+    (recommendation: CampaignHealthRecommendation) => {
+      setSelectedRecommendations(
+        selectedRecommendations.includes(recommendation)
+          ? selectedRecommendations.filter(
+              (currentRecommendation) =>
+                currentRecommendation !== recommendation,
+            )
+          : [...selectedRecommendations, recommendation],
+      );
+    },
+    [selectedRecommendations],
+  );
+  const handleSummaryAdRecommendationToggle = useCallback(
+    (recommendation: CampaignHealthRecommendation) => {
+      setSelectedAdRecommendations(
+        selectedAdRecommendations.includes(recommendation)
+          ? selectedAdRecommendations.filter(
+              (currentRecommendation) =>
+                currentRecommendation !== recommendation,
+            )
+          : [...selectedAdRecommendations, recommendation],
+      );
+    },
+    [selectedAdRecommendations],
   );
   const handleOpenAdReuse = useCallback(
     (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => {
@@ -708,24 +1014,44 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 withSearch={false}
               />
             </div>
-            <MultiSelectFilter
-              disabled={dependentFiltersDisabled}
-              label="Recommendation"
-              loading={isRefreshingHealth}
-              onChange={(values) =>
-                setSelectedRecommendations(
-                  values as CampaignHealthRecommendation[],
-                )
-              }
-              options={recommendationOptions}
-              selectedIds={selectedRecommendations}
-              summary={summarizeSelection(
-                selectedRecommendations,
-                "All recommendations",
-                "recommendations selected",
-              )}
-              withSearch={false}
-            />
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Campaign recommendations"
+                loading={isRefreshingHealth}
+                onChange={(values) =>
+                  setSelectedRecommendations(
+                    values as CampaignHealthRecommendation[],
+                  )
+                }
+                options={recommendationOptions}
+                selectedIds={selectedRecommendations}
+                summary={summarizeSelection(
+                  selectedRecommendations,
+                  "All campaign recommendations",
+                  "campaign recommendations selected",
+                )}
+                withSearch={false}
+              />
+              <MultiSelectFilter
+                disabled={dependentFiltersDisabled}
+                label="Ad recommendations"
+                loading={isRefreshingHealth}
+                onChange={(values) =>
+                  setSelectedAdRecommendations(
+                    values as CampaignHealthRecommendation[],
+                  )
+                }
+                options={recommendationOptions}
+                selectedIds={selectedAdRecommendations}
+                summary={summarizeSelection(
+                  selectedAdRecommendations,
+                  "All ad recommendations",
+                  "ad recommendations selected",
+                )}
+                withSearch={false}
+              />
+            </div>
             <div className="grid min-w-0 grid-cols-2 gap-2">
               <MultiSelectFilter
                 disabled={dependentFiltersDisabled}
@@ -776,6 +1102,11 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
               onDateRangeChange={handleDateRangeChange}
             />
           </div>
+          <ActiveFiltersBar
+            chips={activeFilterChips}
+            disabled={isLoading && !data}
+            onClearAll={handleClearAllFilters}
+          />
         </section>
 
         {isLoading && !data ? (
@@ -787,12 +1118,31 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
             {isRefreshingHealth ? <HealthRefreshNotice /> : null}
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
               <HealthSummary
+                adGradeCountRows={rowsBeforeAdGradeFilter}
+                adRecommendationCountRows={rowsBeforeAdRecommendationFilter}
+                campaignRecommendationCountRows={
+                  rowsBeforeRecommendationFilter
+                }
                 disabled={dependentFiltersDisabled}
                 gradeCountRows={rowsBeforeGradeFilter}
+                onClearAdGrades={() => handleAdGradesChange([])}
+                onClearAdRecommendations={() =>
+                  setSelectedAdRecommendations([])
+                }
                 onClearGrades={() => handleGradesChange([])}
+                onClearRecommendations={() => setSelectedRecommendations([])}
+                onToggleAdRecommendation={handleSummaryAdRecommendationToggle}
+                onToggleAdGrade={handleSummaryAdGradeToggle}
                 onToggleGrade={handleSummaryGradeToggle}
+                onToggleRecommendation={handleSummaryRecommendationToggle}
                 rows={filteredRows}
+                selectedAdGrades={selectedAdGrades}
+                selectedAdIds={selectedAdIds}
+                selectedAdMetaStatuses={selectedAdMetaStatuses}
+                selectedAdRecommendations={selectedAdRecommendations}
                 selectedGrades={selectedGrades}
+                selectedRecommendations={selectedRecommendations}
+                selectedStates={selectedStates}
                 totalRows={rowsBeforeGradeFilter.length}
               />
             </RefreshingRegion>
@@ -811,6 +1161,8 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
+                selectedAdRecommendations={selectedAdRecommendations}
+                selectedStates={selectedStates}
                 slackMessageApiUrl={slackMessageApiUrl}
               />
             </RefreshingRegion>
@@ -830,6 +1182,69 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function ActiveFiltersBar({
+  chips,
+  disabled,
+  onClearAll,
+}: {
+  chips: ActiveFilterChip[];
+  disabled: boolean;
+  onClearAll: () => void;
+}) {
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="text-sm font-semibold text-slate-800">
+            Active filters
+          </h2>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+            {chips.length}
+          </span>
+        </div>
+        <button
+          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={disabled || chips.length === 0}
+          onClick={onClearAll}
+          type="button"
+        >
+          Clear all
+        </button>
+      </div>
+      {chips.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {chips.map((chip) => (
+            <span
+              className="inline-flex max-w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-700"
+              key={chip.id}
+            >
+              <span className="shrink-0 border-r border-slate-200 bg-white/70 px-2 py-1 uppercase tracking-wide text-slate-500">
+                {chip.group}
+              </span>
+              <span className="min-w-0 truncate px-2 py-1" title={chip.label}>
+                {chip.label}
+              </span>
+              <button
+                aria-label={`Remove ${chip.group} filter ${chip.label}`}
+                className="shrink-0 border-l border-slate-200 px-2 py-1 text-slate-500 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={disabled}
+                onClick={chip.onRemove}
+                type="button"
+              >
+                x
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm font-medium text-slate-500">
+          No active filters
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -938,49 +1353,257 @@ function MultiSelectFilter({
 }
 
 function HealthSummary({
+  adGradeCountRows,
+  adRecommendationCountRows,
+  campaignRecommendationCountRows,
   disabled,
   gradeCountRows,
+  onClearAdGrades,
+  onClearAdRecommendations,
   onClearGrades,
+  onClearRecommendations,
+  onToggleAdGrade,
+  onToggleAdRecommendation,
   onToggleGrade,
+  onToggleRecommendation,
   rows,
+  selectedAdGrades,
+  selectedAdIds,
+  selectedAdMetaStatuses,
+  selectedAdRecommendations,
   selectedGrades,
+  selectedRecommendations,
+  selectedStates,
   totalRows,
 }: {
+  adGradeCountRows: CampaignHealthRow[];
+  adRecommendationCountRows: CampaignHealthRow[];
+  campaignRecommendationCountRows: CampaignHealthRow[];
   disabled: boolean;
   gradeCountRows: CampaignHealthRow[];
+  onClearAdGrades: () => void;
+  onClearAdRecommendations: () => void;
   onClearGrades: () => void;
+  onClearRecommendations: () => void;
+  onToggleAdGrade: (grade: CampaignHealthGrade) => void;
+  onToggleAdRecommendation: (
+    recommendation: CampaignHealthRecommendation,
+  ) => void;
   onToggleGrade: (grade: CampaignHealthGrade) => void;
+  onToggleRecommendation: (
+    recommendation: CampaignHealthRecommendation,
+  ) => void;
   rows: CampaignHealthRow[];
+  selectedAdGrades: CampaignHealthGrade[];
+  selectedAdIds: string[];
+  selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedAdRecommendations: CampaignHealthRecommendation[];
   selectedGrades: CampaignHealthGrade[];
+  selectedRecommendations: CampaignHealthRecommendation[];
+  selectedStates: string[];
   totalRows: number;
 }) {
   const counts = countGrades(gradeCountRows);
+  const adCounts = countAdGrades(adGradeCountRows, {
+    selectedAdIds,
+    selectedAdGrades: [],
+    selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedStates,
+  });
+  const recommendationCounts = countRecommendations(
+    campaignRecommendationCountRows,
+  );
+  const adRecommendationCounts = countAdRecommendations(
+    adRecommendationCountRows,
+    {
+      selectedAdIds,
+      selectedAdGrades,
+      selectedAdMetaStatuses,
+      selectedAdRecommendations: [],
+      selectedStates,
+    },
+  );
+  const visibleAdCount = countMatchingAds(rows, {
+    selectedAdIds,
+    selectedAdGrades,
+    selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedStates,
+  });
+  const totalAdCount = countMatchingAds(adGradeCountRows, {
+    selectedAdIds,
+    selectedAdGrades: [],
+    selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedStates,
+  });
+  const visibleAdRecommendationCount = countMatchingAds(rows, {
+    selectedAdIds,
+    selectedAdGrades,
+    selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedStates,
+  });
+  const totalAdRecommendationCount = countMatchingAds(
+    adRecommendationCountRows,
+    {
+      selectedAdIds,
+      selectedAdGrades,
+      selectedAdMetaStatuses,
+      selectedAdRecommendations: [],
+      selectedStates,
+    },
+  );
   const selectedGradeSet = new Set(selectedGrades);
+  const selectedAdGradeSet = new Set(selectedAdGrades);
+  const selectedRecommendationSet = new Set(selectedRecommendations);
+  const selectedAdRecommendationSet = new Set(selectedAdRecommendations);
 
   return (
-    <section className="grid gap-3 md:grid-cols-6">
-      <SummaryTile
-        active={selectedGrades.length === 0}
+    <section className="space-y-3">
+      <SummaryGradeRow
+        counts={counts}
         disabled={disabled}
-        label="Visible"
-        onClick={onClearGrades}
-        value={`${rows.length}/${totalRows}`}
+        onClearGrades={onClearGrades}
+        onToggleGrade={onToggleGrade}
+        selectedGradeSet={selectedGradeSet}
+        title="Campaign grades"
+        visibleIsActive={selectedGrades.length === 0}
+        visibleValue={`${rows.length}/${totalRows}`}
       />
-      {ALL_GRADES.map((grade) => (
-        <SummaryTile
-          active={selectedGradeSet.has(grade)}
-          disabled={
-            disabled ||
-            ((counts[grade] ?? 0) === 0 && !selectedGradeSet.has(grade))
-          }
-          grade={grade}
-          key={grade}
-          label={grade}
-          onClick={() => onToggleGrade(grade)}
-          value={String(counts[grade] ?? 0)}
-        />
-      ))}
+      <SummaryGradeRow
+        counts={adCounts}
+        disabled={disabled}
+        onClearGrades={onClearAdGrades}
+        onToggleGrade={onToggleAdGrade}
+        selectedGradeSet={selectedAdGradeSet}
+        title="Ad grades"
+        visibleIsActive={selectedAdGrades.length === 0}
+        visibleValue={`${visibleAdCount}/${totalAdCount}`}
+      />
+      <SummaryRecommendationRow
+        counts={recommendationCounts}
+        disabled={disabled}
+        onClearRecommendations={onClearRecommendations}
+        onToggleRecommendation={onToggleRecommendation}
+        selectedRecommendationSet={selectedRecommendationSet}
+        title="Campaign recommendations"
+        visibleIsActive={selectedRecommendations.length === 0}
+        visibleValue={`${rows.length}/${campaignRecommendationCountRows.length}`}
+      />
+      <SummaryRecommendationRow
+        counts={adRecommendationCounts}
+        disabled={disabled}
+        onClearRecommendations={onClearAdRecommendations}
+        onToggleRecommendation={onToggleAdRecommendation}
+        selectedRecommendationSet={selectedAdRecommendationSet}
+        title="Ad recommendations"
+        visibleIsActive={selectedAdRecommendations.length === 0}
+        visibleValue={`${visibleAdRecommendationCount}/${totalAdRecommendationCount}`}
+      />
     </section>
+  );
+}
+
+function SummaryGradeRow({
+  counts,
+  disabled,
+  onClearGrades,
+  onToggleGrade,
+  selectedGradeSet,
+  title,
+  visibleIsActive,
+  visibleValue,
+}: {
+  counts: Partial<Record<CampaignHealthGrade, number>>;
+  disabled: boolean;
+  onClearGrades: () => void;
+  onToggleGrade: (grade: CampaignHealthGrade) => void;
+  selectedGradeSet: Set<CampaignHealthGrade>;
+  title: string;
+  visibleIsActive: boolean;
+  visibleValue: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+      <div className="grid gap-3 md:grid-cols-6">
+        <SummaryTile
+          active={visibleIsActive}
+          disabled={disabled}
+          label="Visible"
+          onClick={onClearGrades}
+          value={visibleValue}
+        />
+        {ALL_GRADES.map((grade) => (
+          <SummaryTile
+            active={selectedGradeSet.has(grade)}
+            disabled={
+              disabled ||
+              ((counts[grade] ?? 0) === 0 && !selectedGradeSet.has(grade))
+            }
+            grade={grade}
+            key={grade}
+            label={grade}
+            onClick={() => onToggleGrade(grade)}
+            value={String(counts[grade] ?? 0)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SummaryRecommendationRow({
+  counts,
+  disabled,
+  onClearRecommendations,
+  onToggleRecommendation,
+  selectedRecommendationSet,
+  title,
+  visibleIsActive,
+  visibleValue,
+}: {
+  counts: Partial<Record<CampaignHealthRecommendation, number>>;
+  disabled: boolean;
+  onClearRecommendations: () => void;
+  onToggleRecommendation: (
+    recommendation: CampaignHealthRecommendation,
+  ) => void;
+  selectedRecommendationSet: Set<CampaignHealthRecommendation>;
+  title: string;
+  visibleIsActive: boolean;
+  visibleValue: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+      <div className="grid gap-3 md:grid-cols-5">
+        <SummaryTile
+          active={visibleIsActive}
+          disabled={disabled}
+          label="Visible"
+          onClick={onClearRecommendations}
+          value={visibleValue}
+        />
+        {ALL_RECOMMENDATIONS.map((recommendation) => (
+          <SummaryTile
+            active={selectedRecommendationSet.has(recommendation.id)}
+            disabled={
+              disabled ||
+              ((counts[recommendation.id] ?? 0) === 0 &&
+                !selectedRecommendationSet.has(recommendation.id))
+            }
+            key={recommendation.id}
+            label={recommendation.label}
+            onClick={() => onToggleRecommendation(recommendation.id)}
+            recommendation={recommendation.id}
+            value={String(counts[recommendation.id] ?? 0)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1018,17 +1641,23 @@ function SummaryTile({
   grade,
   label,
   onClick,
+  recommendation,
   value,
 }: {
   active?: boolean;
   disabled?: boolean;
   grade?: CampaignHealthGrade;
-  label: string;
+  label: ReactNode;
   onClick?: () => void;
+  recommendation?: CampaignHealthRecommendation;
   value: string;
 }) {
   const isInteractive = Boolean(onClick);
-  const colorClasses = grade ? gradeClasses[grade] : null;
+  const colorClasses = grade
+    ? gradeClasses[grade]
+    : recommendation
+      ? recommendationClasses[recommendation]
+      : null;
   const buttonClasses = colorClasses
     ? `${colorClasses} ${
         active
@@ -1054,14 +1683,14 @@ function SummaryTile({
     >
       <p
         className={`text-xs font-semibold uppercase tracking-wide ${
-          grade ? "text-current opacity-80" : "text-slate-500"
+          grade || recommendation ? "text-current opacity-80" : "text-slate-500"
         }`}
       >
         {label}
       </p>
       <p
         className={`mt-1 text-2xl font-bold ${
-          grade ? "text-current" : "text-slate-950"
+          grade || recommendation ? "text-current" : "text-slate-950"
         }`}
       >
         {value}
@@ -1084,6 +1713,8 @@ function HealthTable({
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  selectedAdRecommendations,
+  selectedStates,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
@@ -1099,6 +1730,8 @@ function HealthTable({
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedAdRecommendations: CampaignHealthRecommendation[];
+  selectedStates: string[];
   slackMessageApiUrl?: string;
 }) {
   const expandedSet = new Set(expandedRows);
@@ -1106,6 +1739,8 @@ function HealthTable({
   const selectedAdSet = new Set(selectedAdIds);
   const selectedAdGradeSet = new Set(selectedAdGrades);
   const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
+  const selectedAdRecommendationSet = new Set(selectedAdRecommendations);
+  const selectedStateSet = new Set(selectedStates);
   const [sorting, setSorting] = useState<SortingState>([]);
   const columns = useMemo<ColumnDef<CampaignHealthRow>[]>(
     () => [
@@ -1227,7 +1862,7 @@ function HealthTable({
       },
       {
         accessorKey: "droppedLeads",
-        header: "Dropped",
+        header: "Drop",
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
       },
@@ -1352,7 +1987,9 @@ function HealthTable({
                 const hasAdScopedFilter =
                   selectedAdSet.size > 0 ||
                   selectedAdGradeSet.size > 0 ||
-                  selectedAdMetaStatusSet.size > 0;
+                  selectedAdMetaStatusSet.size > 0 ||
+                  selectedAdRecommendationSet.size > 0 ||
+                  selectedStateSet.size > 0;
                 const autoExpanded =
                   hasAdScopedFilter &&
                   row.ads.some(
@@ -1364,7 +2001,12 @@ function HealthTable({
                         ad,
                         selectedAdMetaStatusSet,
                         row.platform ?? "meta",
-                      ),
+                      ) &&
+                      adMatchesSelectedRecommendation(
+                        ad,
+                        selectedAdRecommendationSet,
+                      ) &&
+                      adMatchesSelectedStates(ad, selectedStateSet),
                   );
                 const isAutoExpanded =
                   autoExpanded && !collapsedSet.has(row.id);
@@ -1387,6 +2029,8 @@ function HealthTable({
                     selectedAdIds={selectedAdIds}
                     selectedAdGrades={selectedAdGrades}
                     selectedAdMetaStatuses={selectedAdMetaStatuses}
+                    selectedAdRecommendations={selectedAdRecommendations}
+                    selectedStates={selectedStates}
                     slackMessageApiUrl={slackMessageApiUrl}
                   />
                 );
@@ -1423,6 +2067,8 @@ function HealthTableRow({
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  selectedAdRecommendations,
+  selectedStates,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
@@ -1439,6 +2085,8 @@ function HealthTableRow({
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedAdRecommendations: CampaignHealthRecommendation[];
+  selectedStates: string[];
   slackMessageApiUrl?: string;
 }) {
   const activePeriod = formatActivePeriod(row);
@@ -1578,6 +2226,8 @@ function HealthTableRow({
                 selectedAdIds={selectedAdIds}
                 selectedAdGrades={selectedAdGrades}
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
+                selectedAdRecommendations={selectedAdRecommendations}
+                selectedStates={selectedStates}
                 slackMessageApiUrl={slackMessageApiUrl}
               />
             </div>
@@ -1650,6 +2300,8 @@ function AdDetailTable({
   selectedAdIds,
   selectedAdGrades,
   selectedAdMetaStatuses,
+  selectedAdRecommendations,
+  selectedStates,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
@@ -1661,12 +2313,16 @@ function AdDetailTable({
   selectedAdIds: string[];
   selectedAdGrades: CampaignHealthGrade[];
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+  selectedAdRecommendations: CampaignHealthRecommendation[];
+  selectedStates: string[];
   slackMessageApiUrl?: string;
 }) {
   const visibleAds = useMemo(() => {
     const selectedAdIdSet = new Set(selectedAdIds);
     const selectedAdGradeSet = new Set(selectedAdGrades);
     const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
+    const selectedAdRecommendationSet = new Set(selectedAdRecommendations);
+    const selectedStateSet = new Set(selectedStates);
 
     return ads.filter((ad) => {
       if (
@@ -1690,6 +2346,14 @@ function AdDetailTable({
         return false;
       }
 
+      if (!adMatchesSelectedRecommendation(ad, selectedAdRecommendationSet)) {
+        return false;
+      }
+
+      if (!adMatchesSelectedStates(ad, selectedStateSet)) {
+        return false;
+      }
+
       return true;
     });
   }, [
@@ -1698,6 +2362,8 @@ function AdDetailTable({
     selectedAdIds,
     selectedAdGrades,
     selectedAdMetaStatuses,
+    selectedAdRecommendations,
+    selectedStates,
   ]);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedSlackAd, setSelectedSlackAd] =
@@ -1705,10 +2371,7 @@ function AdDetailTable({
   const isTikTokCampaign = campaign.platform === "tiktok";
   const showAdGroupColumn = isTikTokCampaign;
   const showAdStatusColumn = !isTikTokCampaign;
-  const campaignPlatform = campaign.platform ?? "meta";
-  const showSlackColumn = visibleAds.some((ad) =>
-    isSlackEligibleAd(ad, campaignPlatform),
-  );
+  const showSlackColumn = visibleAds.length > 0;
   const columns = useMemo<ColumnDef<CampaignHealthAdRow>[]>(
     () => {
       const nextColumns: ColumnDef<CampaignHealthAdRow>[] = [
@@ -1721,6 +2384,12 @@ function AdDetailTable({
           header: "Grade",
           sortDescFirst: true,
           sortingFn: adGradeSortingFn,
+        },
+        {
+          accessorKey: "recommendation",
+          header: "Recommendation",
+          sortDescFirst: true,
+          sortingFn: adRecommendationSortingFn,
         },
       ];
 
@@ -1826,6 +2495,12 @@ function AdDetailTable({
           sortDescFirst: true,
           sortingFn: nullableAdNumberSortingFn,
         },
+        {
+          accessorKey: "droppedLeads",
+          header: "Drop",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
       );
 
       if (showSlackColumn) {
@@ -1857,83 +2532,93 @@ function AdDetailTable({
       <table className="w-full table-fixed text-xs">
         {showSlackColumn ? (
           <colgroup>
-            <col className="w-[16%]" />
+            <col className="w-[8.5%]" />
             <col className="w-[3.8%]" />
-            <col className="w-[5%]" />
-            <col className="w-[7%]" />
+            <col className="w-[6.5%]" />
+            <col className="w-[4.8%]" />
+            <col className="w-[6.3%]" />
             <col className="w-[3.6%]" />
             <col className="w-[5%]" />
             <col className="w-[3.8%]" />
             <col className="w-[3.4%]" />
             <col className="w-[4.3%]" />
-            <col className="w-[5.5%]" />
+            <col className="w-[5%]" />
             <col className="w-[4.8%]" />
             <col className="w-[4.3%]" />
-            <col className="w-[5.2%]" />
-            <col className="w-[5.5%]" />
+            <col className="w-[5%]" />
+            <col className="w-[5.3%]" />
             <col className="w-[4.8%]" />
             <col className="w-[4.8%]" />
             <col className="w-[4.8%]" />
-            <col className="w-[5.7%]" />
+            <col className="w-[5.4%]" />
+            <col className="w-[5.3%]" />
           </colgroup>
         ) : (
           <colgroup>
-            <col className="w-[15%]" />
+            <col className="w-[8.5%]" />
             <col className="w-[4.3%]" />
+            <col className="w-[6.5%]" />
             <col className="w-[5.5%]" />
-            <col className="w-[7.5%]" />
+            <col className="w-[6%]" />
             <col className="w-[3.8%]" />
-            <col className="w-[5.5%]" />
+            <col className="w-[5%]" />
             <col className="w-[4.2%]" />
             <col className="w-[3.8%]" />
             <col className="w-[4.8%]" />
-            <col className="w-[6%]" />
+            <col className="w-[5.2%]" />
             <col className="w-[5.2%]" />
             <col className="w-[4.8%]" />
-            <col className="w-[6%]" />
-            <col className="w-[5.2%]" />
-            <col className="w-[5.5%]" />
             <col className="w-[5.2%]" />
             <col className="w-[5.2%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[5.2%]" />
+            <col className="w-[5%]" />
+            <col className="w-[5.8%]" />
           </colgroup>
         )}
         <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th
-                  className={getAdHeaderClassName(header.column.id)}
-                  key={header.id}
-                >
-                  {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                    <button
-                      className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
-                        header.column.id,
-                      )}`}
-                      onClick={header.column.getToggleSortingHandler()}
-                      type="button"
-                    >
-                      <span className="min-w-0 whitespace-normal break-words leading-tight">
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className="shrink-0 text-[0.65rem] text-slate-400"
+              {headerGroup.headers.map((header) => {
+                const headerTitle = getAdHeaderTitle(header.column.id);
+
+                return (
+                  <th
+                    className={getAdHeaderClassName(header.column.id)}
+                    key={header.id}
+                    title={headerTitle}
+                  >
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <button
+                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
+                          header.column.id,
+                        )}`}
+                        onClick={header.column.getToggleSortingHandler()}
+                        title={headerTitle}
+                        type="button"
                       >
-                        {formatSortIndicator(header.column.getIsSorted())}
-                      </span>
-                    </button>
-                  ) : (
-                    flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
-                    )
-                  )}
-                </th>
-              ))}
+                        <span className="min-w-0 whitespace-normal break-words leading-tight">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-[0.65rem] text-slate-400"
+                        >
+                          {formatSortIndicator(header.column.getIsSorted())}
+                        </span>
+                      </button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           ))}
         </thead>
@@ -1976,6 +2661,12 @@ function AdDetailTable({
                   </td>
                   <td className="px-2 py-2" title={formatAdGradeTitle(ad)}>
                     <GradeChip grade={ad.grade} />
+                  </td>
+                  <td className="break-words px-2 py-2">
+                    <RecommendationChip
+                      compact
+                      recommendation={ad.recommendation}
+                    />
                   </td>
                   {showAdGroupColumn ? (
                     <td className="px-2 py-2">
@@ -2044,19 +2735,18 @@ function AdDetailTable({
                       variant="percentage"
                     />
                   </td>
+                  <td className="px-2 py-2 text-right">
+                    {formatNumber(ad.droppedLeads)}
+                  </td>
                   {showSlackColumn ? (
                     <td className="px-2 py-2 text-center align-middle">
-                      {isSlackEligibleAd(ad, campaignPlatform) ? (
-                        <button
-                          className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-                          onClick={() => setSelectedSlackAd(ad)}
-                          type="button"
-                        >
-                          Compose
-                        </button>
-                      ) : (
-                        <span className="text-sm text-slate-400">-</span>
-                      )}
+                      <button
+                        className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                        onClick={() => setSelectedSlackAd(ad)}
+                        type="button"
+                      >
+                        Compose
+                      </button>
                     </td>
                   ) : null}
                 </tr>
@@ -2106,6 +2796,9 @@ function AdSlackModal({
 }) {
   const platform = campaign.platform ?? "meta";
   const [message, setMessage] = useState("");
+  const [priority, setPriority] = useState<SlackPriorityLevel>(
+    getDefaultSlackPriority(ad),
+  );
   const [videoReference, setVideoReference] = useState(
     buildFallbackAdVideoReference(ad),
   );
@@ -2124,6 +2817,7 @@ function AdSlackModal({
     campaign,
     dateRange,
     platform,
+    priority,
   });
   const trimmedMessage = message.trim();
   const canSend =
@@ -2142,6 +2836,7 @@ function AdSlackModal({
   useEffect(() => {
     let isActive = true;
 
+    setPriority(getDefaultSlackPriority(ad));
     setVideoReference(buildFallbackAdVideoReference(ad));
 
     if (!adMediaApiUrl || !ad.adId?.trim()) {
@@ -2199,6 +2894,7 @@ function AdSlackModal({
         campaign,
         dateRange,
         message: trimmedMessage,
+        priority,
         videoReference,
       });
 
@@ -2253,15 +2949,38 @@ function AdSlackModal({
           <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-3">
             <AdSlackSummaryItem label="Grade" value={ad.grade} />
             <AdSlackSummaryItem
-              label="Video/reference"
+              label="Ad reference"
               value={isLoadingReference ? "Loading..." : videoReference}
             />
             <AdSlackSummaryItem
-              label="Trigger"
-              value="Good volume + red In-State CPSL"
+              label="Recommendation"
+              value={ad.recommendation}
             />
           </div>
           <div className="space-y-4 px-5 py-4">
+            <div className="max-w-xs">
+              <label
+                className="text-sm font-semibold text-slate-950"
+                htmlFor="ad-slack-priority"
+              >
+                Priority
+              </label>
+              <select
+                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                disabled={sendState.isSending}
+                id="ad-slack-priority"
+                onChange={(event) =>
+                  setPriority(event.target.value as SlackPriorityLevel)
+                }
+                value={priority}
+              >
+                {SLACK_PRIORITY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label
                 className="text-sm font-semibold text-slate-950"
@@ -2364,23 +3083,13 @@ function AdSlackSummaryItem({
   );
 }
 
-function isSlackEligibleAd(
-  ad: CampaignHealthAdRow,
-  platform: CampaignPlatform,
-): boolean {
-  return (
-    getAdDeliveryStatus(ad, platform).id === "on" &&
-    ad.metricHealth.volume.status === "green" &&
-    ad.metricHealth.cpsl.status === "red"
-  );
-}
-
 async function buildAdSlackPayload({
   ad,
   adMediaApiUrl,
   campaign,
   dateRange,
   message,
+  priority,
   videoReference,
 }: {
   ad: CampaignHealthAdRow;
@@ -2388,6 +3097,7 @@ async function buildAdSlackPayload({
   campaign: CampaignHealthRow;
   dateRange: DashboardDateRange;
   message: string;
+  priority: SlackPriorityLevel;
   videoReference?: string;
 }): Promise<SlackGradeMessageRequest> {
   const platform = campaign.platform ?? "meta";
@@ -2408,7 +3118,9 @@ async function buildAdSlackPayload({
       dateRange,
       message,
       platform,
+      priority,
     }),
+    priority,
     title: `Audit ad review: ${ad.adName || "Unnamed ad"}`,
     videoReference: resolvedVideoReference,
   };
@@ -2460,18 +3172,21 @@ function buildAdSlackContextMessage({
   dateRange,
   message,
   platform,
+  priority,
 }: {
   ad: CampaignHealthAdRow;
   campaign: CampaignHealthRow;
   dateRange: DashboardDateRange;
   message: string;
   platform: CampaignPlatform;
+  priority: SlackPriorityLevel;
 }): string {
   const contextRows = buildAdSlackContextRows({
     ad,
     campaign,
     dateRange,
     platform,
+    priority,
   });
 
   return [
@@ -2487,43 +3202,50 @@ function buildAdSlackContextRows({
   campaign,
   dateRange,
   platform,
+  priority,
 }: {
   ad: CampaignHealthAdRow;
   campaign: CampaignHealthRow;
   dateRange: DashboardDateRange;
   platform: CampaignPlatform;
+  priority: SlackPriorityLevel;
 }): Array<{ label: string; value: string }> {
   return [
+    { label: "Priority", value: priority },
     { label: "Brand", value: campaign.brand },
     { label: "Campaign", value: campaign.campaignName },
     { label: "Ad", value: ad.adName || "-" },
     { label: "Ad ID", value: ad.adId || "-" },
     { label: "Platform", value: platformLabel(platform) },
+    { label: "Recommendation", value: ad.recommendation },
+    { label: "Confidence", value: ad.confidence },
     {
-      label: "Volume",
-      value: formatAdMetricForSlack(ad.metricHealth.volume, "currency"),
+      label: "Delivery status",
+      value: getAdDeliveryStatus(ad, platform).label,
     },
     {
-      label: "In-State CPSL",
-      value: formatAdMetricForSlack(ad.metricHealth.cpsl, "currency"),
+      label: "Quality",
+      value: healthStatusLabels[ad.metricHealth.attribution.status],
     },
-    { label: "Spend", value: formatCurrency(ad.spend) },
+    {
+      label: "Int. Conv.",
+      value: healthStatusLabels[ad.metricHealth.intake.status],
+    },
     { label: "Leads", value: formatNumber(ad.leads) },
     { label: "Signed leads", value: formatNumber(ad.signedLeads) },
     { label: "Date range", value: `${dateRange.from} to ${dateRange.to}` },
   ];
 }
 
-function formatAdMetricForSlack(
-  metric: CampaignHealthMetric,
-  variant: "currency" | "percentage",
-): string {
-  const value =
-    variant === "currency"
-      ? formatCurrency(metric.value)
-      : formatPercentage(metric.value);
-
-  return `${healthStatusLabels[metric.status]} / ${value}`;
+function getDefaultSlackPriority(ad: CampaignHealthAdRow): SlackPriorityLevel {
+  switch (ad.recommendation) {
+    case "Shut off":
+      return "Urgent";
+    case "Review":
+      return "High";
+    default:
+      return "Normal";
+  }
 }
 
 function buildFallbackAdVideoReference(ad: CampaignHealthAdRow): string {
@@ -3619,15 +4341,22 @@ function ConfidenceChip({
 }
 
 function RecommendationChip({
+  compact = false,
   recommendation,
 }: {
+  compact?: boolean;
   recommendation: CampaignHealthRecommendation;
 }) {
+  const label = compact
+    ? compactRecommendationLabels[recommendation]
+    : recommendation;
+
   return (
     <span
-      className={`inline-flex max-w-full rounded-md border px-2.5 py-1 text-left text-xs font-semibold leading-tight ${recommendationClasses[recommendation]}`}
+      className={`inline-flex max-w-full whitespace-nowrap rounded-md border px-2.5 py-1 text-left text-xs font-semibold leading-tight ${recommendationClasses[recommendation]}`}
+      title={compact ? recommendation : undefined}
     >
-      {recommendation}
+      {label}
     </span>
   );
 }
@@ -3857,6 +4586,21 @@ const recommendationClasses: Record<CampaignHealthRecommendation, string> = {
   "Shut off": "border-rose-200 bg-rose-50 text-rose-800",
 };
 
+const compactRecommendationLabels: Record<
+  CampaignHealthRecommendation,
+  ReactNode
+> = {
+  Learning: "Learning",
+  "Replicate/Keep on": (
+    <span className="flex flex-col">
+      <span>Replicate/</span>
+      <span>Keep on</span>
+    </span>
+  ),
+  Review: "Review",
+  "Shut off": "Shut off",
+};
+
 const metaStatusClasses: Record<CampaignMetaDeliveryStatus, string> = {
   off: "border-slate-300 bg-slate-100 text-slate-700",
   on: "border-teal-200 bg-teal-50 text-teal-800",
@@ -3957,6 +4701,17 @@ const adGradeSortingFn: SortingFn<CampaignHealthAdRow> = (
     first.getValue<CampaignHealthGrade>(columnId),
     second.getValue<CampaignHealthGrade>(columnId),
     gradeSortRanks,
+  );
+
+const adRecommendationSortingFn: SortingFn<CampaignHealthAdRow> = (
+  first,
+  second,
+  columnId,
+) =>
+  compareRankedValues(
+    first.getValue<CampaignHealthRecommendation>(columnId),
+    second.getValue<CampaignHealthRecommendation>(columnId),
+    recommendationSortRanks,
   );
 
 const adMetaStatusSortingFn: SortingFn<CampaignHealthAdRow> = (
@@ -4148,12 +4903,49 @@ function getCampaignHeaderButtonClassName(columnId: string): string {
     : "";
 }
 
+function getAdHeaderTitle(columnId: string): string | undefined {
+  const titles: Record<string, string> = {
+    activeDays:
+      "Active days in the selected range; ads under the ramp-up window are treated separately.",
+    adId: "Ad platform ID for the individual ad.",
+    adName: "Ad name. Click it to inspect placements that reuse the same ad name.",
+    adsetStatus:
+      "Current ad set delivery status from the ad platform. Used for TikTok ad-row filtering.",
+    cpl: "Spend / Leads. Shows N/A when there are no leads.",
+    droppedLeads: "CRM leads dropped in the selected date range.",
+    grade:
+      "Overall ad grade based on In-State CPSL, volume, quality, and Int. Conv.",
+    inStateCpsl:
+      "Spend / In-State Signed Leads. Shows N/A when there are no in-state signed leads.",
+    inStateSignedLeads:
+      "Signed leads attributed to the ad inside the target state.",
+    intake: "Signed Leads / Leads.",
+    leads: "Total CRM leads attributed to the ad.",
+    meta: "Current ad delivery status from the ad platform.",
+    oosCpsl:
+      "Spend / Out-of-State Signed Leads. Shows N/A when there are no out-of-state signed leads.",
+    oosSignedLeads: "Signed leads attributed to the ad outside the target state.",
+    overallCpsl:
+      "Spend / all Signed Leads. Shows N/A when there are no signed leads.",
+    quality: "1 - (no-accident leads / total leads).",
+    recommendation:
+      "< 7 active spend days: Learning unless spend is at least $2,500. A/B: Replicate/Keep on. C/D: Review. F: Shut off once it has enough age.",
+    signedLeads: "Total signed leads attributed to the ad.",
+    slack: "Compose a Slack grade message for this ad.",
+    spend: "Total ad spend in the selected date range.",
+    volume: "Spend / Leads. Shows N/A when there are no leads.",
+  };
+
+  return titles[columnId];
+}
+
 function getAdHeaderClassName(columnId: string): string {
   const rightAligned = new Set([
     "activeDays",
     "spend",
     "leads",
     "signedLeads",
+    "droppedLeads",
     "cpl",
     "overallCpsl",
     "cpsl",
@@ -4177,6 +4969,7 @@ function getAdHeaderButtonClassName(columnId: string): string {
     "spend",
     "leads",
     "signedLeads",
+    "droppedLeads",
     "cpl",
     "overallCpsl",
     "cpsl",
@@ -4222,6 +5015,16 @@ function adMatchesSelectedGrade(
   return selectedAdGrades.size === 0 || selectedAdGrades.has(ad.grade);
 }
 
+function adMatchesSelectedRecommendation(
+  ad: CampaignHealthAdRow,
+  selectedAdRecommendations: Set<CampaignHealthRecommendation>,
+): boolean {
+  return (
+    selectedAdRecommendations.size === 0 ||
+    selectedAdRecommendations.has(ad.recommendation)
+  );
+}
+
 function adMatchesSelectedStates(
   ad: CampaignHealthAdRow,
   selectedStates: Set<string>,
@@ -4232,22 +5035,13 @@ function adMatchesSelectedStates(
   );
 }
 
-function rowMatchesSelectedStates(
-  row: CampaignHealthRow,
-  selectedStates: Set<string>,
-): boolean {
-  return (
-    selectedStates.size === 0 ||
-    row.states.some((state) => selectedStates.has(state))
-  );
-}
-
 function filterHealthRows(
   rows: CampaignHealthRow[],
   filters: {
     selectedAdIds: string[];
     selectedAdGrades: CampaignHealthGrade[];
     selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
+    selectedAdRecommendations: CampaignHealthRecommendation[];
     selectedCampaignIds: string[];
     selectedCampaignMetaStatuses: CampaignMetaDeliveryStatus[];
     selectedGrades: CampaignHealthGrade[];
@@ -4259,6 +5053,9 @@ function filterHealthRows(
   const selectedAdIds = new Set(filters.selectedAdIds);
   const selectedAdGrades = new Set(filters.selectedAdGrades);
   const selectedAdMetaStatuses = new Set(filters.selectedAdMetaStatuses);
+  const selectedAdRecommendations = new Set(
+    filters.selectedAdRecommendations,
+  );
   const selectedCampaignMetaStatuses = new Set(
     filters.selectedCampaignMetaStatuses,
   );
@@ -4274,7 +5071,9 @@ function filterHealthRows(
     const hasAdScopedFilter =
       selectedAdIds.size > 0 ||
       selectedAdGrades.size > 0 ||
-      selectedAdMetaStatuses.size > 0;
+      selectedAdMetaStatuses.size > 0 ||
+      selectedAdRecommendations.size > 0 ||
+      selectedStates.size > 0;
     let selectedRowAds = hasAdScopedFilter ? row.ads : [];
 
     if (selectedAdIds.size > 0) {
@@ -4299,6 +5098,18 @@ function filterHealthRows(
       );
     }
 
+    if (selectedAdRecommendations.size > 0) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        adMatchesSelectedRecommendation(ad, selectedAdRecommendations),
+      );
+    }
+
+    if (selectedStates.size > 0) {
+      selectedRowAds = selectedRowAds.filter((ad) =>
+        adMatchesSelectedStates(ad, selectedStates),
+      );
+    }
+
     if (hasAdScopedFilter && selectedRowAds.length === 0) {
       return false;
     }
@@ -4306,13 +5117,6 @@ function filterHealthRows(
     if (
       selectedCampaignMetaStatuses.size > 0 &&
       !selectedCampaignMetaStatuses.has(getRowMetaStatus(row).id)
-    ) {
-      return false;
-    }
-
-    if (
-      selectedStates.size > 0 &&
-      !rowMatchesSelectedStates(row, selectedStates)
     ) {
       return false;
     }
@@ -4902,6 +5706,129 @@ function countGrades(rows: CampaignHealthRow[]) {
     },
     {} as Partial<Record<CampaignHealthGrade, number>>,
   );
+}
+
+function countRecommendations(
+  rows: CampaignHealthRow[],
+): Partial<Record<CampaignHealthRecommendation, number>> {
+  return rows.reduce(
+    (counts, row) => {
+      counts[row.recommendation] = (counts[row.recommendation] ?? 0) + 1;
+
+      return counts;
+    },
+    {} as Partial<Record<CampaignHealthRecommendation, number>>,
+  );
+}
+
+function countAdGrades(
+  rows: CampaignHealthRow[],
+  filters: AdSummaryFilters,
+): Partial<Record<CampaignHealthGrade, number>> {
+  const counts: Partial<Record<CampaignHealthGrade, number>> = {};
+
+  for (const row of rows) {
+    for (const ad of getMatchingAds(row, filters)) {
+      counts[ad.grade] = (counts[ad.grade] ?? 0) + 1;
+    }
+  }
+
+  return counts;
+}
+
+function countAdRecommendations(
+  rows: CampaignHealthRow[],
+  filters: AdSummaryFilters,
+): Partial<Record<CampaignHealthRecommendation, number>> {
+  const counts: Partial<Record<CampaignHealthRecommendation, number>> = {};
+
+  for (const row of rows) {
+    for (const ad of getMatchingAds(row, filters)) {
+      counts[ad.recommendation] = (counts[ad.recommendation] ?? 0) + 1;
+    }
+  }
+
+  return counts;
+}
+
+function countMatchingAds(
+  rows: CampaignHealthRow[],
+  filters: AdSummaryFilters,
+): number {
+  return rows.reduce(
+    (count, row) => count + getMatchingAds(row, filters).length,
+    0,
+  );
+}
+
+function getMatchingAds(
+  row: CampaignHealthRow,
+  filters: AdSummaryFilters,
+): CampaignHealthAdRow[] {
+  const selectedAdIds = new Set(filters.selectedAdIds);
+  const selectedAdGrades = new Set(filters.selectedAdGrades);
+  const selectedAdMetaStatuses = new Set(filters.selectedAdMetaStatuses);
+  const selectedAdRecommendations = new Set(
+    filters.selectedAdRecommendations,
+  );
+  const selectedStates = new Set(filters.selectedStates);
+
+  return row.ads.filter(
+    (ad) =>
+      (selectedAdIds.size === 0 ||
+        selectedAdIds.has(toAdFilterId(row, ad))) &&
+      adMatchesSelectedGrade(ad, selectedAdGrades) &&
+      adMatchesSelectedMetaStatus(
+        ad,
+        selectedAdMetaStatuses,
+        row.platform ?? "meta",
+      ) &&
+      adMatchesSelectedRecommendation(ad, selectedAdRecommendations) &&
+      adMatchesSelectedStates(ad, selectedStates),
+  );
+}
+
+function appendSelectionChips({
+  chips,
+  group,
+  onChange,
+  options,
+  selectedIds,
+}: {
+  chips: ActiveFilterChip[];
+  group: string;
+  onChange: (ids: string[]) => void;
+  options: Array<{ id: string; label: string }>;
+  selectedIds: string[];
+}): void {
+  for (const selectedId of selectedIds) {
+    chips.push({
+      group,
+      id: `${group}:${selectedId}`,
+      label: getOptionLabel(options, selectedId),
+      onRemove: () =>
+        onChange(selectedIds.filter((currentId) => currentId !== selectedId)),
+    });
+  }
+}
+
+function getOptionLabel(
+  options: Array<{ id: string; label: string }>,
+  id: string,
+): string {
+  return options.find((option) => option.id === id)?.label ?? id;
+}
+
+function formatDateRangeChip(range: DashboardDateRange): string {
+  if (!range.from || !range.to) {
+    return "Default range";
+  }
+
+  if (range.from === range.to) {
+    return range.from;
+  }
+
+  return `${range.from} - ${range.to}`;
 }
 
 function summarizeBrands(selectedBrands: string[]): string {
