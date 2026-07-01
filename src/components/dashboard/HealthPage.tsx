@@ -143,6 +143,10 @@ const SLACK_PRIORITY_OPTIONS: SlackPriorityLevel[] = [
   "High",
   "Urgent",
 ];
+const CAMPAIGN_START_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeZone: "UTC",
+});
 
 interface ToggleExpandedRowOptions {
   autoExpanded?: boolean;
@@ -853,6 +857,47 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [],
   );
+  const openCampaignRows = useCallback((ids: string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+
+    const idsToOpen = new Set(ids);
+
+    setCollapsedRows((current) =>
+      current.filter((currentId) => !idsToOpen.has(currentId)),
+    );
+    setExpandedRows((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.add(id));
+
+      return Array.from(next);
+    });
+  }, []);
+  const collapseCampaignRows = useCallback(
+    (ids: string[], autoExpandedIds: string[]) => {
+      if (ids.length === 0) {
+        return;
+      }
+
+      const idsToCollapse = new Set(ids);
+
+      setExpandedRows((current) =>
+        current.filter((currentId) => !idsToCollapse.has(currentId)),
+      );
+      setCollapsedRows((current) => {
+        if (autoExpandedIds.length === 0) {
+          return current;
+        }
+
+        const next = new Set(current);
+        autoExpandedIds.forEach((id) => next.add(id));
+
+        return Array.from(next);
+      });
+    },
+    [],
+  );
   const lastUpdated = data?.generatedAt
     ? formatDashboardTimestamp(data.generatedAt)
     : undefined;
@@ -1154,7 +1199,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 dateRange={dateRange}
                 expandedRows={expandedRows}
                 isRefreshing={isRefreshingHealth}
+                onCollapseAllRows={collapseCampaignRows}
                 onOpenAdReuse={handleOpenAdReuse}
+                onOpenAllRows={openCampaignRows}
                 onToggleExpandedRow={toggleExpandedRow}
                 rampUpDays={data.thresholds.rampUp.minimumCampaignAgeDays}
                 rows={filteredRows}
@@ -1706,7 +1753,9 @@ function HealthTable({
   dateRange,
   expandedRows,
   isRefreshing,
+  onCollapseAllRows,
   onOpenAdReuse,
+  onOpenAllRows,
   onToggleExpandedRow,
   rampUpDays,
   rows,
@@ -1723,7 +1772,9 @@ function HealthTable({
   dateRange: DashboardDateRange;
   expandedRows: string[];
   isRefreshing: boolean;
+  onCollapseAllRows: (ids: string[], autoExpandedIds: string[]) => void;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
+  onOpenAllRows: (ids: string[]) => void;
   onToggleExpandedRow: (id: string, options?: ToggleExpandedRowOptions) => void;
   rampUpDays: number;
   rows: CampaignHealthRow[];
@@ -1875,7 +1926,7 @@ function HealthTable({
       },
       {
         accessorKey: "averageLeadActualAge",
-        header: "Actual Age",
+        header: "Age avg",
         id: "actualAge",
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
@@ -1898,13 +1949,86 @@ function HealthTable({
       sorting,
     },
   });
+  const tableRows = table.getRowModel().rows;
+  const hasAdScopedFilter =
+    selectedAdSet.size > 0 ||
+    selectedAdGradeSet.size > 0 ||
+    selectedAdMetaStatusSet.size > 0 ||
+    selectedAdRecommendationSet.size > 0 ||
+    selectedStateSet.size > 0;
+  const getRowExpansionState = (row: CampaignHealthRow) => {
+    const autoExpanded =
+      hasAdScopedFilter &&
+      row.ads.some(
+        (ad) =>
+          (selectedAdSet.size === 0 ||
+            selectedAdSet.has(toAdFilterId(row, ad))) &&
+          adMatchesSelectedGrade(ad, selectedAdGradeSet) &&
+          adMatchesSelectedMetaStatus(
+            ad,
+            selectedAdMetaStatusSet,
+            row.platform ?? "meta",
+          ) &&
+          adMatchesSelectedRecommendation(ad, selectedAdRecommendationSet) &&
+          adMatchesSelectedStates(ad, selectedStateSet),
+      );
+    const isAutoExpanded = autoExpanded && !collapsedSet.has(row.id);
+
+    return {
+      autoExpanded,
+      isExpanded: expandedSet.has(row.id) || isAutoExpanded,
+    };
+  };
+  const visibleCampaignExpansion = tableRows.map((tableRow) => {
+    const row = tableRow.original;
+    const { autoExpanded, isExpanded } = getRowExpansionState(row);
+
+    return {
+      autoExpanded,
+      id: row.id,
+      isExpanded,
+      row,
+    };
+  });
+  const visibleCampaignIds = visibleCampaignExpansion.map(({ id }) => id);
+  const visibleAutoExpandedCampaignIds = visibleCampaignExpansion
+    .filter(({ autoExpanded }) => autoExpanded)
+    .map(({ id }) => id);
+  const allVisibleRowsExpanded =
+    visibleCampaignExpansion.length > 0 &&
+    visibleCampaignExpansion.every(({ isExpanded }) => isExpanded);
+  const bulkExpansionLabel = allVisibleRowsExpanded
+    ? "Collapse all"
+    : "Open all";
+  const bulkExpansionTitle = allVisibleRowsExpanded
+    ? "Collapse all visible campaigns"
+    : "Open all visible campaigns";
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold text-slate-950">
-          Campaign audit
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-slate-950">
+            Campaign audit
+          </h2>
+          <button
+            aria-label={bulkExpansionTitle}
+            className="ml-auto inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isRefreshing || visibleCampaignIds.length === 0}
+            onClick={() =>
+              allVisibleRowsExpanded
+                ? onCollapseAllRows(
+                    visibleCampaignIds,
+                    visibleAutoExpandedCampaignIds,
+                  )
+                : onOpenAllRows(visibleCampaignIds)
+            }
+            title={bulkExpansionTitle}
+            type="button"
+          >
+            {bulkExpansionLabel}
+          </button>
+        </div>
       </div>
       <div className="max-w-full overflow-hidden">
         <table className="w-full table-fixed border-collapse text-left text-[0.8125rem]">
@@ -1981,38 +2105,9 @@ function HealthTable({
             ))}
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.length > 0 ? (
-              table.getRowModel().rows.map((tableRow) => {
-                const row = tableRow.original;
-                const hasAdScopedFilter =
-                  selectedAdSet.size > 0 ||
-                  selectedAdGradeSet.size > 0 ||
-                  selectedAdMetaStatusSet.size > 0 ||
-                  selectedAdRecommendationSet.size > 0 ||
-                  selectedStateSet.size > 0;
-                const autoExpanded =
-                  hasAdScopedFilter &&
-                  row.ads.some(
-                    (ad) =>
-                      (selectedAdSet.size === 0 ||
-                        selectedAdSet.has(toAdFilterId(row, ad))) &&
-                      adMatchesSelectedGrade(ad, selectedAdGradeSet) &&
-                      adMatchesSelectedMetaStatus(
-                        ad,
-                        selectedAdMetaStatusSet,
-                        row.platform ?? "meta",
-                      ) &&
-                      adMatchesSelectedRecommendation(
-                        ad,
-                        selectedAdRecommendationSet,
-                      ) &&
-                      adMatchesSelectedStates(ad, selectedStateSet),
-                  );
-                const isAutoExpanded =
-                  autoExpanded && !collapsedSet.has(row.id);
-                const isExpanded = expandedSet.has(row.id) || isAutoExpanded;
-
-                return (
+            {visibleCampaignExpansion.length > 0 ? (
+              visibleCampaignExpansion.map(
+                ({ autoExpanded, isExpanded, row }) => (
                   <HealthTableRow
                     adMediaApiUrl={adMediaApiUrl}
                     adNamePlacements={adNamePlacements}
@@ -2033,8 +2128,8 @@ function HealthTable({
                     selectedStates={selectedStates}
                     slackMessageApiUrl={slackMessageApiUrl}
                   />
-                );
-              })
+                ),
+              )
             ) : (
               <tr>
                 <td
@@ -3214,6 +3309,8 @@ function buildAdSlackContextRows({
     { label: "Priority", value: priority },
     { label: "Brand", value: campaign.brand },
     { label: "Campaign", value: campaign.campaignName },
+    { label: "Campaign started", value: formatCampaignStartDate(campaign) },
+    { label: "Days running", value: formatCampaignRunningDays(campaign) },
     { label: "Ad", value: ad.adName || "-" },
     { label: "Ad ID", value: ad.adId || "-" },
     { label: "Platform", value: platformLabel(platform) },
@@ -3235,6 +3332,42 @@ function buildAdSlackContextRows({
     { label: "Signed leads", value: formatNumber(ad.signedLeads) },
     { label: "Date range", value: `${dateRange.from} to ${dateRange.to}` },
   ];
+}
+
+function formatCampaignStartDate(campaign: CampaignHealthRow): string {
+  const startedAt = campaign.startedAt?.trim();
+
+  if (!startedAt) {
+    return "-";
+  }
+
+  const dateParts = startedAt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (dateParts) {
+    const [, year, month, day] = dateParts;
+
+    return CAMPAIGN_START_DATE_FORMATTER.format(
+      new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))),
+    );
+  }
+
+  const parsedDate = new Date(startedAt);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return startedAt;
+  }
+
+  return CAMPAIGN_START_DATE_FORMATTER.format(parsedDate);
+}
+
+function formatCampaignRunningDays(campaign: CampaignHealthRow): string {
+  const days = campaign.campaignAgeDays;
+
+  if (typeof days !== "number" || !Number.isFinite(days)) {
+    return "-";
+  }
+
+  return `${formatNumber(days)} ${days === 1 ? "day" : "days"}`;
 }
 
 function getDefaultSlackPriority(ad: CampaignHealthAdRow): SlackPriorityLevel {
@@ -4825,8 +4958,7 @@ function getCampaignHeaderTitle(columnId: string): string | undefined {
     campaignName: "Campaign name and platform campaign ID.",
     confidence:
       "Confidence in the audit result based on available data and campaign age.",
-    actualAge:
-      "Average lead age in years from CRM birth date when available.",
+    actualAge: "Average lead age in years from CRM birth date when available.",
     droppedLeads: "CRM leads dropped in the selected date range.",
     genders: "CRM gender mix for attributed leads in the selected date range.",
     grade:
