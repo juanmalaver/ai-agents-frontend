@@ -319,7 +319,11 @@ export function resolveDashboardBrandsApiUrl(
 
 export function appendDashboardQueryParams(
   url: string | undefined,
-  query?: Partial<DashboardQueryParams> | null,
+  query?:
+    | (Partial<DashboardQueryParams> & {
+        refresh?: boolean | number | string | null;
+      })
+    | null,
 ): string | undefined {
   if (!url) {
     return undefined;
@@ -339,6 +343,10 @@ export function appendDashboardQueryParams(
     params.set("to", normalizedTo);
   }
 
+  if (query?.refresh) {
+    params.set("refresh", "1");
+  }
+
   const queryString = params.toString();
 
   if (!queryString) {
@@ -348,6 +356,18 @@ export function appendDashboardQueryParams(
   const separator = url.includes("?") ? "&" : "?";
 
   return `${url}${separator}${queryString}`;
+}
+
+export function appendHardRefreshQueryParam(
+  url: string | undefined,
+): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  const separator = url.includes("?") ? "&" : "?";
+
+  return `${url}${separator}refresh=1`;
 }
 
 export function buildHealthPageUrl(

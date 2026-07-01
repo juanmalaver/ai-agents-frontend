@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useDashboardHardRefresh } from "@/src/components/dashboard/DashboardHardRefresh";
 import type {
   DashboardSectionCacheMetadata,
   DashboardSectionResponse,
 } from "@/src/types/dashboard";
+import { appendHardRefreshQueryParam } from "@/src/utils/runtimeApiUrls";
 
 interface UseDashboardSectionOptions<TResponse, TData> {
   errorMessage: string;
@@ -34,7 +36,11 @@ export function useDashboardSection<TResponse, TData = TResponse>({
   normalize,
   url,
 }: UseDashboardSectionOptions<TResponse, TData>): DashboardSectionState<TData> {
+  const { hardRefreshToken, trackHardRefresh } = useDashboardHardRefresh();
+  const observedHardRefreshTokenRef = useRef(hardRefreshToken);
+  const pendingHardRefreshTokenRef = useRef(0);
   const [reloadKey, setReloadKey] = useState(0);
+  const [hardRefreshReloadKey, setHardRefreshReloadKey] = useState(0);
   const [state, setState] = useState<DashboardSectionInternalState<TData>>({
     cache: null,
     data: null,
@@ -50,6 +56,20 @@ export function useDashboardSection<TResponse, TData = TResponse>({
   }, []);
 
   useEffect(() => {
+    if (
+      hardRefreshToken > 0 &&
+      hardRefreshToken !== observedHardRefreshTokenRef.current
+    ) {
+      pendingHardRefreshTokenRef.current = hardRefreshToken;
+      observedHardRefreshTokenRef.current = hardRefreshToken;
+      setHardRefreshReloadKey((current) => current + 1);
+      return;
+    }
+
+    observedHardRefreshTokenRef.current = hardRefreshToken;
+  }, [hardRefreshToken]);
+
+  useEffect(() => {
     if (!url) {
       setState((current) => ({
         ...current,
@@ -63,19 +83,29 @@ export function useDashboardSection<TResponse, TData = TResponse>({
 
     const controller = new AbortController();
     let staleRefreshTimer: number | null = null;
+    const forceRefreshToken = pendingHardRefreshTokenRef.current;
+    const requestUrl = forceRefreshToken
+      ? appendHardRefreshQueryParam(url)
+      : url;
+    const completeHardRefresh = forceRefreshToken
+      ? trackHardRefresh(forceRefreshToken)
+      : () => undefined;
+
+    pendingHardRefreshTokenRef.current = 0;
 
     setState((current) => ({
       ...current,
       error: null,
       isLoading: !current.data,
       isRefreshing:
-        Boolean(current.data) &&
-        (current.sourceUrl === url ? current.isRefreshing : true),
+        Boolean(forceRefreshToken) ||
+        (Boolean(current.data) &&
+          (current.sourceUrl === url ? current.isRefreshing : true)),
     }));
 
     async function loadSection() {
       try {
-        const apiResponse = await fetch(url as string, {
+        const apiResponse = await fetch(requestUrl as string, {
           cache: "no-store",
           credentials: "include",
           signal: controller.signal,
@@ -126,6 +156,8 @@ export function useDashboardSection<TResponse, TData = TResponse>({
           isLoading: false,
           isRefreshing: false,
         }));
+      } finally {
+        completeHardRefresh();
       }
     }
 
@@ -140,8 +172,10 @@ export function useDashboardSection<TResponse, TData = TResponse>({
     };
   }, [
     errorMessage,
+    hardRefreshReloadKey,
     normalize,
     reloadKey,
+    trackHardRefresh,
     url,
   ]);
 

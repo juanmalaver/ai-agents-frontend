@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   DashboardDateRange,
   MarketingDashboardBrand,
 } from "@/src/types/dashboard";
 import {
+  appendHardRefreshQueryParam,
   appendDashboardQueryParams,
   resolveDashboardBrandsApiUrl,
 } from "@/src/utils/runtimeApiUrls";
+import { useDashboardHardRefresh } from "./DashboardHardRefresh";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface BrandFilterProps {
@@ -24,10 +26,14 @@ export function BrandFilter({
   onBrandChange,
   selectedBrand,
 }: BrandFilterProps) {
+  const { hardRefreshToken, trackHardRefresh } = useDashboardHardRefresh();
+  const observedHardRefreshTokenRef = useRef(hardRefreshToken);
+  const pendingHardRefreshTokenRef = useRef(0);
   const [brands, setBrands] = useState<MarketingDashboardBrand[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedBrands, setHasLoadedBrands] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hardRefreshReloadKey, setHardRefreshReloadKey] = useState(0);
   const brandsUrl = useMemo(
     () =>
       appendDashboardQueryParams(resolveDashboardBrandsApiUrl(apiUrl), {
@@ -46,6 +52,20 @@ export function BrandFilter({
     namedBrands.some((brand) => brand.name?.trim() === selectedBrand);
 
   useEffect(() => {
+    if (
+      hardRefreshToken > 0 &&
+      hardRefreshToken !== observedHardRefreshTokenRef.current
+    ) {
+      pendingHardRefreshTokenRef.current = hardRefreshToken;
+      observedHardRefreshTokenRef.current = hardRefreshToken;
+      setHardRefreshReloadKey((current) => current + 1);
+      return;
+    }
+
+    observedHardRefreshTokenRef.current = hardRefreshToken;
+  }, [hardRefreshToken]);
+
+  useEffect(() => {
     if (!brandsUrl) {
       setBrands([]);
       setError("Dashboard brands API URL is not configured.");
@@ -55,6 +75,15 @@ export function BrandFilter({
     }
 
     const controller = new AbortController();
+    const forceRefreshToken = pendingHardRefreshTokenRef.current;
+    const requestUrl = forceRefreshToken
+      ? appendHardRefreshQueryParam(brandsUrl)
+      : brandsUrl;
+    const completeHardRefresh = forceRefreshToken
+      ? trackHardRefresh(forceRefreshToken)
+      : () => undefined;
+
+    pendingHardRefreshTokenRef.current = 0;
 
     setIsLoading(true);
     setError(null);
@@ -62,7 +91,7 @@ export function BrandFilter({
 
     async function loadBrands() {
       try {
-        const response = await fetch(brandsUrl as string, {
+        const response = await fetch(requestUrl as string, {
           cache: "no-store",
           credentials: "include",
           signal: controller.signal,
@@ -90,13 +119,14 @@ export function BrandFilter({
         if (!controller.signal.aborted) {
           setIsLoading(false);
         }
+        completeHardRefresh();
       }
     }
 
     void loadBrands();
 
     return () => controller.abort();
-  }, [brandsUrl]);
+  }, [brandsUrl, hardRefreshReloadKey, trackHardRefresh]);
 
   useEffect(() => {
     if (hasLoadedBrands && !error && selectedBrand && !hasSelectedBrand) {

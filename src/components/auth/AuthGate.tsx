@@ -14,6 +14,10 @@ import {
   getGoogleStartUrl,
   logout,
 } from "@/src/utils/auth/authApi";
+import {
+  DashboardHardRefreshButton,
+  DashboardHardRefreshProvider,
+} from "@/src/components/dashboard/DashboardHardRefresh";
 import { ThemeToggle } from "@/src/components/dashboard/ThemeToggle";
 
 const DASHBOARD_NAME = "Marketing Dashboard";
@@ -84,33 +88,39 @@ export function AuthGate({ children }: AuthGateProps) {
   if (authState === "authenticated") {
     return (
       <AuthUserContext.Provider value={user}>
-        <div className="sticky top-0 z-30 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-glass)] px-4 pb-2.5 pt-3.5 text-[var(--color-app-text)] shadow-sm backdrop-blur md:px-6 lg:px-8">
-          <div aria-hidden="true" className="absolute inset-x-0 top-0 flex h-1">
-            <span className="flex-1 bg-teal-500" />
-            <span className="flex-1 bg-sky-500" />
-            <span className="flex-1 bg-amber-400" />
-          </div>
-          <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between gap-3 text-sm">
-            <div className="flex min-w-0 items-center gap-3">
-              <UserAvatar user={user} />
-              <span className="truncate font-medium text-[var(--color-app-text)]">
-                {formatUserLabel(user)}
-              </span>
+        <DashboardHardRefreshProvider>
+          <div className="sticky top-0 z-30 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-glass)] px-4 pb-2.5 pt-3.5 text-[var(--color-app-text)] shadow-sm backdrop-blur md:px-6 lg:px-8">
+            <div
+              aria-hidden="true"
+              className="absolute inset-x-0 top-0 flex h-1"
+            >
+              <span className="flex-1 bg-teal-500" />
+              <span className="flex-1 bg-sky-500" />
+              <span className="flex-1 bg-amber-400" />
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <ThemeToggle />
-              <button
-                className="h-9 rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 font-semibold text-[var(--color-control-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isSubmitting}
-                onClick={() => void handleLogout()}
-                type="button"
-              >
-                Sign out
-              </button>
+            <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between gap-3 text-sm">
+              <div className="flex min-w-0 items-center gap-3">
+                <UserAvatar user={user} />
+                <span className="truncate font-medium text-[var(--color-app-text)]">
+                  {formatUserLabel(user)}
+                </span>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <DashboardHardRefreshButton />
+                <ThemeToggle />
+                <button
+                  className="h-9 rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 font-semibold text-[var(--color-control-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isSubmitting}
+                  onClick={() => void handleLogout()}
+                  type="button"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        {children}
+          {children}
+        </DashboardHardRefreshProvider>
       </AuthUserContext.Provider>
     );
   }

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -47,12 +48,14 @@ import {
   isSameDateRange,
 } from "@/src/utils/dateRangeDefaults";
 import {
+  appendHardRefreshQueryParam,
   appendHealthDashboardQueryParams,
   resolveDashboardAdMediaApiUrl,
   resolveHealthDashboardApiUrl,
   resolveSlackGradeMessageApiUrl,
 } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
+import { useDashboardHardRefresh } from "./DashboardHardRefresh";
 import { DashboardTabs } from "./DashboardTabs";
 import { DateRangeFilter } from "./DateRangeFilter";
 import { LoadingSpinner } from "./LoadingSpinner";
@@ -170,6 +173,9 @@ interface AdSummaryFilters {
 }
 
 export function HealthPage({ apiUrl }: HealthPageProps) {
+  const { hardRefreshToken, trackHardRefresh } = useDashboardHardRefresh();
+  const observedHardRefreshTokenRef = useRef(hardRefreshToken);
+  const pendingHardRefreshTokenRef = useRef(0);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -202,6 +208,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [hardRefreshReloadKey, setHardRefreshReloadKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
   const [selectedAdIds, setSelectedAdIds] = useState<string[]>([]);
@@ -421,6 +428,20 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     [data],
   );
   useEffect(() => {
+    if (
+      hardRefreshToken > 0 &&
+      hardRefreshToken !== observedHardRefreshTokenRef.current
+    ) {
+      pendingHardRefreshTokenRef.current = hardRefreshToken;
+      observedHardRefreshTokenRef.current = hardRefreshToken;
+      setHardRefreshReloadKey((current) => current + 1);
+      return;
+    }
+
+    observedHardRefreshTokenRef.current = hardRefreshToken;
+  }, [hardRefreshToken]);
+
+  useEffect(() => {
     if (!healthUrl) {
       setData(null);
       setError("Dashboard API URL is not configured.");
@@ -429,13 +450,22 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     }
 
     const controller = new AbortController();
+    const forceRefreshToken = pendingHardRefreshTokenRef.current;
+    const requestUrl = forceRefreshToken
+      ? appendHardRefreshQueryParam(healthUrl)
+      : healthUrl;
+    const completeHardRefresh = forceRefreshToken
+      ? trackHardRefresh(forceRefreshToken)
+      : () => undefined;
+
+    pendingHardRefreshTokenRef.current = 0;
 
     setIsLoading(true);
     setError(null);
 
     async function loadHealth() {
       try {
-        const response = await fetch(healthUrl as string, {
+        const response = await fetch(requestUrl as string, {
           cache: "no-store",
           credentials: "include",
           signal: controller.signal,
@@ -463,13 +493,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
         if (!controller.signal.aborted) {
           setIsLoading(false);
         }
+        completeHardRefresh();
       }
     }
 
     void loadHealth();
 
     return () => controller.abort();
-  }, [healthUrl]);
+  }, [hardRefreshReloadKey, healthUrl, trackHardRefresh]);
 
   const replaceParams = useCallback(
     (update: (nextParams: URLSearchParams) => void) => {
@@ -1162,11 +1193,12 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
 
         {isLoading && !data ? (
           <HealthLoadingPanel />
-        ) : error ? (
+        ) : error && !data ? (
           <HealthErrorPanel message={error} />
         ) : data ? (
           <>
             {isRefreshingHealth ? <HealthRefreshNotice /> : null}
+            {error ? <HealthInlineErrorNotice message={error} /> : null}
             <RefreshingRegion isRefreshing={isRefreshingHealth}>
               <HealthSummary
                 adGradeCountRows={rowsBeforeAdGradeFilter}
@@ -4677,6 +4709,15 @@ function HealthRefreshNotice() {
         label="Updating audit view"
       />
       Updating audit data for the selected filters...
+    </section>
+  );
+}
+
+function HealthInlineErrorNotice({ message }: { message: string }) {
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 shadow-sm">
+      Fresh data could not be loaded. Showing the latest data already on
+      screen. {message}
     </section>
   );
 }
