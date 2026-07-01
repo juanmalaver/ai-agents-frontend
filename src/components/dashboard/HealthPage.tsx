@@ -42,6 +42,7 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
+import { normalizeCampaignHealthRecommendation } from "@/src/utils/campaignHealthRecommendations";
 import {
   constrainDateRangeDays,
   getCurrentMonthDateRange,
@@ -479,7 +480,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           (await response.json()) as MarketingDashboardHealthResponse;
 
         if (!controller.signal.aborted) {
-          setData(payload);
+          setData(normalizeHealthDashboardRecommendations(payload));
         }
       } catch (caughtError) {
         if (!controller.signal.aborted) {
@@ -4518,14 +4519,16 @@ function RecommendationChip({
   compact?: boolean;
   recommendation: CampaignHealthRecommendation;
 }) {
+  const normalizedRecommendation =
+    normalizeCampaignHealthRecommendation(recommendation);
   const label = compact
-    ? compactRecommendationLabels[recommendation]
-    : recommendation;
+    ? compactRecommendationLabels[normalizedRecommendation]
+    : normalizedRecommendation;
 
   return (
     <span
-      className={`inline-flex max-w-full whitespace-nowrap rounded-md border px-2.5 py-1 text-left text-xs font-semibold leading-tight ${recommendationClasses[recommendation]}`}
-      title={compact ? recommendation : undefined}
+      className={`inline-flex max-w-full whitespace-nowrap rounded-md border px-2.5 py-1 text-left text-xs font-semibold leading-tight ${recommendationClasses[normalizedRecommendation]}`}
+      title={compact ? normalizedRecommendation : undefined}
     >
       {label}
     </span>
@@ -4838,8 +4841,8 @@ const recommendationSortingFn: SortingFn<CampaignHealthRow> = (
   columnId,
 ) =>
   compareRankedValues(
-    first.getValue<CampaignHealthRecommendation>(columnId),
-    second.getValue<CampaignHealthRecommendation>(columnId),
+    normalizeCampaignHealthRecommendation(first.getValue<string>(columnId)),
+    normalizeCampaignHealthRecommendation(second.getValue<string>(columnId)),
     recommendationSortRanks,
   );
 
@@ -4884,8 +4887,8 @@ const adRecommendationSortingFn: SortingFn<CampaignHealthAdRow> = (
   columnId,
 ) =>
   compareRankedValues(
-    first.getValue<CampaignHealthRecommendation>(columnId),
-    second.getValue<CampaignHealthRecommendation>(columnId),
+    normalizeCampaignHealthRecommendation(first.getValue<string>(columnId)),
+    normalizeCampaignHealthRecommendation(second.getValue<string>(columnId)),
     recommendationSortRanks,
   );
 
@@ -5887,7 +5890,11 @@ function countRecommendations(
 ): Partial<Record<CampaignHealthRecommendation, number>> {
   return rows.reduce(
     (counts, row) => {
-      counts[row.recommendation] = (counts[row.recommendation] ?? 0) + 1;
+      const recommendation = normalizeCampaignHealthRecommendation(
+        row.recommendation,
+      );
+
+      counts[recommendation] = (counts[recommendation] ?? 0) + 1;
 
       return counts;
     },
@@ -5918,11 +5925,31 @@ function countAdRecommendations(
 
   for (const row of rows) {
     for (const ad of getMatchingAds(row, filters)) {
-      counts[ad.recommendation] = (counts[ad.recommendation] ?? 0) + 1;
+      const recommendation = normalizeCampaignHealthRecommendation(
+        ad.recommendation,
+      );
+
+      counts[recommendation] = (counts[recommendation] ?? 0) + 1;
     }
   }
 
   return counts;
+}
+
+function normalizeHealthDashboardRecommendations(
+  payload: MarketingDashboardHealthResponse,
+): MarketingDashboardHealthResponse {
+  return {
+    ...payload,
+    campaignRows: payload.campaignRows.map((row) => ({
+      ...row,
+      ads: row.ads.map((ad) => ({
+        ...ad,
+        recommendation: normalizeCampaignHealthRecommendation(ad.recommendation),
+      })),
+      recommendation: normalizeCampaignHealthRecommendation(row.recommendation),
+    })),
+  };
 }
 
 function countMatchingAds(

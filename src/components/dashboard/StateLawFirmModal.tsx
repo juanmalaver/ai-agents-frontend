@@ -32,6 +32,7 @@ import {
   formatPercentage,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
+import { normalizeCampaignHealthRecommendation } from "@/src/utils/campaignHealthRecommendations";
 import {
   appendStateLawFirmsQueryParams,
   buildHealthPageUrl,
@@ -748,8 +749,8 @@ const campaignAdRecommendationSortingFn: SortingFn<StateLawFirmCampaignAdRow> = 
   columnId,
 ) =>
   compareRankedValues(
-    first.getValue<StateLawFirmCampaignAdRow["recommendation"]>(columnId),
-    second.getValue<StateLawFirmCampaignAdRow["recommendation"]>(columnId),
+    normalizeCampaignHealthRecommendation(first.getValue<string>(columnId)),
+    normalizeCampaignHealthRecommendation(second.getValue<string>(columnId)),
     AD_RECOMMENDATION_SORT_RANKS,
   );
 
@@ -1984,11 +1985,14 @@ function CampaignAdRecommendationChip({
 }: {
   recommendation: StateLawFirmCampaignAdRow["recommendation"];
 }) {
+  const normalizedRecommendation =
+    normalizeCampaignHealthRecommendation(recommendation);
+
   return (
     <span
-      className={`inline-flex max-w-full rounded-md border px-2 py-1 text-left text-xs font-semibold leading-tight ${RECOMMENDATION_CLASSES[recommendation]}`}
+      className={`inline-flex max-w-full rounded-md border px-2 py-1 text-left text-xs font-semibold leading-tight ${RECOMMENDATION_CLASSES[normalizedRecommendation]}`}
     >
-      {recommendation}
+      {normalizedRecommendation}
     </span>
   );
 }
@@ -2187,7 +2191,7 @@ function formatCampaignAdGradeTitle(ad: StateLawFirmCampaignAdRow): string {
     : "";
 
   return [
-    ad.recommendation,
+    normalizeCampaignHealthRecommendation(ad.recommendation),
     `${ad.confidence} confidence`,
     metricSummary,
   ]
