@@ -68,12 +68,22 @@ export function DateRangeFilter({
     });
   }, [effectiveDateRange.from, effectiveDateRange.to]);
 
-  const fromMinimum = maxRangeDays
-    ? getRangeBoundary(draftRange.to, -(maxRangeDays - 1))
-    : undefined;
   const toMaximum = maxRangeDays
     ? getRangeBoundary(draftRange.from, maxRangeDays - 1)
     : undefined;
+
+  function handleFromChange(from: string) {
+    const automaticTo = getAutomaticToDate(from, maxRangeDays);
+
+    setDraftRange((current) => ({
+      from,
+      to: automaticTo ?? current.to,
+    }));
+  }
+
+  function handleToChange(to: string) {
+    setDraftRange((current) => ({ ...current, to }));
+  }
 
   return (
     <form
@@ -93,16 +103,14 @@ export function DateRangeFilter({
     >
       <DateInput
         label="From"
-        min={fromMinimum}
-        max={draftRange.to || undefined}
-        onChange={(from) => setDraftRange((current) => ({ ...current, from }))}
+        onChange={handleFromChange}
         value={draftRange.from}
       />
       <DateInput
         label="To"
         max={toMaximum}
         min={draftRange.from || undefined}
-        onChange={(to) => setDraftRange((current) => ({ ...current, to }))}
+        onChange={handleToChange}
         value={draftRange.to}
       />
       <div className="flex min-h-9 flex-wrap items-center gap-2 md:mt-6 md:justify-end">
@@ -138,6 +146,15 @@ export function DateRangeFilter({
       ) : null}
     </form>
   );
+}
+
+function getAutomaticToDate(
+  from: string,
+  maxRangeDays: number | undefined,
+): string | null {
+  return from && maxRangeDays && maxRangeDays > 0
+    ? addDaysToDateInputValue(from, maxRangeDays - 1)
+    : null;
 }
 
 function getRangeBoundary(value: string, days: number): string | undefined {

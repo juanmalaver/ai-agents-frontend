@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   AssetReviewDecisionResponse,
@@ -25,6 +24,7 @@ import { formatDashboardTimestamp } from "@/src/utils/dashboardFormatters";
 import { resolveVideoProductionApiUrl } from "@/src/utils/runtimeApiUrls";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardShell } from "./DashboardShell";
+import { TabNav } from "./TabNav";
 
 type ApprovalTab = "briefs" | "videos";
 type LoadState = "loading" | "ready" | "error";
@@ -420,29 +420,11 @@ function ApprovalsTabs({ activeTab }: { activeTab: ApprovalTab }) {
   ];
 
   return (
-    <nav
-      aria-label="Approval queues"
-      className="flex w-full gap-2 overflow-x-auto border-b border-slate-200"
-    >
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTab;
-
-        return (
-          <Link
-            aria-current={isActive ? "page" : undefined}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${
-              isActive
-                ? "border-teal-500 text-slate-950"
-                : "border-transparent text-slate-500 hover:border-sky-300 hover:text-slate-800"
-            }`}
-            href={tab.href}
-            key={tab.id}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <TabNav
+      activeTab={activeTab}
+      ariaLabel="Approval queues"
+      tabs={tabs}
+    />
   );
 }
 

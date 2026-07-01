@@ -18,7 +18,7 @@ const navItems: Array<{
   label: string;
 }> = [
   {
-    href: "/marketing-dashboard",
+    href: "/marketing-dashboard/combined",
     id: "dashboard",
     label: "Dashboard",
   },
@@ -48,10 +48,10 @@ export function DashboardShell({ activeItem, children }: DashboardShellProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8fb] text-slate-950">
+    <main className="min-h-screen bg-[var(--color-app-bg)] text-[var(--color-app-text)]">
       <div className="flex min-h-screen">
         <aside
-          className={`hidden shrink-0 border-r border-slate-200 bg-white transition-[width] duration-200 md:flex md:flex-col ${
+          className={`hidden shrink-0 border-r border-[var(--color-app-border)] bg-[var(--color-app-surface)] transition-[width] duration-200 md:flex md:flex-col ${
             isCollapsed ? "w-20" : "w-64"
           }`}
         >
@@ -67,11 +67,11 @@ export function DashboardShell({ activeItem, children }: DashboardShellProps) {
           <div className="fixed inset-0 z-40 md:hidden">
             <button
               aria-label="Close navigation"
-              className="absolute inset-0 h-full w-full bg-slate-950/45"
+              className="absolute inset-0 h-full w-full bg-[var(--color-app-overlay)]"
               onClick={() => setIsMobileOpen(false)}
               type="button"
             />
-            <aside className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-slate-200 bg-white shadow-2xl">
+            <aside className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-[var(--color-app-border)] bg-[var(--color-app-surface)] shadow-2xl">
               <SidebarContent
                 activeItem={activeItem}
                 isCollapsed={false}
@@ -83,10 +83,10 @@ export function DashboardShell({ activeItem, children }: DashboardShellProps) {
         ) : null}
 
         <div className="min-w-0 flex-1">
-          <div className="sticky top-[54px] z-20 border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur md:hidden">
+          <div className="sticky top-[54px] z-20 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-glass)] px-4 py-2 shadow-sm backdrop-blur md:hidden">
             <button
               aria-label="Open navigation"
-              className="inline-flex size-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+              className="inline-flex size-10 items-center justify-center rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-[var(--color-control-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
               onClick={() => setIsMobileOpen(true)}
               type="button"
             >
@@ -118,19 +118,23 @@ function SidebarContent({
   return (
     <>
       <div
-        className={`flex h-16 items-center border-b border-slate-200 px-4 ${
+        className={`flex h-16 items-center border-b border-[var(--color-app-border)] px-4 ${
           isCollapsed ? "justify-center" : "justify-between"
         }`}
       >
         {isCollapsed ? null : (
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-950">AI Agents</p>
-            <p className="text-xs text-slate-500">Workspace</p>
+            <p className="text-sm font-semibold text-[var(--color-app-text)]">
+              AI Agents
+            </p>
+            <p className="text-xs text-[var(--color-app-text-muted)]">
+              Workspace
+            </p>
           </div>
         )}
         <button
           aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
-          className="inline-flex size-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
+          className="inline-flex size-10 items-center justify-center rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-[var(--color-control-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500"
           onClick={onToggleCollapsed}
           type="button"
         >
@@ -150,8 +154,8 @@ function SidebarContent({
               aria-current={isActive ? "page" : undefined}
               className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition ${
                 isActive
-                  ? "bg-teal-50 text-teal-800 ring-1 ring-inset ring-teal-200"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  ? "bg-[var(--color-nav-active-bg)] text-[var(--color-nav-active-text)] ring-1 ring-inset ring-[var(--color-nav-active-ring)]"
+                  : "text-[var(--color-nav-text)] hover:bg-[var(--color-nav-hover-bg)] hover:text-[var(--color-nav-hover-text)]"
               } ${isCollapsed ? "justify-center" : ""}`}
               href={item.href}
               key={item.id}
@@ -182,7 +186,7 @@ function NavGlyph({ label }: { label: string }) {
   return (
     <span
       aria-hidden="true"
-      className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-xs font-semibold text-white"
+      className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--color-nav-glyph-bg)] text-xs font-semibold text-[var(--color-nav-glyph-text)]"
     >
       {label.slice(0, 1)}
     </span>

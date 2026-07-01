@@ -16,6 +16,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { Fragment, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import type {
   CampaignStateMixedState,
@@ -406,14 +407,14 @@ export function CampaignStateTable({
     <>
       <section
         aria-label="State campaign performance table"
-        className="rounded-lg border border-slate-200 bg-white shadow-sm"
+        className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] shadow-sm"
       >
-        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 border-b border-[var(--color-app-border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">
+            <h2 className="text-base font-semibold text-[var(--color-app-text)]">
               State campaign performance
             </h2>
-            <p className="mt-1 text-xs font-medium text-slate-500">
+            <p className="mt-1 text-xs font-medium text-[var(--color-app-text-muted)]">
               {activeStateFilter.length > 0
                 ? `${formatNumber(table.getRowModel().rows.length)} of ${formatNumber(
                     rows.length,
@@ -429,10 +430,10 @@ export function CampaignStateTable({
           />
         </div>
         <div className="max-h-[72vh] overflow-auto">
-          <table className="min-w-[1460px] w-full table-fixed border-collapse text-left text-sm">
+          <table className="min-w-[1480px] w-full table-fixed border-collapse text-left text-sm">
             <colgroup>
               <col className="w-[120px]" />
-              <col className="w-[90px]" />
+              <col className="w-[110px]" />
               <col className="w-[100px]" />
               <col className="w-[85px]" />
               <col className="w-[78px]" />
@@ -448,12 +449,12 @@ export function CampaignStateTable({
               <col className="w-[80px]" />
               <col className="w-[89px]" />
             </colgroup>
-            <thead className="bg-sky-50 text-xs uppercase tracking-normal text-slate-600">
+            <thead className="text-[0.72rem] tracking-normal text-[var(--color-table-header-text)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
                     <th
-                      className="sticky top-0 z-20 bg-sky-50 px-3 py-2.5 align-middle font-semibold shadow-[inset_0_-1px_0_rgb(226_232_240)]"
+                      className="sticky top-0 z-20 border-b border-r border-[var(--color-table-header-border)] bg-[var(--color-table-header-bg)] px-2 py-2.5 align-middle font-bold shadow-[inset_0_1px_0_rgb(255_255_255_/_0.35)] last:border-r-0"
                       key={header.id}
                       scope="col"
                     >
@@ -866,7 +867,7 @@ function renderHeader<TData>(header: Header<TData, unknown>) {
 
   if (!header.column.getCanSort()) {
     return (
-      <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="flex min-w-0 items-center justify-between gap-1">
         {renderHeaderLabel(header)}
         {info ? <HeaderInfoIcon info={info} /> : null}
       </span>
@@ -876,23 +877,14 @@ function renderHeader<TData>(header: Header<TData, unknown>) {
   const sorted = header.column.getIsSorted();
 
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
+    <span className="flex min-w-0 items-center gap-1">
       <button
-        className="inline-flex min-w-0 items-center gap-1 text-left transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+        className="group/header inline-flex min-w-0 flex-1 items-center justify-between gap-1 rounded-md px-1 py-1 text-left text-[var(--color-table-header-text)] transition hover:bg-[var(--color-table-header-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-app-focus-ring)]"
         onClick={header.column.getToggleSortingHandler()}
         type="button"
       >
         {renderHeaderLabel(header)}
-        <span
-          aria-hidden="true"
-          className={`inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full text-[0.58rem] leading-none transition ${
-            sorted
-              ? "bg-teal-100 text-teal-700"
-              : "text-slate-300"
-          }`}
-        >
-          {formatSortIndicator(sorted)}
-        </span>
+        <SortIndicator sorted={sorted} />
       </button>
       {info ? <HeaderInfoIcon info={info} /> : null}
     </span>
@@ -911,12 +903,55 @@ function renderHeaderLabel<TData>(header: Header<TData, unknown>) {
   }
 
   return (
-    <span className="flex min-w-0 flex-col whitespace-normal leading-[1.05]">
+    <span className="flex min-w-0 flex-col whitespace-normal leading-[1.15]">
       {lines.map((line) => (
         <span className="block" key={line}>
           {line}
         </span>
       ))}
+    </span>
+  );
+}
+
+function SortIndicator({
+  sorted,
+}: {
+  sorted: false | "asc" | "desc";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm transition ${
+        sorted
+          ? "text-teal-700"
+          : "text-[var(--color-table-header-icon)] opacity-55 group-hover/header:opacity-100"
+      }`}
+    >
+      {sorted ? (
+        <svg className="size-3.5" fill="none" viewBox="0 0 12 12">
+          <path
+            d={
+              sorted === "asc"
+                ? "M3 7.25 6 4.25l3 3"
+                : "M3 4.75l3 3 3-3"
+            }
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
+        </svg>
+      ) : (
+        <svg className="size-3.5" fill="none" viewBox="0 0 12 12">
+          <path
+            d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.4"
+          />
+        </svg>
+      )}
     </span>
   );
 }
@@ -932,45 +967,111 @@ function getHeaderInfo<TData>(header: Header<TData, unknown>): string | null {
 }
 
 function HeaderInfoIcon({ info }: { info: string }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [tooltipPosition, setTooltipPosition] =
+    useState<TooltipPosition | null>(null);
+
+  function showTooltip() {
+    const rect = buttonRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return;
+    }
+
+    setTooltipPosition(getTooltipPosition(rect));
+  }
+
+  function hideTooltip() {
+    setTooltipPosition(null);
+  }
+
   return (
-    <button
-      aria-label={info}
-      className="group/info relative inline-flex h-3 w-3 shrink-0 cursor-help items-center justify-center rounded-full text-slate-400 transition hover:bg-white/70 hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      type="button"
-    >
-      <svg
-        aria-hidden="true"
-        className="h-2.5 w-2.5"
-        fill="none"
-        viewBox="0 0 16 16"
+    <>
+      <button
+        aria-label={info}
+        className="inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-sm text-[var(--color-table-header-icon)] transition hover:bg-[var(--color-table-header-hover-bg)] hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-app-focus-ring)]"
+        onBlur={hideTooltip}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onFocus={showTooltip}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
+        ref={buttonRef}
+        type="button"
       >
-        <circle
-          cx="8"
-          cy="8"
-          r="6.25"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M8 7.25v4"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeWidth="1.5"
-        />
-        <circle cx="8" cy="4.75" fill="currentColor" r="0.75" />
-      </svg>
-      <span
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden w-64 -translate-x-1/2 rounded-md bg-slate-950 px-2.5 py-2 text-left text-[0.68rem] font-medium normal-case leading-snug tracking-normal text-white shadow-lg group-hover/info:block group-focus/info:block"
-        role="tooltip"
-      >
-        {info}
-      </span>
-    </button>
+        <svg
+          aria-hidden="true"
+          className="size-3"
+          fill="none"
+          viewBox="0 0 16 16"
+        >
+          <circle
+            cx="8"
+            cy="8"
+            r="6.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M8 7.25v4"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.5"
+          />
+          <circle cx="8" cy="4.75" fill="currentColor" r="0.75" />
+        </svg>
+      </button>
+      {tooltipPosition && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              className="pointer-events-none fixed z-[90] w-72 max-w-[calc(100vw-1.5rem)] rounded-md bg-slate-950 px-2.5 py-2 text-left text-[0.68rem] font-medium normal-case leading-snug tracking-normal text-white shadow-lg"
+              role="tooltip"
+              style={{
+                left: tooltipPosition.left,
+                top: tooltipPosition.top,
+              }}
+            >
+              {info}
+            </span>,
+            document.body,
+          )
+        : null}
+    </>
   );
+}
+
+interface TooltipPosition {
+  left: number;
+  top: number;
+}
+
+function getTooltipPosition(anchor: DOMRect): TooltipPosition {
+  const tooltipWidth = 288;
+  const tooltipEstimatedHeight = 88;
+  const gap = 8;
+  const viewportPadding = 12;
+  const viewportWidth =
+    typeof window === "undefined" ? tooltipWidth : window.innerWidth;
+  const viewportHeight =
+    typeof window === "undefined"
+      ? tooltipEstimatedHeight
+      : window.innerHeight;
+  const minLeft = viewportPadding;
+  const maxLeft = Math.max(
+    minLeft,
+    viewportWidth - tooltipWidth - viewportPadding,
+  );
+  const centeredLeft = anchor.left + anchor.width / 2 - tooltipWidth / 2;
+  const left = Math.min(Math.max(centeredLeft, minLeft), maxLeft);
+  const belowTop = anchor.bottom + gap;
+  const top =
+    belowTop + tooltipEstimatedHeight <= viewportHeight - viewportPadding
+      ? belowTop
+      : Math.max(viewportPadding, anchor.top - tooltipEstimatedHeight - gap);
+
+  return { left, top };
 }
 
 function buildTotalRow(rows: CampaignStateRow[]): CampaignStateRow | null {
@@ -1099,16 +1200,4 @@ function calculateMtdGoal(
   }
 
   return (monthlyGoal / monthPacing.daysInMonth) * monthPacing.daysElapsed;
-}
-
-function formatSortIndicator(value: false | "asc" | "desc"): string {
-  if (value === "asc") {
-    return "↑";
-  }
-
-  if (value === "desc") {
-    return "↓";
-  }
-
-  return "↕";
 }
