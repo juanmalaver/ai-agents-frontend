@@ -168,6 +168,7 @@ export interface CampaignHealthThresholds {
     minimumCampaignAgeDays: number;
   };
   cpsl: {
+    adShutdownSpendMin: number;
     greenMaxExclusive: number;
     redMin: number;
     shutdownReviewMinimumCampaignAgeDays: number;

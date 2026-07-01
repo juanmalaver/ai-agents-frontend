@@ -48,6 +48,25 @@ const dashboardCopy = {
 } as const;
 
 const TIKTOK_MAX_DATE_RANGE_DAYS = 30;
+const KPI_AUDIT_THRESHOLDS = {
+  cpsl: {
+    greenMaxExclusive: 1000,
+    redMin: 1500,
+    zeroSignedLeadRedSpendMin: 500,
+    zeroSignedLeadYellowSpendMin: 250,
+  },
+  intake: {
+    greenMin: 0.1,
+    minimumLeads: 10,
+    yellowMin: 0.05,
+  },
+  volume: {
+    greenMax: 110,
+    redMinExclusive: 300,
+    zeroLeadRedSpendMin: 300,
+    zeroLeadYellowSpendMin: 200,
+  },
+} as const;
 
 export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   const maxRangeDays =
@@ -402,18 +421,23 @@ function buildKpiCards(
   const leadGoalContext = calculateMtdLeadGoalContext(stateRows, monthPacing);
   const slGoalCompletion = calculateMtdSlGoalCompletion(stateRows);
   const intakeConversion = calculateIntakeConversion(stateRows);
+  const signedLeads = sumNullable(stateRows.map((row) => row.mtdSl));
 
   return [
     {
       format: "currency",
       helperText: formatCpslHelper({
-        mtdSl: slGoalCompletion.mtdSl,
+        mtdSl: signedLeads,
         mtdSlGoal: slGoalCompletion.mtdSlGoal,
         spent: kpis.mtdSpent,
       }),
       id: "cpsl",
       label: "CPSL",
-      status: getCostStatus(kpis.cpsl),
+      status: getCpslStatus({
+        cpsl: kpis.cpsl,
+        signedLeads,
+        spent: kpis.mtdSpent,
+      }),
       value: kpis.cpsl,
     },
     {
@@ -425,7 +449,11 @@ function buildKpiCards(
       }),
       id: "cpl",
       label: "CPL",
-      status: getCostStatus(kpis.finalCpl),
+      status: getCplStatus({
+        cpl: kpis.finalCpl,
+        leads: leadGoalContext.leads,
+        spent: kpis.mtdSpent,
+      }),
       value: kpis.finalCpl,
     },
     {
@@ -464,7 +492,7 @@ function buildKpiCards(
       helperText: formatIntakeConversionHelper(intakeConversion),
       id: "intake-conversion",
       label: "Intake Conversion",
-      status: getCompletionStatus(intakeConversion.conversionRate),
+      status: getIntakeConversionStatus(intakeConversion),
       value: intakeConversion.conversionRate,
     },
   ];
@@ -486,20 +514,113 @@ function getCompletionStatus(value: number | null): MetricStatus {
   return "on-track";
 }
 
-function getCostStatus(value: number | null): MetricStatus {
-  if (value == null) {
+function getCpslStatus({
+  cpsl,
+  signedLeads,
+  spent,
+}: {
+  cpsl: number | null;
+  signedLeads: number | null;
+  spent: number | null;
+}): MetricStatus {
+  const thresholds = KPI_AUDIT_THRESHOLDS.cpsl;
+
+  if ((signedLeads ?? 0) <= 0) {
+    if (spent == null) {
+      return "unavailable";
+    }
+
+    if (spent >= thresholds.zeroSignedLeadRedSpendMin) {
+      return "critical";
+    }
+
+    if (spent >= thresholds.zeroSignedLeadYellowSpendMin) {
+      return "alert";
+    }
+
     return "unavailable";
   }
 
-  if (value > 250) {
+  if (cpsl == null) {
+    return "unavailable";
+  }
+
+  if (cpsl >= thresholds.redMin) {
     return "critical";
   }
 
-  if (value > 150) {
+  if (cpsl >= thresholds.greenMaxExclusive) {
     return "alert";
   }
 
   return "on-track";
+}
+
+function getCplStatus({
+  cpl,
+  leads,
+  spent,
+}: {
+  cpl: number | null;
+  leads: number | null;
+  spent: number | null;
+}): MetricStatus {
+  const thresholds = KPI_AUDIT_THRESHOLDS.volume;
+
+  if ((leads ?? 0) <= 0) {
+    if (spent == null) {
+      return "unavailable";
+    }
+
+    if (spent >= thresholds.zeroLeadRedSpendMin) {
+      return "critical";
+    }
+
+    if (spent >= thresholds.zeroLeadYellowSpendMin) {
+      return "alert";
+    }
+
+    return "unavailable";
+  }
+
+  if (cpl == null) {
+    return "unavailable";
+  }
+
+  if (cpl > thresholds.redMinExclusive) {
+    return "critical";
+  }
+
+  if (cpl > thresholds.greenMax) {
+    return "alert";
+  }
+
+  return "on-track";
+}
+
+function getIntakeConversionStatus({
+  conversionRate,
+  leads,
+}: IntakeConversion): MetricStatus {
+  const thresholds = KPI_AUDIT_THRESHOLDS.intake;
+
+  if (leads == null || leads < thresholds.minimumLeads) {
+    return "unavailable";
+  }
+
+  if (conversionRate == null) {
+    return "unavailable";
+  }
+
+  if (conversionRate >= thresholds.greenMin) {
+    return "on-track";
+  }
+
+  if (conversionRate >= thresholds.yellowMin) {
+    return "alert";
+  }
+
+  return "critical";
 }
 
 function formatBudgetProgressHelper({
@@ -650,7 +771,13 @@ function formatSlGoalCompletionHelper({
     return undefined;
   }
 
-  return `MTD SL ${formatNumber(mtdSl)} · Goal ${formatNumber(mtdSlGoal)}`;
+  const leadGoal = mtdSlGoal == null ? null : mtdSlGoal * 10;
+
+  return [
+    `MTD SL ${formatNumber(mtdSl)}`,
+    `Goal ${formatNumber(mtdSlGoal)}`,
+    `Lead Goal ${formatNumber(leadGoal)}`,
+  ].join(" · ");
 }
 
 interface IntakeConversion {
@@ -698,7 +825,10 @@ function formatIntakeConversionHelper({
     return undefined;
   }
 
-  return `MTD SL ${formatNumber(mtdSl)} · Leads ${formatNumber(leads)}`;
+  return [
+    `MTD SL ${formatNumber(mtdSl)}`,
+    `Leads ${formatNumber(leads)}`,
+  ].join(" · ");
 }
 
 interface MonthPacing {
