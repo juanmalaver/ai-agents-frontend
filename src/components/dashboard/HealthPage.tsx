@@ -42,6 +42,7 @@ import {
   formatPercentage,
 } from "@/src/utils/dashboardFormatters";
 import {
+  constrainDateRangeDays,
   getCurrentMonthDateRange,
   isSameDateRange,
 } from "@/src/utils/dateRangeDefaults";
@@ -94,6 +95,7 @@ const ALL_PLATFORM_OPTIONS: Array<{
   { id: "meta", label: "Meta" },
   { id: "tiktok", label: "TikTok" },
 ];
+const AUDIT_MAX_RANGE_DAYS = 30;
 const MAX_META_CREATIVE_FALLBACK_TARGETS = 3;
 
 interface HealthPageProps {
@@ -616,7 +618,10 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   }, [replaceParams]);
   const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
     const chips: ActiveFilterChip[] = [];
-    const currentDefaultRange = getCurrentMonthDateRange();
+    const currentDefaultRange = constrainDateRangeDays(
+      getCurrentMonthDateRange(),
+      AUDIT_MAX_RANGE_DAYS,
+    );
 
     if (!isSameDateRange(dateRange, currentDefaultRange)) {
       chips.push({
@@ -1144,6 +1149,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           <div className="mt-3">
             <DateRangeFilter
               dateRange={dateRange}
+              maxRangeDays={AUDIT_MAX_RANGE_DAYS}
               onDateRangeChange={handleDateRangeChange}
             />
           </div>
@@ -6158,10 +6164,13 @@ function normalizeDateRange(range: DashboardDateRange): DashboardDateRange {
   const to = normalizeDateParam(range.to);
 
   if (!from || !to || from > to) {
-    return getCurrentMonthDateRange();
+    return constrainDateRangeDays(
+      getCurrentMonthDateRange(),
+      AUDIT_MAX_RANGE_DAYS,
+    );
   }
 
-  return { from, to };
+  return constrainDateRangeDays({ from, to }, AUDIT_MAX_RANGE_DAYS);
 }
 
 function normalizeDateParam(value: string | null | undefined): string | null {

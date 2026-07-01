@@ -14,6 +14,7 @@ import {
   getGoogleStartUrl,
   logout,
 } from "@/src/utils/auth/authApi";
+import { ThemeToggle } from "@/src/components/dashboard/ThemeToggle";
 
 const DASHBOARD_NAME = "Marketing Dashboard";
 
@@ -83,7 +84,7 @@ export function AuthGate({ children }: AuthGateProps) {
   if (authState === "authenticated") {
     return (
       <AuthUserContext.Provider value={user}>
-        <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 pb-2.5 pt-3.5 text-slate-700 shadow-sm backdrop-blur md:px-6 lg:px-8">
+        <div className="sticky top-0 z-30 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-glass)] px-4 pb-2.5 pt-3.5 text-[var(--color-app-text)] shadow-sm backdrop-blur md:px-6 lg:px-8">
           <div aria-hidden="true" className="absolute inset-x-0 top-0 flex h-1">
             <span className="flex-1 bg-teal-500" />
             <span className="flex-1 bg-sky-500" />
@@ -92,18 +93,21 @@ export function AuthGate({ children }: AuthGateProps) {
           <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between gap-3 text-sm">
             <div className="flex min-w-0 items-center gap-3">
               <UserAvatar user={user} />
-              <span className="truncate font-medium text-slate-700">
+              <span className="truncate font-medium text-[var(--color-app-text)]">
                 {formatUserLabel(user)}
               </span>
             </div>
-            <button
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSubmitting}
-              onClick={() => void handleLogout()}
-              type="button"
-            >
-              Sign out
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle />
+              <button
+                className="h-9 rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 font-semibold text-[var(--color-control-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSubmitting}
+                onClick={() => void handleLogout()}
+                type="button"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
         {children}
@@ -115,7 +119,7 @@ export function AuthGate({ children }: AuthGateProps) {
     <AuthLayout error={error}>
       <button
         aria-busy={isSubmitting}
-        className="flex h-12 w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-950 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-70"
+        className="flex h-12 w-full items-center justify-center gap-3 rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-4 text-sm font-semibold text-[var(--color-app-text)] shadow-sm transition hover:bg-[var(--color-control-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:cursor-not-allowed disabled:opacity-70"
         disabled={isSubmitting}
         onClick={handleGoogleSignIn}
         type="button"
@@ -125,7 +129,7 @@ export function AuthGate({ children }: AuthGateProps) {
           {isSubmitting ? "Opening Google..." : "Continue with Google"}
         </span>
       </button>
-      <p className="mt-4 text-center text-xs leading-5 text-slate-500">
+      <p className="mt-4 text-center text-xs leading-5 text-[var(--color-app-text-muted)]">
         Access is limited to approved workspace accounts.
       </p>
     </AuthLayout>
@@ -134,7 +138,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
 function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#f7f8fb] text-slate-950">
+    <main className="relative min-h-screen overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-app-text)]">
       <div aria-hidden="true" className="absolute inset-x-0 top-0 flex h-1">
         <span className="flex-1 bg-teal-500" />
         <span className="flex-1 bg-sky-500" />
@@ -178,22 +182,24 @@ function AuthLayout({
     <AuthShell>
       <section className="flex min-h-[calc(100vh-3rem)] items-center justify-center py-10">
         <div className="w-full max-w-[420px]">
-          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-[0_18px_55px_rgba(15,23,42,0.10)] sm:p-8">
+          <div className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-6 shadow-[0_18px_55px_rgba(15,23,42,0.10)] sm:p-8">
             <div className="flex items-center gap-3">
               <BrandMark />
               <div>
-                <p className="text-sm font-semibold text-slate-950">
+                <p className="text-sm font-semibold text-[var(--color-app-text)]">
                   {DASHBOARD_NAME}
                 </p>
-                <p className="text-xs text-slate-500">Workspace access</p>
+                <p className="text-xs text-[var(--color-app-text-muted)]">
+                  Workspace access
+                </p>
               </div>
             </div>
 
             <div>
-              <h1 className="mt-8 text-2xl font-semibold text-slate-950">
+              <h1 className="mt-8 text-2xl font-semibold text-[var(--color-app-text)]">
                 Sign in
               </h1>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-[var(--color-app-text-muted)]">
                 Use your Google account to sign in.
               </p>
             </div>
@@ -220,7 +226,7 @@ function AuthLayout({
 
 function BrandMark() {
   return (
-    <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white shadow-sm">
+    <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[var(--color-nav-glyph-bg)] text-sm font-semibold text-[var(--color-nav-glyph-text)] shadow-sm">
       MD
     </div>
   );
@@ -247,7 +253,7 @@ function UserAvatar({ user }: { user: AuthUser | null }) {
   const label = formatUserInitials(user);
 
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-xs font-semibold text-white">
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-nav-glyph-bg)] text-xs font-semibold text-[var(--color-nav-glyph-text)]">
       {label}
     </span>
   );
