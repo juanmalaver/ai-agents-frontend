@@ -38,6 +38,7 @@ export interface DashboardHeaderProps {
 export interface KpiCardsGridProps {
   ariaLabel?: string;
   contextLabel?: string;
+  contextLabels?: string[];
   items: KpiCardData[];
 }
 

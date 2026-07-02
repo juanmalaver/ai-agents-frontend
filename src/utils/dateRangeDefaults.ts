@@ -11,6 +11,12 @@ export function getCurrentMonthDateRange(now = new Date()): DashboardDateRange {
   };
 }
 
+export function getTodayDateRange(now = new Date()): DashboardDateRange {
+  const today = toDateInputValueInTimeZone(now, DASHBOARD_TIME_ZONE);
+
+  return { from: today, to: today };
+}
+
 export function getYesterdayDateRange(now = new Date()): DashboardDateRange {
   const today = toDateInputValueInTimeZone(now, DASHBOARD_TIME_ZONE);
   const [year, month, day] = today.split("-").map(Number);

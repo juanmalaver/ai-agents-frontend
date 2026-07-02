@@ -24,21 +24,39 @@ const kpiInfo: Record<string, string> = {
   cpsl: "Meaning: cost per signed lead. Formula: MTD Spend / MTD SL.",
   "intake-conversion":
     "Meaning: lead-to-signed-lead conversion rate. Formula: MTD SL / MTD Leads.",
+  "mtd-lead-goal-completion":
+    "Meaning: lead progress against the month-to-date target. Formula: MTD Leads / MTD Lead Goal.",
   "monthly-budget-eom":
     "Meaning: full-month budget progress. Formula: MTD Spend / Monthly Budget.",
   "monthly-budget-mtd":
     "Meaning: month-to-date budget progress. Formula: MTD Spend / MTD Budget Goal.",
   "mtd-sl-goal-completion":
     "Meaning: signed-lead progress against the month-to-date target. Formula: MTD SL / MTD SL Goal.",
+  "today-budget":
+    "Meaning: today's budget progress. Formula: Today's Spend / Daily Budget Goal.",
+  "today-conversion":
+    "Meaning: today's lead-to-signed-lead conversion rate. Formula: Today's SL / Today's Leads.",
+  "today-leads":
+    "Meaning: leads received today. Formula: count of CRM leads for today's date.",
+  "today-sl":
+    "Meaning: signed leads received today. Formula: count of CRM signed leads for today's date.",
+  "today-spend":
+    "Meaning: ad spend today. Formula: ad platform spend for today's date.",
 };
 
 const kpiDisplay: Record<string, { context?: string; title: string }> = {
   cpl: { title: "CPL" },
   cpsl: { title: "CPSL" },
   "intake-conversion": { context: "Conversion", title: "Intake" },
+  "mtd-lead-goal-completion": { context: "Completion", title: "Lead Goal" },
   "monthly-budget-eom": { context: "EOM progress", title: "Monthly Budget" },
   "monthly-budget-mtd": { context: "MTD progress", title: "Monthly Budget" },
   "mtd-sl-goal-completion": { context: "Completion", title: "SL Goal" },
+  "today-budget": { context: "Today", title: "Budget" },
+  "today-conversion": { context: "Today", title: "Conv" },
+  "today-leads": { context: "Today", title: "Leads" },
+  "today-sl": { context: "Today", title: "SL" },
+  "today-spend": { context: "Today", title: "Spend" },
 };
 
 export function KpiCard({ item }: KpiCardProps) {

@@ -16,12 +16,14 @@ import {
   formatCurrency,
   formatDashboardTimestamp,
   formatNumber,
+  formatPercentage,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
 import {
   appendDashboardQueryParams,
   resolveDashboardSectionApiUrl,
 } from "@/src/utils/runtimeApiUrls";
+import { getTodayDateRange } from "@/src/utils/dateRangeDefaults";
 import { BrandFilter } from "./BrandFilter";
 import { CampaignPerformanceChart } from "./CampaignPerformanceChart";
 import { CampaignStateTable } from "./CampaignStateTable";
@@ -80,6 +82,15 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     setDateRange,
     setSelectedBrand,
   } = useDashboardQueryParams({ maxRangeDays });
+  const todayDateRange = useMemo(() => getTodayDateRange(), []);
+  const todayDashboardQuery = useMemo(
+    () => ({
+      brand: dashboardQuery.brand,
+      from: todayDateRange.from,
+      to: todayDateRange.to,
+    }),
+    [dashboardQuery.brand, todayDateRange.from, todayDateRange.to],
+  );
   const kpisUrl = useMemo(
     () =>
       appendDashboardQueryParams(
@@ -104,6 +115,14 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
       ),
     [apiUrl, dashboardQuery],
   );
+  const todayStateCampaignsUrl = useMemo(
+    () =>
+      appendDashboardQueryParams(
+        resolveDashboardSectionApiUrl("state-campaigns", apiUrl),
+        todayDashboardQuery,
+      ),
+    [apiUrl, todayDashboardQuery],
+  );
   const kpisSection = useDashboardSection<AggregatedKpis>({
     errorMessage: "Unable to load KPI cards.",
     normalize: normalizeAggregatedKpis,
@@ -121,7 +140,13 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     normalize: normalizeStateCampaignRows,
     url: stateCampaignsUrl,
   });
+  const todayStateCampaignsSection = useDashboardSection<CampaignStateRow[]>({
+    errorMessage: "Unable to load today's KPI cards.",
+    normalize: normalizeStateCampaignRows,
+    url: todayStateCampaignsUrl,
+  });
   const [selectedStateFilter, setSelectedStateFilter] = useState<string[]>([]);
+  const todayStateRows = todayStateCampaignsSection.data ?? [];
   const stateRows = stateCampaignsSection.data ?? [];
   const availableStates = useMemo(
     () => new Set(stateRows.map((row) => row.state)),
@@ -153,20 +178,36 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
         : [],
     [activeStateFilter.length, dateRange, filteredStateRows],
   );
+  const todayKpiCards = useMemo(
+    () => buildTodayKpiCards(todayStateRows, todayDateRange),
+    [todayDateRange, todayStateRows],
+  );
+  const todayKpiContextLabel = `Today only: ${todayDateRange.to}`;
+  const generalKpiRangeContextLabel = formatKpiDateRangeContext(dateRange);
+  const allStateKpiContextLabels = [
+    "All states total",
+    generalKpiRangeContextLabel,
+  ];
   const filteredKpiContextLabel = `Filtered states: ${formatNumber(
     activeStateFilter.length,
   )} ${activeStateFilter.length === 1 ? "state" : "states"}`;
+  const filteredStateKpiContextLabels = [
+    filteredKpiContextLabel,
+    generalKpiRangeContextLabel,
+  ];
   const lastUpdated = useMemo(
     () =>
       formatLatestGeneratedAt([
         kpisSection.generatedAt,
         monthlyPerformanceSection.generatedAt,
         stateCampaignsSection.generatedAt,
+        todayStateCampaignsSection.generatedAt,
       ]),
     [
       kpisSection.generatedAt,
       monthlyPerformanceSection.generatedAt,
       stateCampaignsSection.generatedAt,
+      todayStateCampaignsSection.generatedAt,
     ],
   );
   const copy =
@@ -178,6 +219,7 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
   const dashboardStatusErrors = [
     kpisSection.data ? kpisSection.error : null,
     stateCampaignsSection.data ? stateCampaignsSection.error : null,
+    todayStateCampaignsSection.data ? todayStateCampaignsSection.error : null,
     monthlyPerformanceSection.data ? monthlyPerformanceSection.error : null,
   ].filter((error): error is string => Boolean(error));
   const retryDashboardSections = () => {
@@ -187,6 +229,13 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
 
     if (stateCampaignsSection.data && stateCampaignsSection.error) {
       stateCampaignsSection.retry();
+    }
+
+    if (
+      todayStateCampaignsSection.data &&
+      todayStateCampaignsSection.error
+    ) {
+      todayStateCampaignsSection.retry();
     }
 
     if (monthlyPerformanceSection.data && monthlyPerformanceSection.error) {
@@ -226,31 +275,51 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           errors={dashboardStatusErrors}
           onRetry={retryDashboardSections}
         />
-        {kpisSection.data ? (
-          <div className="space-y-4">
+        <div className="space-y-4">
+          {todayStateCampaignsSection.data ? (
             <KpiCardsGrid
-              ariaLabel="All state campaign KPIs"
-              contextLabel={
-                activeStateFilter.length > 0 ? "All states total" : undefined
-              }
-              items={allStateKpiCards}
+              ariaLabel="Today's state campaign KPIs"
+              contextLabel={todayKpiContextLabel}
+              items={todayKpiCards}
             />
-            {activeStateFilter.length > 0 ? (
+          ) : todayStateCampaignsSection.isLoading ? (
+            <KpiSkeletonGrid
+              itemCount={5}
+              label="Loading today's KPI cards..."
+            />
+          ) : (
+            <SectionError
+              message={
+                todayStateCampaignsSection.error ??
+                "Unable to load today's KPI cards."
+              }
+              onRetry={todayStateCampaignsSection.retry}
+            />
+          )}
+          {kpisSection.data ? (
+            <>
               <KpiCardsGrid
-                ariaLabel="Filtered state campaign KPIs"
-                contextLabel={filteredKpiContextLabel}
-                items={filteredStateKpiCards}
+                ariaLabel="All state campaign KPIs"
+                contextLabels={allStateKpiContextLabels}
+                items={allStateKpiCards}
               />
-            ) : null}
-          </div>
-        ) : kpisSection.isLoading ? (
-          <KpiSkeletonGrid />
-        ) : (
-          <SectionError
-            message={kpisSection.error ?? "Unable to load KPI cards."}
-            onRetry={kpisSection.retry}
-          />
-        )}
+              {activeStateFilter.length > 0 ? (
+                <KpiCardsGrid
+                  ariaLabel="Filtered state campaign KPIs"
+                  contextLabels={filteredStateKpiContextLabels}
+                  items={filteredStateKpiCards}
+                />
+              ) : null}
+            </>
+          ) : kpisSection.isLoading ? (
+            <KpiSkeletonGrid />
+          ) : (
+            <SectionError
+              message={kpisSection.error ?? "Unable to load KPI cards."}
+              onRetry={kpisSection.retry}
+            />
+          )}
+        </div>
         {stateCampaignsSection.data ? (
           <CampaignStateTable
             apiUrl={apiUrl}
@@ -489,6 +558,14 @@ function buildKpiCards(
     },
     {
       format: "percentage",
+      helperText: formatLeadGoalCompletionHelper(leadGoalContext),
+      id: "mtd-lead-goal-completion",
+      label: "% Lead Goal Completion",
+      status: getCompletionStatus(leadGoalContext.completionPct),
+      value: leadGoalContext.completionPct,
+    },
+    {
+      format: "percentage",
       helperText: formatIntakeConversionHelper(intakeConversion),
       id: "intake-conversion",
       label: "Intake Conversion",
@@ -496,6 +573,134 @@ function buildKpiCards(
       value: intakeConversion.conversionRate,
     },
   ];
+}
+
+function formatKpiDateRangeContext(dateRange: DashboardDateRange): string {
+  if (!dateRange.from || !dateRange.to) {
+    return "Selected range";
+  }
+
+  if (dateRange.from === dateRange.to) {
+    return `Selected day: ${dateRange.to}`;
+  }
+
+  return `Selected range: ${dateRange.from} to ${dateRange.to}`;
+}
+
+interface TodayKpiTotals {
+  budgetCompletionPct: number | null;
+  conversionRate: number | null;
+  dailyBudgetGoal: number | null;
+  dailyLeadGoal: number | null;
+  dailySlGoal: number | null;
+  leads: number | null;
+  signedLeads: number | null;
+  spend: number | null;
+}
+
+function buildTodayKpiCards(
+  rows: CampaignStateRow[],
+  dateRange: DashboardDateRange,
+): KpiCardData[] {
+  const monthPacing = buildMonthPacing(dateRange.to);
+  const totals = buildTodayKpiTotals(rows, monthPacing);
+  const leadCompletionPct = safeDivide(totals.leads, totals.dailyLeadGoal);
+  const slCompletionPct = safeDivide(totals.signedLeads, totals.dailySlGoal);
+
+  return [
+    {
+      format: "number",
+      helperText: formatDailyGoalHelper({
+        actual: totals.leads,
+        actualLabel: "Leads",
+        goal: totals.dailyLeadGoal,
+      }),
+      id: "today-leads",
+      label: "Leads",
+      status: getCompletionStatus(leadCompletionPct),
+      value: totals.leads,
+    },
+    {
+      format: "number",
+      helperText: formatDailyGoalHelper({
+        actual: totals.signedLeads,
+        actualLabel: "SL",
+        goal: totals.dailySlGoal,
+      }),
+      id: "today-sl",
+      label: "SL",
+      status: getCompletionStatus(slCompletionPct),
+      value: totals.signedLeads,
+    },
+    {
+      format: "percentage",
+      helperText: formatIntakeConversionHelper({
+        conversionRate: totals.conversionRate,
+        leads: totals.leads,
+        mtdSl: totals.signedLeads,
+      }),
+      id: "today-conversion",
+      label: "Conv",
+      status: getIntakeConversionStatus({
+        conversionRate: totals.conversionRate,
+        leads: totals.leads,
+        mtdSl: totals.signedLeads,
+      }),
+      value: totals.conversionRate,
+    },
+    {
+      format: "currency",
+      helperText: formatDailySpendHelper({
+        budgetCompletionPct: totals.budgetCompletionPct,
+        dailyBudgetGoal: totals.dailyBudgetGoal,
+      }),
+      id: "today-spend",
+      label: "Spend",
+      status: getCompletionStatus(totals.budgetCompletionPct),
+      value: totals.spend,
+    },
+    {
+      format: "percentage",
+      helperText: formatBudgetProgressHelper({
+        goal: totals.dailyBudgetGoal,
+        spent: totals.spend,
+      }),
+      id: "today-budget",
+      label: "Budget",
+      status: getCompletionStatus(totals.budgetCompletionPct),
+      value: totals.budgetCompletionPct,
+    },
+  ];
+}
+
+function buildTodayKpiTotals(
+  rows: CampaignStateRow[],
+  monthPacing: MonthPacing,
+): TodayKpiTotals {
+  const budget = sumNullable(rows.map((row) => row.budget));
+  const dailyBudgetGoal = calculateDailyGoal(budget, monthPacing);
+  const dailyLeadGoal = calculateDailyGoal(
+    sumNullable(rows.map((row) => row.leadsGoal)),
+    monthPacing,
+  );
+  const dailySlGoal = calculateDailyGoal(
+    sumNullable(rows.map((row) => row.slGoal)),
+    monthPacing,
+  );
+  const leads = sumNullable(rows.map((row) => row.leads));
+  const signedLeads = sumNullable(rows.map((row) => row.mtdSl));
+  const spend = sumNullable(rows.map((row) => row.mtdSpent));
+
+  return {
+    budgetCompletionPct: safeDivide(spend, dailyBudgetGoal),
+    conversionRate: safeDivide(signedLeads, leads),
+    dailyBudgetGoal,
+    dailyLeadGoal,
+    dailySlGoal,
+    leads,
+    signedLeads,
+    spend,
+  };
 }
 
 function getCompletionStatus(value: number | null): MetricStatus {
@@ -689,6 +894,7 @@ function formatCplHelper({
 }
 
 interface LeadGoalContext {
+  completionPct: number | null;
   leads: number | null;
   mtdLeadGoal: number | null;
 }
@@ -714,10 +920,27 @@ function calculateMtdLeadGoalContext(
     }
   }
 
+  const mtdLeadGoal = hasGoal ? calculateMtdGoal(leadGoal, monthPacing) : null;
+
   return {
+    completionPct: safeDivide(hasLeads ? leads : null, mtdLeadGoal),
     leads: hasLeads ? leads : null,
-    mtdLeadGoal: hasGoal ? calculateMtdGoal(leadGoal, monthPacing) : null,
+    mtdLeadGoal,
   };
+}
+
+function formatLeadGoalCompletionHelper({
+  leads,
+  mtdLeadGoal,
+}: LeadGoalContext): string | undefined {
+  if (leads == null && mtdLeadGoal == null) {
+    return undefined;
+  }
+
+  return [
+    `MTD L ${formatNumber(leads)}`,
+    `MTD Lead Goal ${formatNumber(mtdLeadGoal)}`,
+  ].join(" · ");
 }
 
 interface SlGoalCompletion {
@@ -771,12 +994,9 @@ function formatSlGoalCompletionHelper({
     return undefined;
   }
 
-  const leadGoal = mtdSlGoal == null ? null : mtdSlGoal * 10;
-
   return [
     `MTD SL ${formatNumber(mtdSl)}`,
-    `Goal ${formatNumber(mtdSlGoal)}`,
-    `Lead Goal ${formatNumber(leadGoal)}`,
+    `MTD SL Goal ${formatNumber(mtdSlGoal)}`,
   ].join(" · ");
 }
 
@@ -831,6 +1051,42 @@ function formatIntakeConversionHelper({
   ].join(" · ");
 }
 
+function formatDailyGoalHelper({
+  actual,
+  actualLabel,
+  goal,
+}: {
+  actual: number | null;
+  actualLabel: string;
+  goal: number | null;
+}): string | undefined {
+  if (actual == null && goal == null) {
+    return undefined;
+  }
+
+  return [
+    `Today ${actualLabel} ${formatNumber(actual)}`,
+    `Daily Goal ${formatNumber(goal)}`,
+  ].join(" · ");
+}
+
+function formatDailySpendHelper({
+  budgetCompletionPct,
+  dailyBudgetGoal,
+}: {
+  budgetCompletionPct: number | null;
+  dailyBudgetGoal: number | null;
+}): string | undefined {
+  if (budgetCompletionPct == null && dailyBudgetGoal == null) {
+    return undefined;
+  }
+
+  return [
+    `Daily Budget ${formatCurrency(dailyBudgetGoal)}`,
+    `Budget ${formatPercentage(budgetCompletionPct)}`,
+  ].join(" · ");
+}
+
 interface MonthPacing {
   daysElapsed: number;
   daysInMonth: number;
@@ -881,6 +1137,17 @@ function calculateMtdGoal(
   }
 
   return (monthlyGoal / monthPacing.daysInMonth) * monthPacing.daysElapsed;
+}
+
+function calculateDailyGoal(
+  monthlyGoal: number | null | undefined,
+  monthPacing: MonthPacing,
+): number | null {
+  if (typeof monthlyGoal !== "number" || !Number.isFinite(monthlyGoal)) {
+    return null;
+  }
+
+  return monthlyGoal / monthPacing.daysInMonth;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -981,12 +1248,25 @@ function SectionError({
   );
 }
 
-function KpiSkeletonGrid() {
+function KpiSkeletonGrid({
+  itemCount = 7,
+  label = "Loading KPI cards...",
+}: {
+  itemCount?: number;
+  label?: string;
+} = {}) {
+  const gridClassName =
+    itemCount === 5
+      ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+      : itemCount === 7
+        ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7"
+      : "grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6";
+
   return (
     <section className="grid gap-3">
-      <LoadingNotice label="Loading KPI cards..." />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-        {Array.from({ length: 7 }).map((_, index) => (
+      <LoadingNotice label={label} />
+      <div className={gridClassName}>
+        {Array.from({ length: itemCount }).map((_, index) => (
           <div
             className="min-h-[9.25rem] rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             key={index}

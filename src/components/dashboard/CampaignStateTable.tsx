@@ -15,7 +15,7 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type {
@@ -773,6 +773,35 @@ function StateFilterMenu({
   }, [options, search]);
   const selectedCount = selectedStates.size;
 
+  useEffect(() => {
+    const details = detailsRef.current;
+
+    if (!details) {
+      return;
+    }
+
+    function closeOnOutsideClick(event: MouseEvent | TouchEvent) {
+      const currentDetails = detailsRef.current;
+      const target = event.target;
+
+      if (
+        currentDetails &&
+        target instanceof Node &&
+        !currentDetails.contains(target)
+      ) {
+        currentDetails.removeAttribute("open");
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("touchstart", closeOnOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("touchstart", closeOnOutsideClick);
+    };
+  }, []);
+
   if (options.length === 0) {
     return null;
   }
@@ -840,9 +869,26 @@ function StateFilterMenu({
 }
 
 function buildStateFilterOptions(rows: CampaignStateRow[]): string[] {
-  return Array.from(new Set(rows.map((row) => row.state))).sort((first, second) =>
-    first.localeCompare(second),
-  );
+  const rowsByState = new Map<string, CampaignStateRow>();
+
+  for (const row of rows) {
+    if (!rowsByState.has(row.state)) {
+      rowsByState.set(row.state, row);
+    }
+  }
+
+  return Array.from(rowsByState.values())
+    .sort((first, second) => {
+      const firstBudget = normalizeSortableNumber(first.budget);
+      const secondBudget = normalizeSortableNumber(second.budget);
+
+      if (firstBudget !== secondBudget) {
+        return secondBudget - firstBudget;
+      }
+
+      return first.state.localeCompare(second.state);
+    })
+    .map((row) => row.state);
 }
 
 function filterRowsByStates(

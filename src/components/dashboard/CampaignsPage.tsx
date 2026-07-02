@@ -1185,6 +1185,11 @@ function CampaignDetailModal({
       aria-labelledby="campaign-detail-modal-title"
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-3 text-slate-950 sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       role="dialog"
     >
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">

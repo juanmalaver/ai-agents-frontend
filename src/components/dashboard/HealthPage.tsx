@@ -3056,6 +3056,11 @@ function AdSlackModal({
       aria-labelledby="ad-slack-modal-title"
       aria-modal="true"
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 px-4 py-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       role="dialog"
     >
       <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
@@ -3632,6 +3637,11 @@ function AdReuseModal({
       aria-labelledby="ad-reuse-modal-title"
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       role="dialog"
     >
       <div className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
