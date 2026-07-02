@@ -46,7 +46,6 @@ import { normalizeCampaignHealthRecommendation } from "@/src/utils/campaignHealt
 import {
   constrainDateRangeDays,
   getCurrentMonthDateRange,
-  isSameDateRange,
 } from "@/src/utils/dateRangeDefaults";
 import {
   appendHardRefreshQueryParam,
@@ -638,8 +637,6 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
       nextParams.delete("brand");
       nextParams.delete("brands");
       nextParams.delete("platform");
-      nextParams.delete("from");
-      nextParams.delete("to");
       nextParams.delete("states");
       nextParams.delete("grades");
       nextParams.delete("adGrades");
@@ -654,19 +651,6 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   }, [replaceParams]);
   const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
     const chips: ActiveFilterChip[] = [];
-    const currentDefaultRange = constrainDateRangeDays(
-      getCurrentMonthDateRange(),
-      AUDIT_MAX_RANGE_DAYS,
-    );
-
-    if (!isSameDateRange(dateRange, currentDefaultRange)) {
-      chips.push({
-        group: "Date",
-        id: "date-range",
-        label: formatDateRangeChip(dateRange),
-        onRemove: () => handleDateRangeChange({ from: null, to: null }),
-      });
-    }
 
     for (const platform of selectedPlatformIds) {
       chips.push({
@@ -759,13 +743,11 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   }, [
     adOptions,
     campaignOptions,
-    dateRange,
     gradeOptions,
     handleAdGradesChange,
     handleAdMetaStatusesChange,
     handleBrandChange,
     handleCampaignMetaStatusesChange,
-    handleDateRangeChange,
     handleGradesChange,
     handlePlatformChange,
     handleStatesChange,
@@ -1010,6 +992,13 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [adNamePlacements, creativePlacements],
   );
+  const advancedFilterCount =
+    selectedGrades.length +
+    selectedAdGrades.length +
+    selectedRecommendations.length +
+    selectedAdRecommendations.length +
+    selectedCampaignMetaStatuses.length +
+    selectedAdMetaStatuses.length;
 
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-950 md:px-6 lg:px-8">
@@ -1019,12 +1008,23 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           subtitle="Campaign and ad audit across selected platforms, brands, campaigns, and ads."
           title="Audit"
         />
-        <DashboardTabs activeTab="health" query={tabQuery} />
+        <DashboardTabs
+          activeTab="health"
+          endAdornment={
+            <DateRangeFilter
+              dateRange={dateRange}
+              maxRangeDays={AUDIT_MAX_RANGE_DAYS}
+              onDateRangeChange={handleDateRangeChange}
+              variant="tabs"
+            />
+          }
+          query={tabQuery}
+        />
         <section
           aria-label="Audit filters"
           className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
         >
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-[0.85fr_1fr_1.2fr_1.2fr_1fr_1fr]">
             <MultiSelectFilter
               disabled={isLoading && !data}
               label="Platforms"
@@ -1070,7 +1070,23 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 "ads selected",
               )}
             />
-            <div className="grid min-w-0 grid-cols-2 gap-2">
+            <MultiSelectFilter
+              disabled={dependentFiltersDisabled}
+              label="States"
+              loading={isRefreshingHealth}
+              onChange={handleStatesChange}
+              options={stateOptions}
+              selectedIds={selectedStates}
+              summary={summarizeSelection(
+                selectedStates,
+                "All states",
+                "states selected",
+              )}
+            />
+            <MoreFiltersMenu
+              activeCount={advancedFilterCount}
+              disabled={dependentFiltersDisabled}
+            >
               <MultiSelectFilter
                 disabled={dependentFiltersDisabled}
                 label="Campaign grades"
@@ -1099,11 +1115,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 )}
                 withSearch={false}
               />
-            </div>
-            <div className="grid min-w-0 grid-cols-2 gap-2">
               <MultiSelectFilter
                 disabled={dependentFiltersDisabled}
-                label="Campaign recommendations"
+                label="Campaign recs"
                 loading={isRefreshingHealth}
                 onChange={(values) =>
                   setSelectedRecommendations(
@@ -1114,14 +1128,14 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 selectedIds={selectedRecommendations}
                 summary={summarizeSelection(
                   selectedRecommendations,
-                  "All campaign recommendations",
-                  "campaign recommendations selected",
+                  "All campaign recs",
+                  "campaign recs selected",
                 )}
                 withSearch={false}
               />
               <MultiSelectFilter
                 disabled={dependentFiltersDisabled}
-                label="Ad recommendations"
+                label="Ad recs"
                 loading={isRefreshingHealth}
                 onChange={(values) =>
                   setSelectedAdRecommendations(
@@ -1132,13 +1146,11 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 selectedIds={selectedAdRecommendations}
                 summary={summarizeSelection(
                   selectedAdRecommendations,
-                  "All ad recommendations",
-                  "ad recommendations selected",
+                  "All ad recs",
+                  "ad recs selected",
                 )}
                 withSearch={false}
               />
-            </div>
-            <div className="grid min-w-0 grid-cols-2 gap-2">
               <MultiSelectFilter
                 disabled={dependentFiltersDisabled}
                 label="Campaign status"
@@ -1167,27 +1179,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 )}
                 withSearch={false}
               />
-            </div>
-            <MultiSelectFilter
-              disabled={dependentFiltersDisabled}
-              label="States"
-              loading={isRefreshingHealth}
-              onChange={handleStatesChange}
-              options={stateOptions}
-              selectedIds={selectedStates}
-              summary={summarizeSelection(
-                selectedStates,
-                "All states",
-                "states selected",
-              )}
-            />
-          </div>
-          <div className="mt-3">
-            <DateRangeFilter
-              dateRange={dateRange}
-              maxRangeDays={AUDIT_MAX_RANGE_DAYS}
-              onDateRangeChange={handleDateRangeChange}
-            />
+            </MoreFiltersMenu>
           </div>
           <ActiveFiltersBar
             chips={activeFilterChips}
@@ -1284,6 +1276,10 @@ function ActiveFiltersBar({
   disabled: boolean;
   onClearAll: () => void;
 }) {
+  if (chips.length === 0) {
+    return null;
+  }
+
   return (
     <div className="mt-3 border-t border-slate-100 pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1297,44 +1293,138 @@ function ActiveFiltersBar({
         </div>
         <button
           className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={disabled || chips.length === 0}
+          disabled={disabled}
           onClick={onClearAll}
           type="button"
         >
           Clear all
         </button>
       </div>
-      {chips.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {chips.map((chip) => (
-            <span
-              className="inline-flex max-w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-700"
-              key={chip.id}
-            >
-              <span className="shrink-0 border-r border-slate-200 bg-white/70 px-2 py-1 uppercase tracking-wide text-slate-500">
-                {chip.group}
-              </span>
-              <span className="min-w-0 truncate px-2 py-1" title={chip.label}>
-                {chip.label}
-              </span>
-              <button
-                aria-label={`Remove ${chip.group} filter ${chip.label}`}
-                className="shrink-0 border-l border-slate-200 px-2 py-1 text-slate-500 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={disabled}
-                onClick={chip.onRemove}
-                type="button"
-              >
-                x
-              </button>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {chips.map((chip) => (
+          <span
+            className="inline-flex max-w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-700"
+            key={chip.id}
+          >
+            <span className="shrink-0 border-r border-slate-200 bg-white/70 px-2 py-1 uppercase tracking-wide text-slate-500">
+              {chip.group}
             </span>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-2 text-sm font-medium text-slate-500">
-          No active filters
-        </p>
-      )}
+            <span className="min-w-0 truncate px-2 py-1" title={chip.label}>
+              {chip.label}
+            </span>
+            <button
+              aria-label={`Remove ${chip.group} filter ${chip.label}`}
+              className="shrink-0 border-l border-slate-200 px-2 py-1 text-slate-500 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={disabled}
+              onClick={chip.onRemove}
+              type="button"
+            >
+              x
+            </button>
+          </span>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function MoreFiltersMenu({
+  activeCount,
+  children,
+  disabled,
+}: {
+  activeCount: number;
+  children: ReactNode;
+  disabled: boolean;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const hasActiveFilters = activeCount > 0;
+
+  useEffect(() => {
+    if (disabled) {
+      detailsRef.current?.removeAttribute("open");
+    }
+  }, [disabled]);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent | TouchEvent) {
+      const details = detailsRef.current;
+      const target = event.target;
+
+      if (details && target instanceof Node && !details.contains(target)) {
+        details.removeAttribute("open");
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("touchstart", closeOnOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("touchstart", closeOnOutsideClick);
+    };
+  }, []);
+
+  return (
+    <details className="relative min-w-0" ref={detailsRef}>
+      <summary
+        aria-disabled={disabled}
+        className={`flex h-11 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-lg border px-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
+          hasActiveFilters
+            ? "border-teal-300 bg-teal-50 text-teal-900"
+            : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
+        } ${disabled ? "pointer-events-none opacity-50" : ""}`}
+        onClick={(event) => {
+          if (disabled) {
+            event.preventDefault();
+          }
+        }}
+        title="More filters"
+      >
+        <span className="min-w-0">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-semibold">
+              More filters
+            </span>
+            {hasActiveFilters ? (
+              <span className="rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[0.68rem] font-bold leading-none text-current">
+                {formatNumber(activeCount)}
+              </span>
+            ) : null}
+          </span>
+          <span className="block truncate text-[0.72rem] font-semibold text-current opacity-70">
+            {hasActiveFilters
+              ? `${formatNumber(activeCount)} active`
+              : "Grades, recs, status"}
+          </span>
+        </span>
+        <span aria-hidden="true" className="shrink-0 text-xs opacity-60">
+          v
+        </span>
+      </summary>
+      <div className="absolute left-0 z-30 mt-2 w-[42rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-950 shadow-2xl xl:left-auto xl:right-0">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">
+              More filters
+            </p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">
+              {hasActiveFilters
+                ? `${formatNumber(activeCount)} active`
+                : "Grades, recommendations, and statuses"}
+            </p>
+          </div>
+          <button
+            className="rounded-md border border-slate-300 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+            onClick={() => detailsRef.current?.removeAttribute("open")}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">{children}</div>
+      </div>
+    </details>
   );
 }
 
@@ -1357,6 +1447,7 @@ function MultiSelectFilter({
   summary: string;
   withSearch?: boolean;
 }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   const [search, setSearch] = useState("");
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const visibleOptions = useMemo(() => {
@@ -1370,75 +1461,145 @@ function MultiSelectFilter({
       option.label.toLowerCase().includes(normalizedSearch),
     );
   }, [options, search]);
+  const selectedCount = selectedIds.length;
+
+  useEffect(() => {
+    if (disabled) {
+      detailsRef.current?.removeAttribute("open");
+    }
+  }, [disabled]);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent | TouchEvent) {
+      const details = detailsRef.current;
+      const target = event.target;
+
+      if (details && target instanceof Node && !details.contains(target)) {
+        details.removeAttribute("open");
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("touchstart", closeOnOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("touchstart", closeOnOutsideClick);
+    };
+  }, []);
+
+  const toggleOption = (optionId: string) => {
+    onChange(
+      selectedSet.has(optionId)
+        ? selectedIds.filter((id) => id !== optionId)
+        : [...selectedIds, optionId],
+    );
+  };
 
   return (
-    <fieldset className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <legend className="text-sm font-semibold text-slate-800">
-          {label}
-        </legend>
+    <details className="relative min-w-0" ref={detailsRef}>
+      <summary
+        aria-disabled={disabled}
+        className={`flex h-11 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-lg border px-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
+          selectedCount > 0
+            ? "border-teal-300 bg-teal-50 text-teal-900"
+            : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
+        } ${disabled ? "pointer-events-none opacity-50" : ""}`}
+        onClick={(event) => {
+          if (disabled) {
+            event.preventDefault();
+          }
+        }}
+        title={`${label}: ${summary}`}
+      >
+        <span className="min-w-0">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-semibold">{label}</span>
+            {selectedCount > 0 ? (
+              <span className="rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[0.68rem] font-bold leading-none text-current">
+                {formatNumber(selectedCount)}
+              </span>
+            ) : null}
+          </span>
+          <span className="block truncate text-[0.72rem] font-semibold text-current opacity-70">
+            {loading ? "Updating..." : summary}
+          </span>
+        </span>
+        <span aria-hidden="true" className="shrink-0 text-xs opacity-60">
+          v
+        </span>
+      </summary>
+      <div className="absolute left-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-950 shadow-2xl">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">
+              {label}
+            </p>
+            <p className="mt-0.5 truncate text-xs font-semibold text-teal-700">
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <LoadingSpinner
+                    className="h-3.5 w-3.5 text-teal-600"
+                    label={`Updating ${label.toLowerCase()}`}
+                  />
+                  Updating...
+                </span>
+              ) : (
+                summary
+              )}
+            </p>
+          </div>
+          <button
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={disabled || selectedIds.length === 0}
+            onClick={() => onChange([])}
+            type="button"
+          >
+            Clear
+          </button>
+        </div>
+        {withSearch ? (
+          <input
+            className="mb-2 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-100"
+            disabled={disabled}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={`Search ${label.toLowerCase()}`}
+            type="search"
+            value={search}
+          />
+        ) : null}
+        <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((option) => (
+              <label
+                className="flex min-h-8 cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-50"
+                key={option.id}
+              >
+                <input
+                  checked={selectedSet.has(option.id)}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  disabled={disabled}
+                  onChange={() => toggleOption(option.id)}
+                  type="checkbox"
+                />
+                <span className="min-w-0 break-words">{option.label}</span>
+              </label>
+            ))
+          ) : (
+            <div className="rounded-md bg-slate-50 px-2 py-3 text-sm font-medium text-slate-500">
+              {loading ? "Updating options..." : "No options"}
+            </div>
+          )}
+        </div>
         <button
-          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={disabled || selectedIds.length === 0}
-          onClick={() => onChange([])}
+          className="mt-2 w-full rounded-md border border-slate-300 bg-slate-950 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+          onClick={() => detailsRef.current?.removeAttribute("open")}
           type="button"
         >
-          Clear
+          Close
         </button>
       </div>
-      <p className="mb-2 truncate text-xs font-semibold text-teal-700">
-        {loading ? (
-          <span className="inline-flex items-center gap-2">
-            <LoadingSpinner
-              className="h-3.5 w-3.5 text-teal-600"
-              label={`Updating ${label.toLowerCase()}`}
-            />
-            Updating...
-          </span>
-        ) : (
-          summary
-        )}
-      </p>
-      {withSearch ? (
-        <input
-          className="mb-2 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-100"
-          disabled={disabled}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={`Search ${label.toLowerCase()}`}
-          type="search"
-          value={search}
-        />
-      ) : null}
-      <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
-        {visibleOptions.length > 0 ? (
-          visibleOptions.map((option) => (
-            <label
-              className="flex min-h-8 cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 transition hover:bg-white"
-              key={option.id}
-            >
-              <input
-                checked={selectedSet.has(option.id)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                disabled={disabled}
-                onChange={() => {
-                  onChange(
-                    selectedSet.has(option.id)
-                      ? selectedIds.filter((id) => id !== option.id)
-                      : [...selectedIds, option.id],
-                  );
-                }}
-                type="checkbox"
-              />
-              <span className="min-w-0 break-words">{option.label}</span>
-            </label>
-          ))
-        ) : (
-          <div className="rounded-md bg-white px-2 py-3 text-sm font-medium text-slate-500">
-            {loading ? "Updating options..." : "No options"}
-          </div>
-        )}
-      </div>
-    </fieldset>
+    </details>
   );
 }
 
@@ -1551,47 +1712,55 @@ function HealthSummary({
   const selectedAdRecommendationSet = new Set(selectedAdRecommendations);
 
   return (
-    <section className="space-y-3">
-      <SummaryGradeRow
-        counts={counts}
-        disabled={disabled}
-        onClearGrades={onClearGrades}
-        onToggleGrade={onToggleGrade}
-        selectedGradeSet={selectedGradeSet}
-        title="Campaign grades"
-        visibleIsActive={selectedGrades.length === 0}
-        visibleValue={`${rows.length}/${totalRows}`}
-      />
-      <SummaryGradeRow
-        counts={adCounts}
-        disabled={disabled}
-        onClearGrades={onClearAdGrades}
-        onToggleGrade={onToggleAdGrade}
-        selectedGradeSet={selectedAdGradeSet}
-        title="Ad grades"
-        visibleIsActive={selectedAdGrades.length === 0}
-        visibleValue={`${visibleAdCount}/${totalAdCount}`}
-      />
-      <SummaryRecommendationRow
-        counts={recommendationCounts}
-        disabled={disabled}
-        onClearRecommendations={onClearRecommendations}
-        onToggleRecommendation={onToggleRecommendation}
-        selectedRecommendationSet={selectedRecommendationSet}
-        title="Campaign recommendations"
-        visibleIsActive={selectedRecommendations.length === 0}
-        visibleValue={`${rows.length}/${campaignRecommendationCountRows.length}`}
-      />
-      <SummaryRecommendationRow
-        counts={adRecommendationCounts}
-        disabled={disabled}
-        onClearRecommendations={onClearAdRecommendations}
-        onToggleRecommendation={onToggleAdRecommendation}
-        selectedRecommendationSet={selectedAdRecommendationSet}
-        title="Ad recommendations"
-        visibleIsActive={selectedAdRecommendations.length === 0}
-        visibleValue={`${visibleAdRecommendationCount}/${totalAdRecommendationCount}`}
-      />
+    <section className="grid gap-4 xl:grid-cols-2">
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-slate-800">Grades</h2>
+        <SummaryGradeRow
+          counts={counts}
+          disabled={disabled}
+          onClearGrades={onClearGrades}
+          onToggleGrade={onToggleGrade}
+          selectedGradeSet={selectedGradeSet}
+          title="Campaigns"
+          visibleIsActive={selectedGrades.length === 0}
+          visibleValue={`${rows.length}/${totalRows}`}
+        />
+        <SummaryGradeRow
+          counts={adCounts}
+          disabled={disabled}
+          onClearGrades={onClearAdGrades}
+          onToggleGrade={onToggleAdGrade}
+          selectedGradeSet={selectedAdGradeSet}
+          title="Ads"
+          visibleIsActive={selectedAdGrades.length === 0}
+          visibleValue={`${visibleAdCount}/${totalAdCount}`}
+        />
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-slate-800">
+          Recommendations
+        </h2>
+        <SummaryRecommendationRow
+          counts={recommendationCounts}
+          disabled={disabled}
+          onClearRecommendations={onClearRecommendations}
+          onToggleRecommendation={onToggleRecommendation}
+          selectedRecommendationSet={selectedRecommendationSet}
+          title="Campaigns"
+          visibleIsActive={selectedRecommendations.length === 0}
+          visibleValue={`${rows.length}/${campaignRecommendationCountRows.length}`}
+        />
+        <SummaryRecommendationRow
+          counts={adRecommendationCounts}
+          disabled={disabled}
+          onClearRecommendations={onClearAdRecommendations}
+          onToggleRecommendation={onToggleAdRecommendation}
+          selectedRecommendationSet={selectedAdRecommendationSet}
+          title="Ads"
+          visibleIsActive={selectedAdRecommendations.length === 0}
+          visibleValue={`${visibleAdRecommendationCount}/${totalAdRecommendationCount}`}
+        />
+      </div>
     </section>
   );
 }
@@ -1617,8 +1786,10 @@ function SummaryGradeRow({
 }) {
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
-      <div className="grid gap-3 md:grid-cols-6">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </h3>
+      <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-6">
         <SummaryTile
           active={visibleIsActive}
           disabled={disabled}
@@ -1668,8 +1839,10 @@ function SummaryRecommendationRow({
 }) {
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
-      <div className="grid gap-3 md:grid-cols-5">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </h3>
+      <div className="grid gap-2 sm:grid-cols-3 2xl:grid-cols-6">
         <SummaryTile
           active={visibleIsActive}
           disabled={disabled}
@@ -1905,6 +2078,12 @@ function HealthTable({
         sortingFn: nullableNumberSortingFn,
       },
       {
+        accessorKey: "droppedLeads",
+        header: "Drop",
+        sortDescFirst: true,
+        sortingFn: nullableNumberSortingFn,
+      },
+      {
         accessorKey: "cpsl",
         header: "Overall CPSL",
         id: "overallCpsl",
@@ -1951,12 +2130,6 @@ function HealthTable({
         accessorFn: (row) => row.metricHealth.intake.value,
         header: "Int. Conv.",
         id: "intake",
-        sortDescFirst: true,
-        sortingFn: nullableNumberSortingFn,
-      },
-      {
-        accessorKey: "droppedLeads",
-        header: "Drop",
         sortDescFirst: true,
         sortingFn: nullableNumberSortingFn,
       },
@@ -2088,6 +2261,7 @@ function HealthTable({
             <col className="w-[4%]" />
             <col className="w-[3.4%]" />
             <col className="w-[3.4%]" />
+            <col className="w-[3.4%]" />
             <col className="w-[5%]" />
             <col className="w-[3.8%]" />
             <col className="w-[3.4%]" />
@@ -2096,7 +2270,6 @@ function HealthTable({
             <col className="w-[3.8%]" />
             <col className="w-[3.8%]" />
             <col className="w-[3.8%]" />
-            <col className="w-[3.4%]" />
             <col className="w-[3.7%]" />
             <col className="w-[3.7%]" />
             <col className="w-[5.8%]" />
@@ -2305,6 +2478,9 @@ function HealthTableRow({
           {formatNumber(row.signedLeads)}
         </td>
         <td className="px-2 py-3 text-right font-semibold text-slate-950">
+          {formatNumber(row.droppedLeads)}
+        </td>
+        <td className="px-2 py-3 text-right font-semibold text-slate-950">
           {formatCurrency(row.cpsl)}
         </td>
         <td className="px-2 py-3 text-right font-semibold text-slate-950">
@@ -2331,9 +2507,6 @@ function HealthTableRow({
         </td>
         <td className="px-2 py-3">
           <MetricChip metric={row.metricHealth.intake} variant="percentage" />
-        </td>
-        <td className="px-2 py-3 text-right font-semibold text-slate-950">
-          {formatNumber(row.droppedLeads)}
         </td>
         <td className="px-2 py-3 text-right font-semibold text-slate-950">
           {formatAverageDays(row.averageLeadAgeDays)}
@@ -6040,18 +6213,6 @@ function getOptionLabel(
   id: string,
 ): string {
   return options.find((option) => option.id === id)?.label ?? id;
-}
-
-function formatDateRangeChip(range: DashboardDateRange): string {
-  if (!range.from || !range.to) {
-    return "Default range";
-  }
-
-  if (range.from === range.to) {
-    return range.from;
-  }
-
-  return `${range.from} - ${range.to}`;
 }
 
 function summarizeBrands(selectedBrands: string[]): string {

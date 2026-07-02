@@ -472,7 +472,25 @@ export function CampaignsPage({
             subtitle="AI brief, campaign-level pacing, CPL risk, and lead behavior."
             title="AI Recommendations"
           />
-          <DashboardTabs activeTab="campaigns" query={dashboardQuery} />
+          <DashboardTabs
+            activeTab="campaigns"
+            endAdornment={
+              <div
+                className="flex min-w-max items-center gap-2 text-xs font-semibold text-slate-600"
+                title="AI Recommendations use yesterday's completed data."
+              >
+                <span>From</span>
+                <span className="rounded-md border border-slate-300 bg-white px-2 py-1.5 font-medium text-slate-900 shadow-sm">
+                  {dailyBriefDateRange.from}
+                </span>
+                <span>To</span>
+                <span className="rounded-md border border-slate-300 bg-white px-2 py-1.5 font-medium text-slate-900 shadow-sm">
+                  {dailyBriefDateRange.to}
+                </span>
+              </div>
+            }
+            query={dashboardQuery}
+          />
           <AgentBriefPanel
             brandError={null}
             brandOptions={A1_BRIEF_BRANDS}
@@ -492,25 +510,12 @@ export function CampaignsPage({
             aria-label="Dashboard filters"
             className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
           >
-            <div className="grid gap-3 xl:grid-cols-[minmax(14rem,0.75fr)_minmax(0,1.65fr)] xl:items-start">
-              <BrandFilter
-                apiUrl={apiUrl}
-                dateRange={dailyBriefDateRange}
-                onBrandChange={setSelectedBrand}
-                selectedBrand={selectedBrand}
-              />
-              <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <p className="text-sm font-semibold text-slate-700">
-                  Daily brief date
-                </p>
-                <p className="mt-1 text-sm font-medium text-slate-950">
-                  {dailyBriefDateRange.to}
-                </p>
-                <p className="mt-1 text-xs font-medium text-slate-500">
-                  Yesterday's completed data
-                </p>
-              </div>
-            </div>
+            <BrandFilter
+              apiUrl={apiUrl}
+              dateRange={dailyBriefDateRange}
+              onBrandChange={setSelectedBrand}
+              selectedBrand={selectedBrand}
+            />
           </section>
           <CampaignSectionStatus
             error={summarySection.data ? summarySection.error : null}

@@ -251,25 +251,29 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
           title={copy.title}
         />
         {activeTab ? (
-          <DashboardTabs activeTab={activeTab} query={dashboardQuery} />
+          <DashboardTabs
+            activeTab={activeTab}
+            endAdornment={
+              <DateRangeFilter
+                dateRange={dateRange}
+                maxRangeDays={maxRangeDays}
+                onDateRangeChange={setDateRange}
+                variant="tabs"
+              />
+            }
+            query={dashboardQuery}
+          />
         ) : null}
         <section
           aria-label="Dashboard filters"
           className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
         >
-          <div className="grid gap-3 xl:grid-cols-[minmax(14rem,0.75fr)_minmax(0,1.65fr)] xl:items-start">
-            <BrandFilter
-              apiUrl={apiUrl}
-              dateRange={dateRange}
-              onBrandChange={setSelectedBrand}
-              selectedBrand={selectedBrand}
-            />
-            <DateRangeFilter
-              dateRange={dateRange}
-              maxRangeDays={maxRangeDays}
-              onDateRangeChange={setDateRange}
-            />
-          </div>
+          <BrandFilter
+            apiUrl={apiUrl}
+            dateRange={dateRange}
+            onBrandChange={setSelectedBrand}
+            selectedBrand={selectedBrand}
+          />
         </section>
         <SectionStatus
           errors={dashboardStatusErrors}

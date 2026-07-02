@@ -2,6 +2,7 @@ import type {
   DashboardQueryParams,
   DashboardTabId,
 } from "@/src/types/dashboard";
+import type { ReactNode } from "react";
 import { appendDashboardQueryParams } from "@/src/utils/runtimeApiUrls";
 import { TabNav } from "./TabNav";
 
@@ -35,9 +36,11 @@ const tabs: Array<{ href: string; id: DashboardTabId; label: string }> = [
 
 export function DashboardTabs({
   activeTab,
+  endAdornment,
   query,
 }: {
   activeTab: DashboardTabId;
+  endAdornment?: ReactNode;
   query?: DashboardQueryParams;
 }) {
   return (
@@ -45,6 +48,7 @@ export function DashboardTabs({
       <TabNav
         activeTab={activeTab}
         ariaLabel="Marketing dashboard sections"
+        endAdornment={endAdornment}
         tabs={tabs.map((tab) => ({
           ...tab,
           href: appendDashboardQueryParams(tab.href, query) ?? tab.href,
