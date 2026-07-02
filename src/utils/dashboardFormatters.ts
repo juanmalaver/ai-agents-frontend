@@ -20,9 +20,13 @@ const percentageFormatter = new Intl.NumberFormat("en-US", {
   style: "percent",
 });
 const dashboardTimestampFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
+  day: "2-digit",
+  hour: "numeric",
+  hour12: true,
+  minute: "2-digit",
+  month: "2-digit",
   timeZone: DASHBOARD_TIME_ZONE,
+  year: "numeric",
 });
 
 export function formatCurrency(value: NullableNumber): string {
@@ -63,6 +67,48 @@ export function formatMonth(value: string): string {
   }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
+export function formatDashboardDate(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+
+  const inputDateParts = parseDateParts(value);
+
+  if (inputDateParts) {
+    return formatDateParts(inputDateParts);
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return formatDateFromFormatterParts(
+    new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "UTC",
+      year: "numeric",
+    }).formatToParts(parsedDate),
+  );
+}
+
+export function formatDashboardDateRange(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string {
+  if (!from && !to) {
+    return "-";
+  }
+
+  if (from && to && from === to) {
+    return formatDashboardDate(from);
+  }
+
+  return `${formatDashboardDate(from)} to ${formatDashboardDate(to)}`;
+}
+
 export function formatDashboardTimestamp(value: string): string {
   const date = new Date(value);
 
@@ -70,7 +116,13 @@ export function formatDashboardTimestamp(value: string): string {
     return value;
   }
 
-  return dashboardTimestampFormatter.format(date);
+  const byType = Object.fromEntries(
+    dashboardTimestampFormatter
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  );
+
+  return `${byType.month}-${byType.day}-${byType.year}, ${byType.hour}:${byType.minute} ${byType.dayPeriod}`;
 }
 
 export function safeDivide(
@@ -90,4 +142,42 @@ export function safeDivide(
 
 function isValidNumber(value: NullableNumber): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseDateParts(
+  value: string,
+): { day: string; month: string; year: string } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+
+  return { day, month, year };
+}
+
+function formatDateParts({
+  day,
+  month,
+  year,
+}: {
+  day: string;
+  month: string;
+  year: string;
+}): string {
+  return `${month}-${day}-${year}`;
+}
+
+function formatDateFromFormatterParts(parts: Intl.DateTimeFormatPart[]): string {
+  const byType = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+
+  return formatDateParts({
+    day: byType.day,
+    month: byType.month,
+    year: byType.year,
+  });
 }

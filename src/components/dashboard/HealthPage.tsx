@@ -36,8 +36,12 @@ import type {
   MarketingDashboardHealthResponse,
 } from "@/src/types/campaignHealth";
 import type { DashboardDateRange } from "@/src/types/dashboard";
+import { useAuthUser } from "@/src/components/auth/AuthGate";
+import type { AuthUser } from "@/src/utils/auth/authApi";
 import {
   formatCurrency,
+  formatDashboardDate,
+  formatDashboardDateRange,
   formatDashboardTimestamp,
   formatNumber,
   formatPercentage,
@@ -141,6 +145,7 @@ interface SlackGradeMessageRequest {
   grade: string;
   message: string;
   priority: SlackPriorityLevel;
+  sentBy?: string;
   title?: string;
   videoReference: string;
 }
@@ -152,10 +157,6 @@ const SLACK_PRIORITY_OPTIONS: SlackPriorityLevel[] = [
   "High",
   "Urgent",
 ];
-const CAMPAIGN_START_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeZone: "UTC",
-});
 
 interface ToggleExpandedRowOptions {
   autoExpanded?: boolean;
@@ -248,6 +249,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
   );
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const [collapsedRows, setCollapsedRows] = useState<string[]>([]);
+  const [showAllAdCampaignIds, setShowAllAdCampaignIds] = useState<string[]>(
+    [],
+  );
   const [selectedAdReuse, setSelectedAdReuse] =
     useState<SelectedAdReuse | null>(null);
   const adMediaApiUrl = useMemo(
@@ -854,7 +858,21 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     setCollapsedRows((current) =>
       current.filter((id) => visibleRowIds.has(id)),
     );
+    setShowAllAdCampaignIds((current) =>
+      current.filter((id) => visibleRowIds.has(id)),
+    );
   }, [filteredRows]);
+  const hasActiveAdDetailFilters =
+    selectedAdIds.length > 0 ||
+    selectedAdGrades.length > 0 ||
+    selectedAdMetaStatuses.length > 0 ||
+    selectedAdRecommendations.length > 0 ||
+    selectedStates.length > 0;
+  useEffect(() => {
+    if (!hasActiveAdDetailFilters) {
+      setShowAllAdCampaignIds([]);
+    }
+  }, [hasActiveAdDetailFilters]);
   const toggleExpandedRow = useCallback(
     (id: string, options: ToggleExpandedRowOptions = {}) => {
       if (options.autoExpanded) {
@@ -880,6 +898,19 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
     },
     [],
   );
+  const toggleCampaignAdFilterOverride = useCallback((id: string) => {
+    setShowAllAdCampaignIds((current) =>
+      current.includes(id)
+        ? current.filter((currentId) => currentId !== id)
+        : [...current, id],
+    );
+    setCollapsedRows((current) =>
+      current.filter((currentId) => currentId !== id),
+    );
+    setExpandedRows((current) =>
+      current.includes(id) ? current : [...current, id],
+    );
+  }, []);
   const openCampaignRows = useCallback((ids: string[]) => {
     if (ids.length === 0) {
       return;
@@ -1021,9 +1052,19 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
           query={tabQuery}
         />
         <section
-          aria-label="Audit filters"
-          className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+          aria-labelledby="audit-filters-title"
+          className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-control-hover-bg)] p-3 shadow-sm"
         >
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-app-border)] pb-2">
+            <div className="min-w-0">
+              <h2
+                className="text-sm font-semibold text-[var(--color-app-text)]"
+                id="audit-filters-title"
+              >
+                Audit filters
+              </h2>
+            </div>
+          </div>
           <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-[0.85fr_1fr_1.2fr_1.2fr_1fr_1fr]">
             <MultiSelectFilter
               disabled={isLoading && !data}
@@ -1237,6 +1278,9 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 onCollapseAllRows={collapseCampaignRows}
                 onOpenAdReuse={handleOpenAdReuse}
                 onOpenAllRows={openCampaignRows}
+                onToggleCampaignAdFilterOverride={
+                  toggleCampaignAdFilterOverride
+                }
                 onToggleExpandedRow={toggleExpandedRow}
                 rampUpDays={data.thresholds.rampUp.minimumCampaignAgeDays}
                 rows={filteredRows}
@@ -1245,6 +1289,7 @@ export function HealthPage({ apiUrl }: HealthPageProps) {
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
                 selectedAdRecommendations={selectedAdRecommendations}
                 selectedStates={selectedStates}
+                showAllAdCampaignIds={showAllAdCampaignIds}
                 slackMessageApiUrl={slackMessageApiUrl}
               />
             </RefreshingRegion>
@@ -1281,18 +1326,18 @@ function ActiveFiltersBar({
   }
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
+    <div className="mt-3 border-t border-[var(--color-app-border)] pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-sm font-semibold text-slate-800">
+          <h2 className="text-sm font-semibold text-[var(--color-app-text)]">
             Active filters
           </h2>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+          <span className="rounded-full bg-[var(--color-control-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--color-app-text-muted)] ring-1 ring-inset ring-[var(--color-control-border)]">
             {chips.length}
           </span>
         </div>
         <button
-          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-rose-200 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-control-text)] transition hover:border-rose-300 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={disabled}
           onClick={onClearAll}
           type="button"
@@ -1303,10 +1348,10 @@ function ActiveFiltersBar({
       <div className="mt-2 flex flex-wrap gap-2">
         {chips.map((chip) => (
           <span
-            className="inline-flex max-w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-700"
+            className="inline-flex max-w-full overflow-hidden rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-xs font-semibold text-[var(--color-app-text)] shadow-sm"
             key={chip.id}
           >
-            <span className="shrink-0 border-r border-slate-200 bg-white/70 px-2 py-1 uppercase tracking-wide text-slate-500">
+            <span className="shrink-0 border-r border-[var(--color-control-border)] bg-[var(--color-app-surface)] px-2 py-1 uppercase tracking-wide text-[var(--color-app-text-muted)]">
               {chip.group}
             </span>
             <span className="min-w-0 truncate px-2 py-1" title={chip.label}>
@@ -1314,7 +1359,7 @@ function ActiveFiltersBar({
             </span>
             <button
               aria-label={`Remove ${chip.group} filter ${chip.label}`}
-              className="shrink-0 border-l border-slate-200 px-2 py-1 text-slate-500 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 border-l border-[var(--color-control-border)] px-2 py-1 text-[var(--color-app-text-muted)] transition hover:bg-[var(--color-control-hover-bg)] hover:text-[var(--color-app-text)] disabled:cursor-not-allowed disabled:opacity-40"
               disabled={disabled}
               onClick={chip.onRemove}
               type="button"
@@ -1372,7 +1417,7 @@ function MoreFiltersMenu({
         className={`flex h-11 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-lg border px-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
           hasActiveFilters
             ? "border-teal-300 bg-teal-50 text-teal-900"
-            : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
+            : "border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-[var(--color-control-text)] hover:bg-[var(--color-control-hover-bg)]"
         } ${disabled ? "pointer-events-none opacity-50" : ""}`}
         onClick={(event) => {
           if (disabled) {
@@ -1402,13 +1447,13 @@ function MoreFiltersMenu({
           v
         </span>
       </summary>
-      <div className="absolute left-0 z-30 mt-2 w-[42rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-950 shadow-2xl xl:left-auto xl:right-0">
+      <div className="absolute left-0 z-30 mt-2 w-[42rem] max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-3 text-[var(--color-app-text)] shadow-2xl xl:left-auto xl:right-0">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">
+            <p className="truncate text-sm font-semibold text-[var(--color-app-text)]">
               More filters
             </p>
-            <p className="mt-0.5 truncate text-xs font-semibold text-slate-500">
+            <p className="mt-0.5 truncate text-xs font-semibold text-[var(--color-app-text-muted)]">
               {hasActiveFilters
                 ? `${formatNumber(activeCount)} active`
                 : "Grades, recommendations, and statuses"}
@@ -1503,7 +1548,7 @@ function MultiSelectFilter({
         className={`flex h-11 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-lg border px-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${
           selectedCount > 0
             ? "border-teal-300 bg-teal-50 text-teal-900"
-            : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
+            : "border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-[var(--color-control-text)] hover:bg-[var(--color-control-hover-bg)]"
         } ${disabled ? "pointer-events-none opacity-50" : ""}`}
         onClick={(event) => {
           if (disabled) {
@@ -1529,10 +1574,10 @@ function MultiSelectFilter({
           v
         </span>
       </summary>
-      <div className="absolute left-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-950 shadow-2xl">
+      <div className="absolute left-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-3 text-[var(--color-app-text)] shadow-2xl">
         <div className="mb-2 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">
+            <p className="truncate text-sm font-semibold text-[var(--color-app-text)]">
               {label}
             </p>
             <p className="mt-0.5 truncate text-xs font-semibold text-teal-700">
@@ -1550,7 +1595,7 @@ function MultiSelectFilter({
             </p>
           </div>
           <button
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-500 transition hover:border-teal-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-2 py-1 text-xs font-semibold text-[var(--color-control-text)] transition hover:bg-[var(--color-control-hover-bg)] hover:text-[var(--color-app-text)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={disabled || selectedIds.length === 0}
             onClick={() => onChange([])}
             type="button"
@@ -1560,7 +1605,7 @@ function MultiSelectFilter({
         </div>
         {withSearch ? (
           <input
-            className="mb-2 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-100"
+            className="mb-2 h-9 w-full rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 text-sm text-[var(--color-control-text)] outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:opacity-60"
             disabled={disabled}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={`Search ${label.toLowerCase()}`}
@@ -1572,7 +1617,7 @@ function MultiSelectFilter({
           {visibleOptions.length > 0 ? (
             visibleOptions.map((option) => (
               <label
-                className="flex min-h-8 cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-50"
+                className="flex min-h-8 cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-control-text)] transition hover:bg-[var(--color-control-hover-bg)]"
                 key={option.id}
               >
                 <input
@@ -1586,7 +1631,7 @@ function MultiSelectFilter({
               </label>
             ))
           ) : (
-            <div className="rounded-md bg-slate-50 px-2 py-3 text-sm font-medium text-slate-500">
+            <div className="rounded-md bg-[var(--color-control-hover-bg)] px-2 py-3 text-sm font-medium text-[var(--color-app-text-muted)]">
               {loading ? "Updating options..." : "No options"}
             </div>
           )}
@@ -1880,12 +1925,12 @@ function RefreshingRegion({
   return (
     <div
       aria-busy={isRefreshing}
-      className={`relative transition ${isRefreshing ? "opacity-70" : ""}`}
+      className="relative transition"
     >
       {children}
       {isRefreshing ? (
-        <div className="pointer-events-none absolute inset-0 flex items-start justify-end rounded-lg bg-white/45 p-3">
-          <div className="inline-flex items-center gap-2 rounded-md border border-teal-100 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 shadow-sm">
+        <div className="pointer-events-none absolute inset-0 flex items-start justify-end rounded-lg bg-slate-950/10 p-3 backdrop-blur-[1px]">
+          <div className="inline-flex items-center gap-2 rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-control-text)] shadow-sm">
             <LoadingSpinner
               className="h-3.5 w-3.5 text-teal-600"
               label="Updating section"
@@ -1927,13 +1972,13 @@ function SummaryTile({
           ? "ring-2 ring-offset-1 ring-current/20"
           : "hover:border-current hover:shadow-md"
       }`
-    : `bg-white ${
+    : `bg-[var(--color-app-surface)] text-[var(--color-app-text)] ${
         active
           ? "border-teal-300 ring-1 ring-teal-200"
-          : "border-slate-200 hover:border-teal-300 hover:shadow-md"
+          : "border-[var(--color-app-border)] hover:border-teal-300 hover:bg-[var(--color-control-hover-bg)] hover:shadow-md"
       }`;
   const disabledClasses = disabled
-    ? "cursor-not-allowed opacity-50 hover:border-slate-200 hover:shadow-sm"
+    ? "cursor-not-allowed opacity-50 hover:border-[var(--color-app-border)] hover:shadow-sm"
     : "";
 
   return (
@@ -1972,6 +2017,7 @@ function HealthTable({
   onCollapseAllRows,
   onOpenAdReuse,
   onOpenAllRows,
+  onToggleCampaignAdFilterOverride,
   onToggleExpandedRow,
   rampUpDays,
   rows,
@@ -1980,6 +2026,7 @@ function HealthTable({
   selectedAdMetaStatuses,
   selectedAdRecommendations,
   selectedStates,
+  showAllAdCampaignIds,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
@@ -1991,6 +2038,7 @@ function HealthTable({
   onCollapseAllRows: (ids: string[], autoExpandedIds: string[]) => void;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
   onOpenAllRows: (ids: string[]) => void;
+  onToggleCampaignAdFilterOverride: (id: string) => void;
   onToggleExpandedRow: (id: string, options?: ToggleExpandedRowOptions) => void;
   rampUpDays: number;
   rows: CampaignHealthRow[];
@@ -1999,10 +2047,12 @@ function HealthTable({
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedAdRecommendations: CampaignHealthRecommendation[];
   selectedStates: string[];
+  showAllAdCampaignIds: string[];
   slackMessageApiUrl?: string;
 }) {
   const expandedSet = new Set(expandedRows);
   const collapsedSet = new Set(collapsedRows);
+  const showAllAdCampaignSet = new Set(showAllAdCampaignIds);
   const selectedAdSet = new Set(selectedAdIds);
   const selectedAdGradeSet = new Set(selectedAdGrades);
   const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
@@ -2172,6 +2222,12 @@ function HealthTable({
     selectedAdMetaStatusSet.size > 0 ||
     selectedAdRecommendationSet.size > 0 ||
     selectedStateSet.size > 0;
+  const hasActiveAdDetailFilters =
+    selectedAdSet.size > 0 ||
+    selectedAdGradeSet.size > 0 ||
+    selectedAdMetaStatusSet.size > 0 ||
+    selectedAdRecommendationSet.size > 0 ||
+    selectedStateSet.size > 0;
   const getRowExpansionState = (row: CampaignHealthRow) => {
     const autoExpanded =
       hasAdScopedFilter &&
@@ -2204,6 +2260,8 @@ function HealthTable({
       id: row.id,
       isExpanded,
       row,
+      showAllAds:
+        hasActiveAdDetailFilters && showAllAdCampaignSet.has(row.id),
     };
   });
   const visibleCampaignIds = visibleCampaignExpansion.map(({ id }) => id);
@@ -2221,15 +2279,15 @@ function HealthTable({
     : "Open all visible campaigns";
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-4 py-3">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] shadow-sm">
+      <div className="border-b border-[var(--color-app-border)] px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-950">
+          <h2 className="text-base font-semibold text-[var(--color-app-text)]">
             Campaign audit
           </h2>
           <button
             aria-label={bulkExpansionTitle}
-            className="ml-auto inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ml-auto inline-flex items-center rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-control-text)] transition hover:border-teal-300 hover:bg-[var(--color-control-hover-bg)] hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isRefreshing || visibleCampaignIds.length === 0}
             onClick={() =>
               allVisibleRowsExpanded
@@ -2274,7 +2332,7 @@ function HealthTable({
             <col className="w-[3.7%]" />
             <col className="w-[5.8%]" />
           </colgroup>
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="text-xs uppercase tracking-wide text-[var(--color-table-header-text)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -2288,7 +2346,7 @@ function HealthTable({
                     >
                       {header.isPlaceholder ? null : header.column.getCanSort() ? (
                         <button
-                          className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getCampaignHeaderButtonClassName(
+                          className={`flex w-full items-center gap-1 rounded-md text-left font-bold text-[var(--color-table-header-text)] transition hover:bg-[var(--color-table-header-hover-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] ${getCampaignHeaderButtonClassName(
                             header.column.id,
                           )}`}
                           onClick={header.column.getToggleSortingHandler()}
@@ -2303,7 +2361,7 @@ function HealthTable({
                           </span>
                           <span
                             aria-hidden="true"
-                            className="shrink-0 text-[0.65rem] text-slate-400"
+                            className="shrink-0 text-[0.65rem] text-[var(--color-table-header-icon)]"
                           >
                             {formatSortIndicator(header.column.getIsSorted())}
                           </span>
@@ -2323,17 +2381,21 @@ function HealthTable({
           <tbody className="divide-y divide-slate-100">
             {visibleCampaignExpansion.length > 0 ? (
               visibleCampaignExpansion.map(
-                ({ autoExpanded, isExpanded, row }) => (
+                ({ autoExpanded, isExpanded, row, showAllAds }) => (
                   <HealthTableRow
                     adMediaApiUrl={adMediaApiUrl}
                     adNamePlacements={adNamePlacements}
                     columnCount={columns.length}
                     dateRange={dateRange}
+                    hasActiveAdDetailFilters={hasActiveAdDetailFilters}
                     isExpanded={isExpanded}
                     isAutoExpanded={autoExpanded}
                     isRefreshing={isRefreshing}
                     key={row.id}
                     onOpenAdReuse={onOpenAdReuse}
+                    onToggleCampaignAdFilterOverride={
+                      onToggleCampaignAdFilterOverride
+                    }
                     onToggleExpandedRow={onToggleExpandedRow}
                     rampUpDays={rampUpDays}
                     row={row}
@@ -2342,6 +2404,7 @@ function HealthTable({
                     selectedAdMetaStatuses={selectedAdMetaStatuses}
                     selectedAdRecommendations={selectedAdRecommendations}
                     selectedStates={selectedStates}
+                    showAllAds={showAllAds}
                     slackMessageApiUrl={slackMessageApiUrl}
                   />
                 ),
@@ -2368,10 +2431,12 @@ function HealthTableRow({
   adNamePlacements,
   columnCount,
   dateRange,
+  hasActiveAdDetailFilters,
   isExpanded,
   isAutoExpanded,
   isRefreshing,
   onOpenAdReuse,
+  onToggleCampaignAdFilterOverride,
   onToggleExpandedRow,
   rampUpDays,
   row,
@@ -2380,16 +2445,19 @@ function HealthTableRow({
   selectedAdMetaStatuses,
   selectedAdRecommendations,
   selectedStates,
+  showAllAds,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
   adNamePlacements: Map<string, AdNamePlacement[]>;
   columnCount: number;
   dateRange: DashboardDateRange;
+  hasActiveAdDetailFilters: boolean;
   isExpanded: boolean;
   isAutoExpanded: boolean;
   isRefreshing: boolean;
   onOpenAdReuse: (ad: CampaignHealthAdRow, campaign: CampaignHealthRow) => void;
+  onToggleCampaignAdFilterOverride: (id: string) => void;
   onToggleExpandedRow: (id: string, options?: ToggleExpandedRowOptions) => void;
   rampUpDays: number;
   row: CampaignHealthRow;
@@ -2398,6 +2466,7 @@ function HealthTableRow({
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedAdRecommendations: CampaignHealthRecommendation[];
   selectedStates: string[];
+  showAllAds: boolean;
   slackMessageApiUrl?: string;
 }) {
   const activePeriod = formatActivePeriod(row);
@@ -2407,11 +2476,11 @@ function HealthTableRow({
 
   return (
     <>
-      <tr className="align-top transition hover:bg-slate-50">
+      <tr className="align-top transition hover:bg-[var(--color-control-hover-bg)]">
         <td className="px-2 py-3">
           <button
             aria-expanded={isExpanded}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-bold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] text-sm font-bold text-[var(--color-control-text)] transition hover:border-teal-300 hover:bg-[var(--color-control-hover-bg)] hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() =>
               onToggleExpandedRow(row.id, { autoExpanded: isAutoExpanded })
             }
@@ -2429,12 +2498,31 @@ function HealthTableRow({
           <PlatformChip platform={row.platform ?? "meta"} />
         </td>
         <td className="min-w-0 px-2 py-3">
-          <div
-            className="line-clamp-2 font-semibold text-slate-950 [overflow-wrap:anywhere]"
-            title={row.campaignName}
-          >
-            {row.campaignName}
-          </div>
+          {hasActiveAdDetailFilters ? (
+            <button
+              aria-pressed={showAllAds}
+              className={`line-clamp-2 text-left font-semibold underline decoration-slate-300 underline-offset-2 transition [overflow-wrap:anywhere] hover:text-teal-700 hover:decoration-teal-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] ${
+                showAllAds ? "text-teal-700" : "text-slate-950"
+              }`}
+              disabled={isRefreshing}
+              onClick={() => onToggleCampaignAdFilterOverride(row.id)}
+              title={
+                showAllAds
+                  ? "Return this campaign to the active ad filters"
+                  : "Temporarily show every ad in this campaign"
+              }
+              type="button"
+            >
+              {row.campaignName}
+            </button>
+          ) : (
+            <div
+              className="line-clamp-2 font-semibold text-slate-950 [overflow-wrap:anywhere]"
+              title={row.campaignName}
+            >
+              {row.campaignName}
+            </div>
+          )}
           <div
             className="mt-1 truncate text-xs text-slate-500"
             title={row.campaignId ?? "CRM-only campaign"}
@@ -2526,7 +2614,18 @@ function HealthTableRow({
           <td className="px-4 py-3" />
           <td className="px-4 py-3" colSpan={columnCount - 1}>
             <div className="space-y-3">
-              <QualitySignalsPanel signals={row.qualitySignals} />
+              {showAllAds ? (
+                <AdFilterOverrideNotice
+                  onReturnToFilters={() =>
+                    onToggleCampaignAdFilterOverride(row.id)
+                  }
+                />
+              ) : null}
+              <QualitySignalsPanel
+                droppedLeads={row.droppedLeads}
+                leads={row.leads}
+                signals={row.qualitySignals}
+              />
               <AdDetailTable
                 adMediaApiUrl={adMediaApiUrl}
                 adNamePlacements={adNamePlacements}
@@ -2539,6 +2638,7 @@ function HealthTableRow({
                 selectedAdMetaStatuses={selectedAdMetaStatuses}
                 selectedAdRecommendations={selectedAdRecommendations}
                 selectedStates={selectedStates}
+                showAllAds={showAllAds}
                 slackMessageApiUrl={slackMessageApiUrl}
               />
             </div>
@@ -2550,8 +2650,12 @@ function HealthTableRow({
 }
 
 function QualitySignalsPanel({
+  droppedLeads,
+  leads,
   signals,
 }: {
+  droppedLeads: number | null | undefined;
+  leads: number | null | undefined;
   signals: CampaignHealthRow["qualitySignals"];
 }) {
   const resolvedSignals = normalizeQualitySignals(signals);
@@ -2562,10 +2666,11 @@ function QualitySignalsPanel({
     resolvedSignals.previousAttorney,
     resolvedSignals.oldAccident,
     resolvedSignals.speedToLead,
+    buildDropRateSignal({ droppedLeads, leads }),
   ].filter((signal): signal is CampaignHealthQualitySignal => Boolean(signal));
 
   return (
-    <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-7">
       {orderedSignals.map((signal) => (
         <div
           className={`rounded-md border px-3 py-2 ${healthStatusClasses[signal.status]}`}
@@ -2574,7 +2679,7 @@ function QualitySignalsPanel({
         >
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide opacity-80">
             <span>{signal.label}</span>
-            <QualitySignalInfoIcon formula={getQualitySignalFormula(signal)} />
+            <QualitySignalInfoIcon info={getQualitySignalInfo(signal)} />
           </div>
           <div className="mt-1 text-sm font-bold">
             {formatQualitySignalValue(signal)}
@@ -2588,13 +2693,35 @@ function QualitySignalsPanel({
   );
 }
 
-function QualitySignalInfoIcon({ formula }: { formula: string }) {
+function AdFilterOverrideNotice({
+  onReturnToFilters,
+}: {
+  onReturnToFilters: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+      <span className="font-medium">
+        Showing every ad in this campaign. Your active filters are still saved
+        and apply outside this row.
+      </span>
+      <button
+        className="rounded-md border border-teal-300 bg-white px-2.5 py-1 text-xs font-semibold text-teal-800 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+        onClick={onReturnToFilters}
+        type="button"
+      >
+        Return to filters
+      </button>
+    </div>
+  );
+}
+
+function QualitySignalInfoIcon({ info }: { info: string }) {
   return (
     <span
-      aria-label={formula}
+      aria-label={info}
       className="inline-flex h-3.5 w-3.5 shrink-0 cursor-help items-center justify-center rounded-full border border-current text-[0.6rem] font-bold normal-case leading-none opacity-80"
       role="img"
-      title={formula}
+      title={info}
     >
       i
     </span>
@@ -2613,6 +2740,7 @@ function AdDetailTable({
   selectedAdMetaStatuses,
   selectedAdRecommendations,
   selectedStates,
+  showAllAds,
   slackMessageApiUrl,
 }: {
   adMediaApiUrl?: string;
@@ -2626,9 +2754,14 @@ function AdDetailTable({
   selectedAdMetaStatuses: CampaignMetaDeliveryStatus[];
   selectedAdRecommendations: CampaignHealthRecommendation[];
   selectedStates: string[];
+  showAllAds: boolean;
   slackMessageApiUrl?: string;
 }) {
   const visibleAds = useMemo(() => {
+    if (showAllAds) {
+      return ads;
+    }
+
     const selectedAdIdSet = new Set(selectedAdIds);
     const selectedAdGradeSet = new Set(selectedAdGrades);
     const selectedAdMetaStatusSet = new Set(selectedAdMetaStatuses);
@@ -2675,6 +2808,7 @@ function AdDetailTable({
     selectedAdMetaStatuses,
     selectedAdRecommendations,
     selectedStates,
+    showAllAds,
   ]);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedSlackAd, setSelectedSlackAd] =
@@ -2753,6 +2887,12 @@ function AdDetailTable({
           sortingFn: nullableAdNumberSortingFn,
         },
         {
+          accessorKey: "droppedLeads",
+          header: "Drop",
+          sortDescFirst: true,
+          sortingFn: nullableAdNumberSortingFn,
+        },
+        {
           accessorKey: "cpl",
           header: "CPL",
           sortingFn: nullableAdNumberSortingFn,
@@ -2806,12 +2946,6 @@ function AdDetailTable({
           sortDescFirst: true,
           sortingFn: nullableAdNumberSortingFn,
         },
-        {
-          accessorKey: "droppedLeads",
-          header: "Drop",
-          sortDescFirst: true,
-          sortingFn: nullableAdNumberSortingFn,
-        },
       );
 
       if (showSlackColumn) {
@@ -2852,6 +2986,7 @@ function AdDetailTable({
             <col className="w-[5%]" />
             <col className="w-[3.8%]" />
             <col className="w-[3.4%]" />
+            <col className="w-[5.4%]" />
             <col className="w-[4.3%]" />
             <col className="w-[5%]" />
             <col className="w-[4.8%]" />
@@ -2861,7 +2996,6 @@ function AdDetailTable({
             <col className="w-[4.8%]" />
             <col className="w-[4.8%]" />
             <col className="w-[4.8%]" />
-            <col className="w-[5.4%]" />
             <col className="w-[5.3%]" />
           </colgroup>
         ) : (
@@ -2875,6 +3009,7 @@ function AdDetailTable({
             <col className="w-[5%]" />
             <col className="w-[4.2%]" />
             <col className="w-[3.8%]" />
+            <col className="w-[5.8%]" />
             <col className="w-[4.8%]" />
             <col className="w-[5.2%]" />
             <col className="w-[5.2%]" />
@@ -2884,10 +3019,9 @@ function AdDetailTable({
             <col className="w-[5.2%]" />
             <col className="w-[5.2%]" />
             <col className="w-[5%]" />
-            <col className="w-[5.8%]" />
           </colgroup>
         )}
-        <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
+        <thead className="text-xs uppercase tracking-wide text-[var(--color-table-header-text)]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
@@ -2901,7 +3035,7 @@ function AdDetailTable({
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
-                        className={`flex w-full items-center gap-1 text-left font-semibold transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/30 ${getAdHeaderButtonClassName(
+                        className={`flex w-full items-center gap-1 rounded-md text-left font-bold text-[var(--color-table-header-text)] transition hover:bg-[var(--color-table-header-hover-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] ${getAdHeaderButtonClassName(
                           header.column.id,
                         )}`}
                         onClick={header.column.getToggleSortingHandler()}
@@ -2916,7 +3050,7 @@ function AdDetailTable({
                         </span>
                         <span
                           aria-hidden="true"
-                          className="shrink-0 text-[0.65rem] text-slate-400"
+                          className="shrink-0 text-[0.65rem] text-[var(--color-table-header-icon)]"
                         >
                           {formatSortIndicator(header.column.getIsSorted())}
                         </span>
@@ -3008,6 +3142,9 @@ function AdDetailTable({
                     {formatNumber(ad.signedLeads)}
                   </td>
                   <td className="px-2 py-2 text-right">
+                    {formatNumber(ad.droppedLeads)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
                     {formatCurrency(ad.cpl)}
                   </td>
                   <td className="px-2 py-2 text-right">
@@ -3045,9 +3182,6 @@ function AdDetailTable({
                       metric={ad.metricHealth.intake}
                       variant="percentage"
                     />
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {formatNumber(ad.droppedLeads)}
                   </td>
                   {showSlackColumn ? (
                     <td className="px-2 py-2 text-center align-middle">
@@ -3105,6 +3239,8 @@ function AdSlackModal({
   onClose: () => void;
   slackMessageApiUrl?: string;
 }) {
+  const authUser = useAuthUser();
+  const sentBy = formatSlackSender(authUser);
   const platform = campaign.platform ?? "meta";
   const [message, setMessage] = useState("");
   const [priority, setPriority] = useState<SlackPriorityLevel>(
@@ -3129,6 +3265,7 @@ function AdSlackModal({
     dateRange,
     platform,
     priority,
+    sentBy,
   });
   const trimmedMessage = message.trim();
   const canSend =
@@ -3206,6 +3343,7 @@ function AdSlackModal({
         dateRange,
         message: trimmedMessage,
         priority,
+        sentBy,
         videoReference,
       });
 
@@ -3236,14 +3374,14 @@ function AdSlackModal({
       }}
       role="dialog"
     >
-      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-[var(--color-app-text)] shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--color-app-border)] px-5 py-4">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-app-text-muted)]">
               Slack review
             </p>
             <h2
-              className="mt-1 truncate text-xl font-bold text-slate-950"
+              className="mt-1 truncate text-xl font-bold text-[var(--color-app-text)]"
               id="ad-slack-modal-title"
               title={ad.adName}
             >
@@ -3251,7 +3389,7 @@ function AdSlackModal({
             </h2>
           </div>
           <button
-            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-2 text-sm font-semibold text-[var(--color-control-text)] transition hover:border-teal-300 hover:bg-[var(--color-control-hover-bg)] hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)]"
             onClick={onClose}
             type="button"
           >
@@ -3262,8 +3400,9 @@ function AdSlackModal({
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
           onSubmit={handleSubmit}
         >
-          <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-3">
+          <div className="grid gap-3 border-b border-[var(--color-app-border)] bg-[var(--color-control-hover-bg)] px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
             <AdSlackSummaryItem label="Grade" value={ad.grade} />
+            <AdSlackSummaryItem label="Sent by" value={sentBy} />
             <AdSlackSummaryItem
               label="Ad reference"
               value={isLoadingReference ? "Loading..." : videoReference}
@@ -3276,13 +3415,13 @@ function AdSlackModal({
           <div className="space-y-4 px-5 py-4">
             <div className="max-w-xs">
               <label
-                className="text-sm font-semibold text-slate-950"
+                className="text-sm font-semibold text-[var(--color-app-text)]"
                 htmlFor="ad-slack-priority"
               >
                 Priority
               </label>
               <select
-                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                className="mt-2 w-full rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-2 text-sm font-semibold text-[var(--color-control-text)] shadow-sm transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={sendState.isSending}
                 id="ad-slack-priority"
                 onChange={(event) =>
@@ -3299,13 +3438,13 @@ function AdSlackModal({
             </div>
             <div>
               <label
-                className="text-sm font-semibold text-slate-950"
+                className="text-sm font-semibold text-[var(--color-app-text)]"
                 htmlFor="ad-slack-message"
               >
                 Message
               </label>
               <textarea
-                className="mt-2 min-h-[132px] w-full resize-y rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                className="mt-2 min-h-[150px] w-full resize-y rounded-lg border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-2.5 text-sm leading-6 text-[var(--color-control-text)] shadow-sm transition placeholder:text-[var(--color-app-text-muted)] focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={sendState.isSending}
                 id="ad-slack-message"
                 maxLength={1800}
@@ -3325,17 +3464,17 @@ function AdSlackModal({
               />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-950">
+              <h3 className="text-sm font-semibold text-[var(--color-app-text)]">
                 Included context
               </h3>
-              <dl className="mt-2 grid gap-2 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2">
+              <dl className="mt-2 grid gap-2 rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] p-3 sm:grid-cols-2">
                 {contextRows.map((row) => (
                   <div className="min-w-0" key={row.label}>
-                    <dt className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+                    <dt className="text-[0.7rem] font-semibold uppercase tracking-wide text-[var(--color-app-text-muted)]">
                       {row.label}
                     </dt>
                     <dd
-                      className="mt-0.5 truncate text-sm font-medium text-slate-950"
+                      className="mt-0.5 truncate text-sm font-medium text-[var(--color-app-text)]"
                       title={row.value}
                     >
                       {row.value}
@@ -3355,16 +3494,16 @@ function AdSlackModal({
               </p>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-app-border)] px-5 py-4">
             <button
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+              className="rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-2 text-sm font-semibold text-[var(--color-control-text)] transition hover:border-teal-300 hover:bg-[var(--color-control-hover-bg)] hover:text-teal-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)]"
               onClick={onClose}
               type="button"
             >
               Cancel
             </button>
             <button
-              className="rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="rounded-md bg-teal-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-500 focus:outline-none focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:cursor-not-allowed disabled:bg-[var(--color-control-border)] disabled:text-[var(--color-app-text-muted)]"
               disabled={!canSend}
               type="submit"
             >
@@ -3386,11 +3525,11 @@ function AdSlackSummaryItem({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-[var(--color-app-text-muted)]">
         {label}
       </div>
       <div
-        className="mt-1 truncate text-sm font-bold text-slate-950"
+        className="mt-1 truncate text-sm font-bold text-[var(--color-app-text)]"
         title={value}
       >
         {value}
@@ -3406,6 +3545,7 @@ async function buildAdSlackPayload({
   dateRange,
   message,
   priority,
+  sentBy,
   videoReference,
 }: {
   ad: CampaignHealthAdRow;
@@ -3414,6 +3554,7 @@ async function buildAdSlackPayload({
   dateRange: DashboardDateRange;
   message: string;
   priority: SlackPriorityLevel;
+  sentBy: string;
   videoReference?: string;
 }): Promise<SlackGradeMessageRequest> {
   const platform = campaign.platform ?? "meta";
@@ -3435,8 +3576,10 @@ async function buildAdSlackPayload({
       message,
       platform,
       priority,
+      sentBy,
     }),
     priority,
+    sentBy,
     title: `Audit ad review: ${ad.adName || "Unnamed ad"}`,
     videoReference: resolvedVideoReference,
   };
@@ -3489,6 +3632,7 @@ function buildAdSlackContextMessage({
   message,
   platform,
   priority,
+  sentBy,
 }: {
   ad: CampaignHealthAdRow;
   campaign: CampaignHealthRow;
@@ -3496,13 +3640,16 @@ function buildAdSlackContextMessage({
   message: string;
   platform: CampaignPlatform;
   priority: SlackPriorityLevel;
+  sentBy?: string;
 }): string {
   const contextRows = buildAdSlackContextRows({
     ad,
     campaign,
     dateRange,
+    includeSentBy: false,
     platform,
     priority,
+    sentBy,
   });
 
   return [
@@ -3517,16 +3664,20 @@ function buildAdSlackContextRows({
   ad,
   campaign,
   dateRange,
+  includeSentBy = true,
   platform,
   priority,
+  sentBy,
 }: {
   ad: CampaignHealthAdRow;
   campaign: CampaignHealthRow;
   dateRange: DashboardDateRange;
+  includeSentBy?: boolean;
   platform: CampaignPlatform;
   priority: SlackPriorityLevel;
+  sentBy?: string;
 }): Array<{ label: string; value: string }> {
-  return [
+  const rows: Array<{ label: string; value: string }> = [
     { label: "Priority", value: priority },
     { label: "Brand", value: campaign.brand },
     { label: "Campaign", value: campaign.campaignName },
@@ -3551,8 +3702,30 @@ function buildAdSlackContextRows({
     },
     { label: "Leads", value: formatNumber(ad.leads) },
     { label: "Signed leads", value: formatNumber(ad.signedLeads) },
-    { label: "Date range", value: `${dateRange.from} to ${dateRange.to}` },
+    {
+      label: "Date range",
+      value: formatDashboardDateRange(dateRange.from, dateRange.to),
+    },
   ];
+
+  if (includeSentBy && sentBy?.trim()) {
+    rows.splice(1, 0, { label: "Sent by", value: sentBy });
+  }
+
+  return rows;
+}
+
+function formatSlackSender(user: AuthUser | null): string {
+  if (!user) {
+    return "Unknown app user";
+  }
+
+  const fullName = [user.firstName, user.lastName]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return fullName ? `${fullName} (${user.email})` : user.email;
 }
 
 function formatCampaignStartDate(campaign: CampaignHealthRow): string {
@@ -3562,23 +3735,7 @@ function formatCampaignStartDate(campaign: CampaignHealthRow): string {
     return "-";
   }
 
-  const dateParts = startedAt.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-  if (dateParts) {
-    const [, year, month, day] = dateParts;
-
-    return CAMPAIGN_START_DATE_FORMATTER.format(
-      new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))),
-    );
-  }
-
-  const parsedDate = new Date(startedAt);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return startedAt;
-  }
-
-  return CAMPAIGN_START_DATE_FORMATTER.format(parsedDate);
+  return formatDashboardDate(startedAt);
 }
 
 function formatCampaignRunningDays(campaign: CampaignHealthRow): string {
@@ -4557,6 +4714,13 @@ function shortGenderLabel(gender: string): string {
   }
 }
 
+function getQualitySignalInfo(signal: CampaignHealthQualitySignal): string {
+  const description = signal.reason?.trim();
+  const formula = getQualitySignalFormula(signal);
+
+  return description ? `Description: ${description} ${formula}` : formula;
+}
+
 function getQualitySignalFormula(signal: CampaignHealthQualitySignal): string {
   switch (signal.label) {
     case "No accident":
@@ -4571,9 +4735,89 @@ function getQualitySignalFormula(signal: CampaignHealthQualitySignal): string {
       return "Formula: old-accident leads / total leads.";
     case "Speed to lead":
       return "Formula: total minutes from CRM lead creation to first measured PhoneBurner attempt / measured leads.";
+    case "% of drops":
+      return `Formula: dropped CRM leads / total leads. Lower is better. Benchmark: green <= ${formatPercentage(
+        DROP_RATE_GREEN_MAX,
+      )}, yellow > ${formatPercentage(
+        DROP_RATE_GREEN_MAX,
+      )} to <= ${formatPercentage(DROP_RATE_YELLOW_MAX)}, red > ${formatPercentage(
+        DROP_RATE_YELLOW_MAX,
+      )}.`;
     default:
       return "Formula: signal count / total leads.";
   }
+}
+
+function buildDropRateSignal({
+  droppedLeads,
+  leads,
+}: {
+  droppedLeads: number | null | undefined;
+  leads: number | null | undefined;
+}): CampaignHealthQualitySignal {
+  const hasDroppedLeads =
+    typeof droppedLeads === "number" && Number.isFinite(droppedLeads);
+  const hasLeads = typeof leads === "number" && Number.isFinite(leads);
+  const count = hasDroppedLeads ? droppedLeads : null;
+  const denominator = hasLeads ? leads : null;
+  const value =
+    count != null && denominator != null && denominator > 0
+      ? count / denominator
+      : null;
+
+  return {
+    count,
+    denominator,
+    label: "% of drops",
+    reason: getDropRateReason({ count, denominator, value }),
+    status: getDropRateStatus(value),
+    value,
+  };
+}
+
+const DROP_RATE_GREEN_MAX = 0.05;
+const DROP_RATE_YELLOW_MAX = 0.1;
+
+function getDropRateStatus(
+  value: number | null | undefined,
+): CampaignHealthStatus {
+  if (value == null || !Number.isFinite(value)) {
+    return "neutral";
+  }
+
+  if (value <= DROP_RATE_GREEN_MAX) {
+    return "green";
+  }
+
+  if (value <= DROP_RATE_YELLOW_MAX) {
+    return "yellow";
+  }
+
+  return "red";
+}
+
+function getDropRateReason({
+  count,
+  denominator,
+  value,
+}: {
+  count: number | null;
+  denominator: number | null;
+  value: number | null;
+}): string {
+  if (value == null || denominator == null || denominator <= 0) {
+    return "Drop rate needs at least one CRM lead in the selected date range before it can be scored.";
+  }
+
+  return `${formatNumber(count ?? 0)} dropped CRM leads out of ${formatNumber(
+    denominator,
+  )} total CRM leads equals ${formatPercentage(
+    value,
+  )}. Lower is better: green <= ${formatPercentage(
+    DROP_RATE_GREEN_MAX,
+  )}, yellow <= ${formatPercentage(
+    DROP_RATE_YELLOW_MAX,
+  )}, red > ${formatPercentage(DROP_RATE_YELLOW_MAX)}.`;
 }
 
 function normalizeQualitySignals(
@@ -5244,7 +5488,12 @@ function getCampaignHeaderClassName(columnId: string): string {
     "leadAgeDays",
     "actualAge",
   ]);
-  const base = columnId === "expand" ? "w-12 px-2 py-3" : "px-2 py-3";
+  const headerStyle =
+    "border-b border-r border-[var(--color-table-header-border)] bg-[var(--color-table-header-bg)] align-middle font-bold text-[var(--color-table-header-text)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.35)] last:border-r-0";
+  const base =
+    columnId === "expand"
+      ? `w-12 px-2 py-3 ${headerStyle}`
+      : `px-2 py-3 ${headerStyle}`;
 
   return rightAligned.has(columnId) ? `${base} text-right` : base;
 }
@@ -5326,9 +5575,12 @@ function getAdHeaderClassName(columnId: string): string {
     "intake",
   ]);
 
+  const base =
+    "border-b border-r border-[var(--color-table-header-border)] bg-[var(--color-table-header-bg)] px-3 py-2 align-middle font-bold text-[var(--color-table-header-text)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.35)] last:border-r-0";
+
   return rightAligned.has(columnId)
-    ? "px-3 py-2 text-right"
-    : "px-3 py-2 text-left";
+    ? `${base} text-right`
+    : `${base} text-left`;
 }
 
 function getAdHeaderButtonClassName(columnId: string): string {

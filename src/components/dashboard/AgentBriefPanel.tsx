@@ -84,15 +84,15 @@ export function AgentBriefPanel({
     namedBrands.some((brand) => brand.name?.trim() === selectedBrand);
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-normal text-[var(--color-app-text-muted)]">
               A1 Campaign Brief
             </p>
             {runMatchesSelectedBrand && latestRun?.generated_at ? (
-              <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+              <span className="rounded-md bg-[var(--color-control-hover-bg)] px-2 py-1 text-xs font-medium text-[var(--color-app-text-muted)]">
                 {formatTimestamp(latestRun.generated_at)}
               </span>
             ) : null}
@@ -100,27 +100,27 @@ export function AgentBriefPanel({
               {selectedBrandLabel}
             </span>
           </div>
-          <h2 className="mt-2 text-lg font-semibold text-slate-950">
+          <h2 className="mt-2 text-lg font-semibold text-[var(--color-app-text)]">
             {agentOutput?.report_date
               ? `Campaign performance review for ${agentOutput.report_date}`
               : "Campaign performance review"}
           </h2>
           {agentOutput?.summary ? (
-            <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
+            <p className="mt-2 max-w-5xl text-sm leading-6 text-[var(--color-app-text-muted)]">
               {agentOutput.summary}
             </p>
           ) : isAwaitingRun ? (
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-[var(--color-app-text-muted)]">
               AI is preparing the {selectedBrandLabel} brief. This usually takes
               about a minute.
             </p>
           ) : isLoading ? (
-            <p className="mt-2 flex items-center gap-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 flex items-center gap-2 text-sm leading-6 text-[var(--color-app-text-muted)]">
               <LoadingSpinner label="Loading A1 campaign brief" />
               Loading A1 campaign brief for {selectedBrandLabel}...
             </p>
           ) : (
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-[var(--color-app-text-muted)]">
               {visibleStatus === "success"
                 ? "A1 output was received, but no readable brief is available yet."
                 : selectedBrand
@@ -130,19 +130,21 @@ export function AgentBriefPanel({
           )}
           {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
           {rerunStatus && !isAwaitingRun ? (
-            <p className="mt-2 text-sm text-slate-500">{rerunStatus}</p>
+            <p className="mt-2 text-sm text-[var(--color-app-text-muted)]">
+              {rerunStatus}
+            </p>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-end">
           <div className="min-w-[14rem]">
             <label
-              className="mb-1 block text-xs font-semibold uppercase tracking-normal text-slate-500"
+              className="mb-1 block text-xs font-semibold uppercase tracking-normal text-[var(--color-app-text-muted)]"
               htmlFor="a1-campaign-brief-brand"
             >
               Brief brand
             </label>
             <select
-              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+              className="h-9 w-full rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 text-sm font-medium text-[var(--color-control-text)] shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-[var(--color-app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isBrandLoading && namedBrands.length === 0}
               id="a1-campaign-brief-brand"
               onChange={(event) => onBrandChange(event.target.value || null)}
@@ -163,7 +165,7 @@ export function AgentBriefPanel({
                 {brandError}
               </p>
             ) : isBrandLoading ? (
-              <p className="mt-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+              <p className="mt-1 flex items-center gap-2 text-xs font-medium text-[var(--color-app-text-muted)]">
                 <LoadingSpinner
                   className="h-3.5 w-3.5 text-teal-600"
                   label="Loading brief brands"
@@ -173,7 +175,7 @@ export function AgentBriefPanel({
             ) : null}
           </div>
           <button
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-md border border-[var(--color-control-border)] bg-[var(--color-control-bg)] px-3 py-2 text-sm font-semibold text-[var(--color-control-text)] hover:bg-[var(--color-control-hover-bg)] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}
             onClick={onRefresh}
             type="button"
@@ -188,7 +190,7 @@ export function AgentBriefPanel({
           </button>
           {onRunAgain ? (
             <button
-              className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex items-center gap-2 rounded-md bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-400"
               disabled={isRerunning || isAwaitingRun}
               onClick={onRunAgain}
               type="button"
@@ -376,22 +378,24 @@ function BriefList({
   title: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+    <div className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--color-app-text)]">
+        {title}
+      </h3>
       {items.length ? (
         <ul className="mt-3 divide-y divide-slate-200">
           {items.map((item, index) => (
             <li className="py-3 first:pt-0 last:pb-0" key={`${title}-${index}`}>
-              <p className="text-sm font-semibold text-slate-900">
+              <p className="text-sm font-semibold text-[var(--color-app-text)]">
                 {item.title || "-"}
               </p>
               {item.meta ? (
-                <p className="mt-1 text-xs font-medium uppercase tracking-normal text-slate-500">
+                <p className="mt-1 text-xs font-medium uppercase tracking-normal text-[var(--color-app-text-muted)]">
                   {item.meta}
                 </p>
               ) : null}
               {item.detail ? (
-                <p className="mt-1 text-sm leading-5 text-slate-600">
+                <p className="mt-1 text-sm leading-5 text-[var(--color-app-text-muted)]">
                   {item.detail}
                 </p>
               ) : null}
@@ -399,7 +403,9 @@ function BriefList({
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-slate-500">{emptyLabel}</p>
+        <p className="mt-3 text-sm text-[var(--color-app-text-muted)]">
+          {emptyLabel}
+        </p>
       )}
     </div>
   );

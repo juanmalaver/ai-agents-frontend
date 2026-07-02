@@ -22,13 +22,13 @@ export function RecommendationPanel({
   const viewModel = toViewModel(recommendation, stateName);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-lg border border-[var(--color-app-border)] bg-[var(--color-app-surface)] p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-normal text-[var(--color-app-text-muted)]">
             AI recommendation for {viewModel.stateName}
           </p>
-          <h3 className="mt-1 text-base font-semibold text-slate-950">
+          <h3 className="mt-1 text-base font-semibold text-[var(--color-app-text)]">
             {viewModel.summary}
           </h3>
         </div>
@@ -39,7 +39,7 @@ export function RecommendationPanel({
             {viewModel.priorityLabel}
           </span>
           {recommendation.status ? (
-            <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+            <span className="inline-flex items-center rounded-full bg-[var(--color-control-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--color-control-text)] ring-1 ring-[var(--color-control-border)]">
               {recommendation.status}
             </span>
           ) : null}
@@ -47,31 +47,34 @@ export function RecommendationPanel({
       </div>
 
       {viewModel.rationale ? (
-        <p className="mt-3 text-sm leading-6 text-slate-700">
+        <p className="mt-3 text-sm leading-6 text-[var(--color-app-text-muted)]">
           {viewModel.rationale}
         </p>
       ) : null}
 
       {viewModel.actions.length > 0 ? (
         <div className="mt-4">
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="text-sm font-semibold text-[var(--color-app-text)]">
             Recommended actions
           </p>
-          <ul className="mt-2 grid gap-2 text-sm text-slate-700">
+          <ul className="mt-2 grid gap-2 text-sm text-[var(--color-app-text-muted)]">
             {viewModel.actions.map((action) => (
-              <li className="rounded-md border border-slate-200 bg-white p-3" key={action}>
+              <li
+                className="rounded-md border border-[var(--color-app-border)] bg-[var(--color-control-bg)] p-3"
+                key={action}
+              >
                 {action}
               </li>
             ))}
           </ul>
         </div>
       ) : (
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-[var(--color-app-text-muted)]">
           No recommended actions are available.
         </p>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-500">
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-[var(--color-app-text-muted)]">
         {viewModel.confidenceLabel ? (
           <span>Confidence: {viewModel.confidenceLabel}</span>
         ) : null}

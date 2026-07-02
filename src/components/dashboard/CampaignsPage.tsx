@@ -55,6 +55,8 @@ const scorecardClasses: Record<CampaignScorecard["status"], string> = {
   healthy: "border-teal-200 bg-teal-50 text-teal-950",
   watch: "border-amber-200 bg-amber-50 text-amber-950",
 };
+const toneInsetClasses =
+  "rounded-md border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-current shadow-sm";
 
 const PANEL_ROW_LIMIT = 8;
 const AGENT_RUN_POLL_INTERVAL_MS = 5000;
@@ -838,14 +840,14 @@ function CampaignScorecardItem({
               : formatNumber(scorecard.primaryValue)}
           </p>
         </div>
-        <span className="rounded-md border border-white/70 bg-white/70 px-2 py-1 text-xs font-semibold">
+        <span className={`${toneInsetClasses} px-2 py-1 text-xs font-semibold`}>
           {scorecard.primaryLabel}
         </span>
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
         {scorecard.secondaryItems.map((item) => (
           <div
-            className="rounded-md border border-white/70 bg-white/60 px-3 py-2"
+            className={`${toneInsetClasses} px-3 py-2`}
             key={item.label}
           >
             <dt className="text-xs font-medium opacity-70">{item.label}</dt>
@@ -1629,7 +1631,7 @@ function InsightCard({
             {insight.description}
           </p>
         </div>
-        <div className="w-fit rounded-md border border-white/70 bg-white/70 px-3 py-2">
+        <div className={`${toneInsetClasses} w-fit px-3 py-2`}>
           <p className="text-xs font-medium opacity-70">
             {insight.metricLabel}
           </p>
@@ -1879,7 +1881,7 @@ function formatCsvDateStamp(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
 
-  return `${year}-${month}-${day}`;
+  return `${month}-${day}-${year}`;
 }
 
 function CampaignResultCard({

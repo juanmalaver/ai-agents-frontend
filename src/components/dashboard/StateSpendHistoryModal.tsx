@@ -18,6 +18,8 @@ import type {
 } from "@/src/types/dashboard";
 import {
   formatCurrency,
+  formatDashboardDate,
+  formatDashboardDateRange,
   formatNumber,
   safeDivide,
 } from "@/src/utils/dashboardFormatters";
@@ -384,53 +386,11 @@ async function readResponseMessage(response: Response): Promise<string | null> {
 }
 
 function formatWeekRange(weekStart: string, weekEnd: string): string {
-  const start = parseDashboardDate(weekStart);
-  const end = parseDashboardDate(weekEnd);
-
-  if (!start || !end) {
-    return `${weekStart} to ${weekEnd}`;
-  }
-
-  const startLabel = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    timeZone: "UTC",
-  }).format(start);
-  const endLabel = new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: start.getUTCMonth() === end.getUTCMonth() ? undefined : "short",
-    timeZone: "UTC",
-  }).format(end);
-
-  return `${startLabel} ${start.getUTCDate()}-${endLabel}`;
+  return formatDashboardDateRange(weekStart, weekEnd);
 }
 
 function formatWeekStart(value: string): string {
-  const date = parseDashboardDate(value);
-
-  if (!date) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  }).format(date);
-}
-
-function parseDashboardDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-
-  if (!match) {
-    return null;
-  }
-
-  const [, rawYear, rawMonth, rawDay] = match;
-  const date = new Date(
-    Date.UTC(Number(rawYear), Number(rawMonth) - 1, Number(rawDay)),
-  );
-
-  return Number.isNaN(date.getTime()) ? null : date;
+  return formatDashboardDate(value);
 }
 
 function numberOrNull(value: number | null | undefined): number | null {

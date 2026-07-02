@@ -14,6 +14,8 @@ import type {
 } from "@/src/types/dashboard";
 import {
   formatCurrency,
+  formatDashboardDate,
+  formatDashboardDateRange,
   formatDashboardTimestamp,
   formatNumber,
   formatPercentage,
@@ -182,7 +184,9 @@ export function DashboardPage({ activeTab, apiUrl }: DashboardPageProps) {
     () => buildTodayKpiCards(todayStateRows, todayDateRange),
     [todayDateRange, todayStateRows],
   );
-  const todayKpiContextLabel = `Today only: ${todayDateRange.to}`;
+  const todayKpiContextLabel = `Today only: ${formatDashboardDate(
+    todayDateRange.to,
+  )}`;
   const generalKpiRangeContextLabel = formatKpiDateRangeContext(dateRange);
   const allStateKpiContextLabels = [
     "All states total",
@@ -585,10 +589,13 @@ function formatKpiDateRangeContext(dateRange: DashboardDateRange): string {
   }
 
   if (dateRange.from === dateRange.to) {
-    return `Selected day: ${dateRange.to}`;
+    return `Selected day: ${formatDashboardDate(dateRange.to)}`;
   }
 
-  return `Selected range: ${dateRange.from} to ${dateRange.to}`;
+  return `Selected range: ${formatDashboardDateRange(
+    dateRange.from,
+    dateRange.to,
+  )}`;
 }
 
 interface TodayKpiTotals {
